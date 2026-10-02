@@ -1,0 +1,237 @@
+/* =========================================================
+   QUOTATION WISE PAGE
+   ========================================================= */
+
+.quotation-table-container {
+    width: 100%;
+    max-width: 100%;
+
+    /* Use remaining available screen space */
+    height: calc(100vh - 230px);
+
+    margin-top: 10px;
+
+    overflow-x: auto;
+    overflow-y: auto;
+
+    position: relative;
+
+    box-sizing: border-box;
+
+    scroll-behavior: smooth;
+
+    scrollbar-gutter: stable both-edges;
+
+    flex: 1 1 auto;
+
+    min-height: 0;
+}
+
+
+/* =========================================================
+   TABLE
+   ========================================================= */
+
+.quotation-table-container table {
+    border-collapse: separate;
+    border-spacing: 0;
+
+    /*
+       Keep table wide enough for all columns.
+       Only the TABLE scrolls horizontally.
+    */
+    min-width: 1400px;
+}
+
+
+/* =========================================================
+   LARGE SCROLLBARS
+   ========================================================= */
+
+/* Chrome / Edge / Safari */
+
+.quotation-table-container::-webkit-scrollbar {
+    width: 24px;
+    height: 24px;
+}
+
+
+/* Scrollbar background */
+
+.quotation-table-container::-webkit-scrollbar-track {
+    background: #e5e5e5;
+}
+
+
+/* Scrollbar handle */
+
+.quotation-table-container::-webkit-scrollbar-thumb {
+    background: #777;
+
+    border-radius: 12px;
+
+    border: 4px solid #e5e5e5;
+
+    min-height: 60px;
+    min-width: 60px;
+}
+
+
+/* Hover */
+
+.quotation-table-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+
+/* Scrollbar corner */
+
+.quotation-table-container::-webkit-scrollbar-corner {
+    background: #d5d5d5;
+}
+
+
+/* =========================================================
+   FIREFOX
+   ========================================================= */
+
+.quotation-table-container {
+    scrollbar-width: auto;
+    scrollbar-color: #777 #e5e5e5;
+}
+
+
+/* =========================================================
+   TABLE HEADER
+   ========================================================= */
+
+.quotation-table-container thead th {
+    position: sticky;
+
+    top: 0;
+
+    z-index: 20;
+}
+
+
+/* =========================================================
+   TABLE BODY
+   ========================================================= */
+
+.quotation-table-container tbody td {
+    white-space: nowrap;
+}
+
+
+/* =========================================================
+   GRAND TOTAL
+   ========================================================= */
+
+.quotation-table-container tfoot {
+    position: sticky;
+
+    bottom: 0;
+
+    z-index: 25;
+}
+
+.quotation-table-container tfoot tr {
+    background: #f8f9fa;
+}
+
+.quotation-table-container tfoot td {
+    background: #f8f9fa;
+}
+
+
+/* =========================================================
+   TABLE ROW HOVER
+   ========================================================= */
+
+.quotation-table-container tbody tr {
+    transition: background 0.15s ease;
+}
+
+.quotation-table-container tbody tr:hover td {
+    background: #f7faf8;
+}
+
+
+/* =========================================================
+   EXPANDED ROW
+   ========================================================= */
+
+.quotation-table-container tbody tr {
+    transition: background 0.15s ease;
+}
+
+
+/* =========================================================
+   DESKTOP
+   ========================================================= */
+
+@media (min-width: 1400px) {
+
+    .quotation-table-container {
+        height: calc(100vh - 220px);
+    }
+}
+
+
+/* =========================================================
+   LAPTOP
+   ========================================================= */
+
+@media (min-width: 901px) and (max-width: 1399px) {
+
+    .quotation-table-container {
+        height: calc(100vh - 230px);
+    }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 900px) {
+
+    .quotation-table-container {
+        height: calc(100vh - 250px);
+
+        margin-top: 8px;
+    }
+
+    .quotation-table-container::-webkit-scrollbar {
+        width: 22px;
+        height: 22px;
+    }
+}
+
+
+/* =========================================================
+   SMALL MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+    .quotation-table-container {
+        height: calc(100vh - 270px);
+
+        margin-top: 6px;
+    }
+
+    .quotation-table-container::-webkit-scrollbar {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+
+
+.temporary-item-desc {
+  color: #d35400;
+  font-weight: 600;
+  margin-top: 4px;
+  font-size: 13px;
+}

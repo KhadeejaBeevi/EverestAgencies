@@ -1,0 +1,415 @@
+/* QuotationEntry.css */
+
+
+
+.quotation-page {
+  position: relative;
+  padding: 10px;
+  min-height: 100vh;
+  background: #d8e1b0;
+}
+
+/* HEADER */
+
+.quotation-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid #777;
+  padding: 10px;
+  background: #d6d3b1;
+}
+
+.header-left,
+.header-right {
+  width: 50%;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.row label {
+  width: 120px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.row input,
+.row select,
+.row textarea {
+  flex: 1;
+  border: 1px solid #666;
+  height: 28px;
+  padding: 4px;
+  background: #f5f5dc;
+}
+
+.row textarea {
+  height: auto;
+}
+
+/* TABLE */
+
+.table-wrapper {
+  margin-top: 10px;
+  overflow-x: auto;
+  border: 1px solid #666;
+}
+
+.quotation-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #c8d6a3;
+}
+
+.quotation-table th {
+  background: #2f3414;
+  color: white;
+  padding: 8px;
+  font-size: 12px;
+  border: 1px solid #777;
+}
+
+.quotation-table td {
+  border: 1px solid #777;
+  padding: 2px;
+}
+
+.quotation-table input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  height: 28px;
+  padding-left: 5px;
+}
+
+.delete-btn {
+  background: red;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* FOOTER */
+
+.quotation-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  border: 1px solid #777;
+  padding: 10px;
+  background: #d6d3b1;
+}
+
+.footer-left {
+  width: 60%;
+}
+
+.footer-right {
+  width: 30%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.footer-right h2 {
+  margin: 0;
+  color: #5b0000;
+}
+
+/* SIDE PANEL */
+
+
+.side-panel button {
+  height: 35px;
+  border: none;
+  background: #eee;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.side-panel button:hover {
+  background: #ddd;
+}
+.quotation-layout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+/* MAIN CONTENT */
+
+.quotation-main {
+  flex: 1;
+  width: calc(100% - 140px);
+}
+
+/* SIDE PANEL */
+
+.side-panel {
+  width: 120px;
+  min-width: 120px;
+  position: sticky;
+  top: 10px;
+
+  background:teal;
+  padding: 10px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  height: fit-content;
+}
+.item-cell {
+  position: relative;
+}
+
+.suggestion-box {
+  position: absolute;
+  top: 100%;
+  left: 0;
+
+  width: 100%;
+
+  background: white;
+
+  border: 1px solid #cfd8e3;
+
+  z-index: 999;
+
+  max-height: 220px;
+
+  overflow-y: auto;
+
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.suggestion-item {
+  padding: 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+
+.suggestion-item:hover {
+  background: #dbeafe;
+}
+.quotation-table th:nth-child(2),
+.quotation-table td:nth-child(2) {
+  min-width: 320px;
+  width: 320px;
+}
+.quotation-page {
+  zoom: 0.82;
+}
+/* TABLE FONT */
+
+.quotation-table {
+  font-size: 11px;
+}
+
+/* HEADER */
+
+.quotation-table th {
+  padding: 4px;
+  font-size: 11px;
+}
+
+/* INPUTS */
+
+.quotation-table input {
+  height: 24px;
+  font-size: 11px;
+  padding-left: 3px;
+}
+
+/* ITEM NAME BIGGER */
+
+.quotation-table th:nth-child(2),
+.quotation-table td:nth-child(2) {
+  width: 200px;
+  min-width: 200px;
+}
+
+/* REMARKS SMALLER */
+
+.quotation-table th:nth-child(3),
+.quotation-table td:nth-child(3) {
+  width: 120px;
+  min-width: 120px;
+}
+
+/* HSN */
+
+.quotation-table th:nth-child(4),
+.quotation-table td:nth-child(4) {
+  width: 55px;
+}
+
+/* COST PRICE */
+
+.quotation-table th:nth-child(5),
+.quotation-table td:nth-child(5) {
+  width: 55px;
+}
+
+/* QTY */
+
+.quotation-table th:nth-child(6),
+.quotation-table td:nth-child(6) {
+  width: 55px;
+}
+
+/* RATE */
+
+.quotation-table th:nth-child(7),
+.quotation-table td:nth-child(7) {
+  width: 55px;
+}
+
+/* TAX */
+
+.quotation-table th:nth-child(8),
+.quotation-table td:nth-child(8) {
+  width: 45px;
+}
+
+/* DISC */
+
+.quotation-table th:nth-child(9),
+.quotation-table td:nth-child(9) {
+  width: 45px;
+}
+
+/* S PRICE */
+
+.quotation-table th:nth-child(10),
+.quotation-table td:nth-child(10) {
+  width: 55px;
+}
+
+/* SALE */
+
+.quotation-table th:nth-child(11),
+.quotation-table td:nth-child(11) {
+  width: 55px;
+}
+
+/* GST */
+
+.quotation-table th:nth-child(12),
+.quotation-table td:nth-child(12) {
+  width: 55px;
+}
+
+/* NET */
+
+.quotation-table th:nth-child(13),
+.quotation-table td:nth-child(13) {
+  width: 55px;
+}
+/* SL NO COLUMN */
+
+.quotation-table th:first-child,
+.quotation-table td:first-child {
+  width: 35px;
+  min-width: 35px;
+  max-width: 35px;
+  text-align: center;
+  padding: 2px;
+}
+
+/* Mobile layout */
+@media (max-width: 768px) {
+  .quotation-page {
+    padding: 6px;
+    zoom: 1;
+    overflow-x: hidden;
+  }
+
+  .quotation-layout {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .quotation-main {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .quotation-header {
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .header-left,
+  .header-right {
+    width: 100%;
+  }
+
+  .row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .row label {
+    width: 100%;
+  }
+
+  .row input,
+  .row select,
+  .row textarea {
+    width: 100%;
+    min-height: 38px;
+    font-size: 16px;
+  }
+
+  .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .quotation-table {
+    min-width: 900px;
+  }
+
+  .quotation-footer {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .footer-left,
+  .footer-right {
+    width: 100%;
+  }
+
+  .footer-right {
+    justify-content: flex-start;
+  }
+
+  .side-panel {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .side-panel button {
+    flex: 1 1 120px;
+    min-height: 42px;
+  }
+
+  .suggestion-box {
+    max-height: 180px;
+  }
+}

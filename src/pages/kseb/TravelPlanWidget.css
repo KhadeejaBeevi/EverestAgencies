@@ -1,0 +1,588 @@
+/* src/components/TravelPlanWidget/TravelPlanWidget.css */
+
+.travelPage {
+  width: 100%;
+  min-height: 100vh;
+  background: #f4f7fb;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* =========================================
+TOP BAR
+========================================= */
+
+.travelTopBar {
+  width: 100%;
+  background: white;
+  border-radius: 18px;
+  padding: 22px;
+  margin-top: 18px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.travelTopBar h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.travelTopBar p {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+/* =========================================
+FORM CARD
+========================================= */
+
+.plannerFormCard {
+  width: 100%;
+  background: white;
+  border-radius: 18px;
+  padding: 22px;
+  box-sizing: border-box;
+  margin-bottom: 22px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.plannerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+/* =========================================
+INPUTS
+========================================= */
+
+.inputGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.inputGroup label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.inputGroup input,
+.inputGroup select {
+  width: 100%;
+  height: 45px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-size: 14px;
+  outline: none;
+  transition: 0.2s;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.inputGroup input:focus,
+.inputGroup select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* =========================================
+ADD BUTTON
+========================================= */
+
+.addStopBtn {
+  margin-top: 22px;
+  border: none;
+  background: #2563eb;
+  color: white;
+  height: 46px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  transition: 0.2s;
+}
+
+.addStopBtn:hover {
+  background: #1d4ed8;
+}
+
+/* =========================================
+LAYOUT
+========================================= */
+.travelLayout {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+/* =========================================
+TABLE SECTION
+========================================= */
+
+.travelTableSection {
+  width: 100%;
+  background: white;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.tableHeader {
+  padding: 18px 22px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background: #f9fafb;
+}
+
+th {
+  padding: 15px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  white-space: nowrap;
+}
+
+td {
+  padding: 15px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 14px;
+  color: #374151;
+  vertical-align: middle;
+}
+
+tr:hover {
+  background: #f9fbff;
+}
+
+/* =========================================
+STEP CIRCLE
+========================================= */
+
+.stepCircle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* =========================================
+CUSTOMER
+========================================= */
+
+.customerName {
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+}
+
+.customerLocation {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* =========================================
+STATUS BUTTON
+========================================= */
+
+.statusBtn {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusBtn.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.statusBtn.completed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+/* =========================================
+NAVIGATE BUTTON
+========================================= */
+
+.navigateBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #2563eb;
+  color: white;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  text-decoration: none;
+  transition: 0.2s;
+}
+
+.navigateBtn:hover {
+  background: #1d4ed8;
+}
+
+/* =========================================
+DELETE BUTTON
+========================================= */
+
+.deleteBtn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: #fee2e2;
+  color: #dc2626;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.deleteBtn:hover {
+  background: #fecaca;
+}
+
+/* =========================================
+MAP SECTION
+========================================= */
+
+.travelMapSection {
+  width: 100%;
+  background: white;
+  border-radius: 18px;
+  overflow: hidden;
+  min-height: 700px;
+
+  display: flex;
+  flex-direction: column;
+
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.mapHeader {
+  padding: 18px 22px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.travelMapFrame {
+  width: 100%;
+  height: 100%;
+  min-height: 650px;
+  border: none;
+  flex: 1;
+}
+
+/* =========================================
+EMPTY / LOADING
+========================================= */
+
+.loadingBox,
+.emptyBox,
+.noMap {
+  width: 100%;
+  padding: 50px 20px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 15px;
+}
+
+/* =========================================
+RESPONSIVE
+========================================= */
+
+@media (max-width: 768px) {
+
+    .travelPage {
+        padding: 10px;
+    }
+
+    /* Header */
+
+    .travelTopBar {
+        padding: 16px;
+        margin-top: 12px;
+        margin-bottom: 15px;
+    }
+
+    .travelTopBar h2 {
+        font-size: 22px;
+        line-height: 1.3;
+    }
+
+    .travelTopBar p {
+        font-size: 13px;
+    }
+
+    /* Form */
+
+    .plannerFormCard {
+        padding: 16px;
+    }
+
+    .plannerGrid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .inputGroup input,
+    .inputGroup select {
+        height: 46px;
+        font-size: 14px;
+    }
+
+    .addStopBtn {
+        width: 100%;
+        justify-content: center;
+        margin-top: 18px;
+    }
+
+    /* Layout */
+
+    .travelLayout {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    /* Table */
+
+    .desktopTable {
+        display: none;
+    }
+
+    .mobilePlans {
+        display: block;
+    }
+
+    /* Sections */
+
+    .travelTableSection,
+    .travelMapSection {
+        border-radius: 14px;
+    }
+
+    .tableHeader,
+    .mapHeader {
+        padding: 15px;
+        font-size: 16px;
+    }
+
+    /* Map */
+
+    .travelMapSection {
+        min-height: auto;
+    }
+
+    .travelMapFrame {
+        min-height: 300px;
+        height: 300px;
+    }
+
+    .loadingBox,
+    .emptyBox,
+    .noMap {
+        padding: 35px 15px;
+        font-size: 14px;
+    }
+}
+.tableWrapper tbody tr {
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.tableWrapper tbody tr:hover {
+    background: #f1f7ff;
+}
+
+.desktopTable {
+    display: block;
+}
+
+.mobilePlans {
+    display: none;
+}
+.planCard {
+    background: white;
+    border: 1px solid #eef2f7;
+    border-radius: 14px;
+    padding: 15px;
+    margin: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.planCardTop {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.planInfo {
+    flex: 1;
+}
+
+.planInfo h4 {
+    margin: 0;
+    font-size: 15px;
+    color: #111827;
+}
+
+.planInfo p {
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.planPurpose {
+    margin-top: 14px;
+    font-size: 14px;
+    color: #374151;
+}
+
+.planActions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.planActions .statusBtn {
+    flex: 1;
+    justify-content: center;
+}
+
+.planActions .deleteBtn {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+}
+/* Desktop */
+.travelCards {
+    display: none;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+
+    .tableWrapper {
+        display: none;
+    }
+
+    .travelCards {
+        display: block;
+    }
+
+    .travelCard {
+        background: #fff;
+        border-radius: 14px;
+        padding: 15px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    .travelCardHeader {
+        font-size: 18px;
+        font-weight: 700;
+        color: #034700;
+        margin-bottom: 15px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+    }
+
+    .travelCardRow {
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        margin-bottom: 12px;
+    }
+
+    .travelCardRow strong {
+        min-width: 90px;
+        color: #555;
+    }
+
+    .travelCardRow span {
+        flex: 1;
+        text-align: right;
+        word-break: break-word;
+    }
+
+    .mobileDelete {
+        width: 100%;
+        margin-top: 10px;
+    }
+
+    .travelLayout {
+        display: block;
+    }
+
+    .travelMapSection {
+        margin-top: 20px;
+    }
+
+    .travelMapFrame {
+        height: 250px;
+    }
+
+    .plannerGrid {
+        grid-template-columns: 1fr;
+    }
+}

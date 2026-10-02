@@ -1,0 +1,205 @@
+.attendance-admin {
+    padding: 20px;
+    padding-top: 0;
+    min-height: 100vh;
+    background: #f4f6f9;
+    font-family: Arial, sans-serif;
+}
+
+/* Heading */
+.attendance-admin h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 28px;
+    font-weight: bold;
+    color: #034700;
+}
+
+/* Filter */
+.filter-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.filter-box label {
+    font-weight: 600;
+    color: #333;
+}
+
+.filter-box input {
+    padding: 10px 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    outline: none;
+    font-size: 14px;
+    background: #fff;
+}
+
+/* =======================
+   DESKTOP TABLE VIEW
+======================= */
+
+.desktop-view {
+    display: block;
+}
+
+.table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 900px;
+}
+
+thead {
+    background: #0d6efd;
+    color: #fff;
+}
+
+thead th {
+    padding: 14px;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+tbody td {
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+    text-align: center;
+    font-size: 14px;
+}
+
+tbody tr:hover {
+    background: #f9fbff;
+}
+
+.no-data {
+    text-align: center;
+    padding: 20px;
+    font-weight: bold;
+    color: #666;
+}
+
+/* Status Colors */
+
+.checkin {
+    color: green;
+    font-weight: bold;
+}
+
+.checkout {
+    color: red;
+    font-weight: bold;
+}
+
+/* =======================
+   MOBILE CARD VIEW
+======================= */
+
+.mobile-cards {
+    display: none;
+}
+
+.attendance-card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.card-header {
+    font-size: 18px;
+    font-weight: 700;
+    color: #034700;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+}
+
+.card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 15px;
+    margin-bottom: 12px;
+}
+
+.card-row:last-child {
+    margin-bottom: 0;
+}
+
+.card-row span:first-child {
+    font-weight: 600;
+    color: #555;
+    min-width: 120px;
+}
+
+.card-row span:last-child {
+    flex: 1;
+    text-align: right;
+    word-break: break-word;
+    color: #333;
+}
+
+/* =======================
+   RESPONSIVE
+======================= */
+
+@media screen and (max-width: 768px) {
+
+    .attendance-admin {
+        padding: 12px;
+    }
+
+    .attendance-admin h2 {
+        font-size: 22px;
+        margin-bottom: 15px;
+    }
+
+    .filter-box {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-box input {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Hide table on mobile */
+    .desktop-view {
+        display: none !important;
+    }
+
+    /* Show cards on mobile */
+    .mobile-cards {
+        display: block !important;
+    }
+
+    .attendance-card {
+        padding: 14px;
+    }
+
+    .card-header {
+        font-size: 17px;
+    }
+
+    .card-row {
+        font-size: 14px;
+    }
+
+    .card-row span:first-child {
+        min-width: 100px;
+    }
+}

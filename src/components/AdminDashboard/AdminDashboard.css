@@ -1,0 +1,1878 @@
+/* =========================================================
+   EVEREST ADMIN DASHBOARD
+========================================================= */
+
+.ead-dashboard {
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+
+  /* Important when dashboard is inside a flex layout */
+  flex: 1 1 auto;
+
+  background: linear-gradient(
+    135deg,
+    #f8fafc 0%,
+    #ffffff 45%,
+    #eef2f7 100%
+  );
+
+  color: #0f172a;
+}
+
+.ead-dashboard,
+.ead-dashboard *,
+.ead-dashboard *::before,
+.ead-dashboard *::after {
+  box-sizing: border-box;
+}
+
+.ead-dashboard-main {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+
+  margin: 0;
+  padding: 30px 40px 50px;
+
+  /* Prevent flex parent from shrinking this area */
+  flex: 1 1 auto;
+}
+/* =========================================================
+   WELCOME
+========================================================= */
+
+.ead-welcome {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+
+  overflow: hidden;
+
+  padding: 32px 36px;
+  margin: 0 0 28px 0;
+
+  border-radius: 28px;
+
+  color: white;
+
+  background:
+    linear-gradient(
+      120deg,
+      #0f172a 0%,
+      #1e293b 55%,
+      #111827 100%
+    );
+
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.14);
+
+  flex: 1 1 auto;
+}
+
+.ead-welcome::before {
+  content: "";
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  right: -160px;
+  top: -250px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.10);
+}
+
+.ead-welcome::after {
+  content: "";
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  left: 40%;
+  bottom: -240px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.ead-welcome-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+}
+
+.ead-welcome-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ead-welcome h1 {
+  margin: 0;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.ead-welcome p {
+  margin: 10px 0 0;
+  color: #cbd5e1;
+  font-size: 15px;
+}
+
+.ead-profile-card {
+  min-width: 300px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.07);
+  backdrop-filter: blur(15px);
+}
+
+.ead-profile-card img,
+.ead-profile-placeholder {
+  width: 62px;
+  height: 62px;
+  flex: 0 0 62px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ead-profile-card img {
+  border: 3px solid rgba(255,255,255,0.8);
+}
+
+.ead-profile-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  color: #dc2626;
+  font-size: 25px;
+  font-weight: 800;
+}
+
+.ead-profile-card h3 {
+  margin: 0;
+  color: white;
+  font-size: 18px;
+}
+
+.ead-profile-card span {
+  display: block;
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+
+/* =========================================================
+   MAIN DASHBOARD
+========================================================= */
+
+.ead-grid {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  gap: 20px;
+}
+
+
+/* =========================================================
+   SALES MOVEMENT
+   FULL WIDTH
+========================================================= */
+
+.ead-sales-card {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow:
+    0 12px 40px rgba(15, 23, 42, 0.07);
+}
+
+.ead-sales-header {
+  min-height: 90px;
+  padding: 24px 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ead-sales-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ead-sales-icon {
+  width: 50px;
+  height: 50px;
+  flex: 0 0 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15px;
+  background: linear-gradient(
+    135deg,
+    #fee2e2,
+    #fff1f2
+  );
+  color: #dc2626;
+}
+
+.ead-sales-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 21px;
+  font-weight: 800;
+}
+
+.ead-sales-header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.ead-sales-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ead-financial-year {
+  min-width: 145px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3ed;
+  border-radius: 11px;
+  outline: none;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ead-financial-year:focus {
+  border-color: #ef4444;
+}
+
+.ead-refresh-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dbe3ed;
+  border-radius: 11px;
+  background: white;
+  color: #475569;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.ead-refresh-btn:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.ead-spin {
+  animation: dashboard-spin 1s linear infinite;
+}
+
+@keyframes dashboard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+
+/* =========================================================
+   PRODUCT TABS
+========================================================= */
+
+.ead-item-tabs {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 18px 30px;
+  overflow-x: auto;
+  border-bottom: 1px solid #f1f5f9;
+  scrollbar-width: thin;
+}
+
+.ead-item-tab {
+  min-width: 150px;
+  max-width: 250px;
+  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ead-item-tab:hover {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.ead-item-tab.ead-active {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.ead-item-tab span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ead-item-rank {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.ead-item-tab.ead-active .ead-item-rank {
+  background: #dc2626;
+  color: white;
+}
+
+
+/* =========================================================
+   CHART
+========================================================= */
+
+.ead-chart-area {
+  width: 100%;
+  height: 410px;
+  padding: 20px 30px 10px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.ead-svg-chart {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.ead-chart-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ead-chart-grid-line {
+  stroke: #e5e7eb;
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+}
+
+.ead-chart-y-label {
+  fill: #94a3b8;
+  font-size: 11px;
+}
+
+.ead-chart-month-label {
+  fill: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ead-chart-line {
+  stroke: #dc2626;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ead-chart-point {
+  fill: white;
+  stroke: #dc2626;
+  stroke-width: 3;
+  cursor: pointer;
+}
+
+.ead-chart-hover-line {
+  stroke: #cbd5e1;
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+}
+
+.ead-chart-tooltip {
+  position: absolute;
+  top: 15px;
+  transform: translateX(-50%);
+  min-width: 170px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: white;
+  box-shadow: 0 15px 35px rgba(15,23,42,0.25);
+  z-index: 50;
+}
+
+.ead-tooltip-month {
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ead-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 4px 0;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+.ead-tooltip-row strong {
+  color: white;
+}
+
+.ead-tooltip-value {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255,255,255,0.12);
+}
+
+.ead-tooltip-value strong {
+  color: #fca5a5;
+}
+
+
+/* =========================================================
+   SELECTED PRODUCT SUMMARY
+========================================================= */
+
+.ead-product-summary {
+  margin: 10px 30px 25px;
+  padding: 17px;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.2fr;
+  gap: 15px;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 17px;
+  background: #f8fafc;
+}
+
+.ead-product-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.ead-product-summary-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.ead-product-name span,
+.ead-product-summary-stat span {
+  display: block;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ead-product-name strong {
+  display: block;
+  max-width: 400px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1e293b;
+  font-size: 13px;
+}
+
+.ead-product-summary-stat {
+  padding-left: 20px;
+  border-left: 1px solid #e2e8f0;
+}
+
+.ead-product-summary-stat strong {
+  display: block;
+  margin-top: 4px;
+  color: #334155;
+  font-size: 16px;
+}
+
+.ead-product-summary-stat.ead-highlight strong {
+  color: #dc2626;
+}
+
+
+/* =========================================================
+   5 OTHER TILES
+========================================================= */
+.ead-stat-card {
+  width: 100%;
+  height: 190px;
+  min-height: 190px;
+  max-height: 190px;
+
+  padding: 23px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+
+  border: 1px solid #e2e8f0;
+  border-radius: 23px;
+
+  background: white;
+  color: inherit;
+  text-decoration: none;
+
+  box-shadow: 0 8px 30px rgba(15,23,42,0.05);
+
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+
+  box-sizing: border-box;
+}
+.ead-stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow:
+    0 18px 40px rgba(15,23,42,0.10);
+}
+
+.ead-stat-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.ead-stat-label {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ead-stat-number {
+  display: block;
+  margin-top: 10px;
+  color: #0f172a;
+  font-size: 39px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.ead-stat-icon {
+  width: 53px;
+  height: 53px;
+  flex: 0 0 53px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 15px;
+}
+
+.ead-attendance-icon {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.ead-cheque-icon {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.ead-site-icon {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.ead-sales-total-icon {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.ead-product-icon {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.ead-sales-number {
+  color: #dc2626;
+  font-size: 30px;
+}
+
+.ead-stat-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ead-attendance-card:hover .ead-stat-bottom {
+  color: #2563eb;
+}
+
+.ead-cheque-card:hover .ead-stat-bottom {
+  color: #ea580c;
+}
+
+.ead-site-card:hover .ead-stat-bottom {
+  color: #7c3aed;
+}
+
+.ead-top-product-content {
+  min-width: 0;
+}
+
+.ead-top-product-name {
+  display: block;
+  max-width: 250px;
+  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+  font-size: 17px;
+}
+
+
+/* =========================================================
+   LOADING
+========================================================= */
+
+.ead-sales-loading,
+.ead-sales-empty {
+  width: 100%;
+  height: 100%;
+  min-height: 350px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.ead-sales-empty h3 {
+  margin: 12px 0 0;
+  color: #475569;
+  font-size: 17px;
+}
+
+.ead-sales-empty p {
+  max-width: 400px;
+  margin: 7px 0 0;
+  font-size: 12px;
+}
+
+.ead-sales-empty button {
+  margin-top: 15px;
+  padding: 9px 18px;
+  border: none;
+  border-radius: 10px;
+  background: #0f172a;
+  color: white;
+  cursor: pointer;
+}
+
+
+/* =========================================================
+   QUICK ACCESS
+========================================================= */
+
+.ead-quick-section {
+  margin-top: 35px;
+}
+
+.ead-section-heading {
+  margin-bottom: 16px;
+}
+
+.ead-section-heading h2 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 23px;
+  font-weight: 800;
+}
+
+.ead-section-heading p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.ead-quick-section {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+
+  margin-top: 35px;
+}
+
+.ead-section-heading {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.ead-quick-grid {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  gap: 18px;
+}
+
+.ead-quick-card {
+  width: 100%;
+  min-width: 0;
+
+  display: flex;
+  align-items: flex-start;
+
+  gap: 15px;
+  padding: 22px;
+
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+
+  background: white;
+
+  box-shadow:
+    0 7px 25px rgba(15,23,42,0.05);
+
+  transition: 0.2s;
+}
+
+.ead-quick-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 14px 30px rgba(15,23,42,0.09);
+}
+
+.ead-quick-icon {
+  width: 45px;
+  height: 45px;
+  flex: 0 0 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.ead-quick-card h3 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.ead-quick-card p {
+  margin: 5px 0 12px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ead-quick-card a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+
+/* =========================================================
+   LARGE DESKTOP
+========================================================= */
+
+@media (min-width: 1600px) {
+
+  .ead-dashboard-main {
+    padding-left: 55px;
+    padding-right: 55px;
+  }
+
+  .ead-chart-area {
+    height: 450px;
+  }
+
+
+
+}
+
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 1100px) {
+
+  .ead-dashboard-main {
+    padding: 22px;
+  }
+
+  .ead-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ead-sales-card {
+    grid-column: 1 / -1;
+  }
+
+  .ead-quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 700px) {
+
+  .ead-dashboard-main {
+    padding: 12px;
+  }
+
+  .ead-welcome {
+    padding: 22px;
+    border-radius: 22px;
+  }
+
+  .ead-welcome-content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ead-welcome h1 {
+    font-size: 27px;
+  }
+
+  .ead-profile-card {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .ead-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ead-sales-card {
+    grid-column: 1;
+  }
+
+  .ead-sales-header {
+    padding: 19px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ead-sales-actions {
+    width: 100%;
+  }
+
+  .ead-financial-year {
+    flex: 1;
+  }
+
+  .ead-item-tabs {
+    padding: 14px 19px;
+  }
+
+  .ead-chart-area {
+    height: 330px;
+    padding: 10px 10px;
+  }
+
+  .ead-product-summary {
+    margin: 8px 19px 19px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ead-product-name {
+    grid-column: 1 / -1;
+  }
+
+  .ead-product-summary-stat {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .ead-quick-grid {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+
+/* =========================================================
+   SMALL MOBILE
+========================================================= */
+
+@media (max-width: 450px) {
+
+  .ead-dashboard-main {
+    padding: 8px;
+  }
+
+  .ead-welcome {
+    padding: 18px;
+  }
+
+  .ead-welcome h1 {
+    font-size: 23px;
+  }
+
+  .ead-sales-header h2 {
+    font-size: 18px;
+  }
+
+  .ead-chart-area {
+    height: 290px;
+  }
+
+  .ead-product-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .ead-product-name {
+    grid-column: auto;
+  }
+
+  .ead-stat-card {
+    min-height: 170px;
+  }
+
+  .ead-stat-number {
+    font-size: 34px;
+  }
+
+}
+
+/* =========================================================
+   TWO SALES GRAPH TILES
+========================================================= */
+
+.ead-two-sales-charts {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.ead-sales-chart-tile {
+  width: 100%;
+  min-width: 0;
+  height: 330px;
+
+  padding: 12px;
+
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+
+  overflow: visible;
+
+  box-shadow:
+    0 6px 20px rgba(15, 23, 42, 0.05);
+}
+
+.ead-chart-tile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  height: 42px;
+  margin-bottom: 4px;
+}
+
+.ead-chart-tile-header h3 {
+  margin: 0;
+
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ead-chart-tile-header p {
+  margin: 3px 0 0;
+
+  color: #64748b;
+  font-size: 10px;
+}
+
+/* Compact chart inside the tile */
+
+.ead-sales-chart-tile .ead-chart-area {
+  width: 100%;
+  height: 265px;
+
+  padding: 5px 5px 0;
+}
+
+.ead-sales-chart-tile .ead-svg-chart {
+  width: 100%;
+  height: 250px;
+}
+
+/* Smaller graph labels */
+
+.ead-sales-chart-tile .ead-chart-y-label {
+  font-size: 9px;
+}
+
+.ead-sales-chart-tile .ead-chart-month-label {
+  font-size: 10px;
+}
+
+/* Smaller tooltip */
+
+.ead-sales-chart-tile .ead-chart-tooltip {
+  min-width: 145px;
+  padding: 9px 11px;
+  border-radius: 10px;
+}
+
+.ead-sales-chart-tile .ead-tooltip-month {
+  margin-bottom: 5px;
+  padding-bottom: 5px;
+  font-size: 10px;
+}
+
+.ead-sales-chart-tile .ead-tooltip-row {
+  padding: 2px 0;
+  font-size: 10px;
+}
+
+/* Top 6 legend */
+
+.ead-monthly-top-six-tile
+.ead-svg-chart > div:last-child {
+  font-size: 10px !important;
+}
+
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 1100px) {
+
+  .ead-two-sales-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .ead-sales-chart-tile {
+    height: 330px;
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 700px) {
+
+  .ead-two-sales-charts {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .ead-sales-chart-tile {
+    height: 310px;
+    padding: 10px;
+  }
+
+  .ead-sales-chart-tile .ead-chart-area {
+    height: 250px;
+    padding: 3px;
+  }
+
+  .ead-sales-chart-tile .ead-svg-chart {
+    height: 235px;
+  }
+
+}
+
+
+/* =========================================================
+   REMOVE DEBUG OUTLINES
+========================================================= */
+
+.ead-dashboard {
+  outline: none !important;
+}
+
+.ead-dashboard-main {
+  outline: none !important;
+}
+
+.ead-dashboard {
+  outline: 5px solid red !important;
+}
+
+.ead-dashboard-main {
+  outline: 5px solid blue !important;
+}
+
+/* =========================================================
+   SALES CONTROLS / ITEM SELECTOR — SEPARATE TILE
+   ========================================================= */
+
+.ead-sales-control-card {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  overflow: visible;
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.06);
+}
+
+/* =========================================================
+   TWO GRAPH TILES — COMPLETELY SEPARATE
+   ========================================================= */
+
+.ead-two-sales-charts {
+  grid-column: 1 / -1;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 0;
+}
+
+.ead-sales-chart-tile {
+  width: 100%;
+  min-width: 0;
+  min-height: 430px;
+  height: 430px;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.06);
+}
+
+.ead-chart-tile-header {
+  height: auto;
+  min-height: 55px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+.ead-chart-tile-header h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.ead-chart-tile-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.ead-sales-chart-tile .ead-chart-area {
+  width: 100%;
+  height: 335px;
+  padding: 5px 2px 0;
+}
+
+.ead-sales-chart-tile .ead-svg-chart {
+  width: 100%;
+  height: 320px;
+}
+
+/* Selected item details are now another independent full-width block. */
+.ead-product-summary {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1100px) {
+  .ead-two-sales-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .ead-sales-chart-tile {
+    height: 400px;
+    min-height: 400px;
+  }
+
+  .ead-sales-chart-tile .ead-chart-area {
+    height: 315px;
+  }
+
+  .ead-sales-chart-tile .ead-svg-chart {
+    height: 300px;
+  }
+}
+
+@media (max-width: 700px) {
+  .ead-sales-control-card {
+    border-radius: 20px;
+  }
+
+  .ead-two-sales-charts {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .ead-sales-chart-tile {
+    height: 360px;
+    min-height: 360px;
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .ead-sales-chart-tile .ead-chart-area {
+    height: 285px;
+    padding: 3px;
+  }
+
+  .ead-sales-chart-tile .ead-svg-chart {
+    height: 270px;
+  }
+}
+
+@media (max-width: 450px) {
+  .ead-sales-chart-tile {
+    height: 340px;
+    min-height: 340px;
+  }
+
+  .ead-sales-chart-tile .ead-chart-area {
+    height: 265px;
+  }
+
+  .ead-sales-chart-tile .ead-svg-chart {
+    height: 250px;
+  }
+}
+/* =========================================================
+   ITEM MOVEMENT TILE
+========================================================= */
+
+.ead-item-movement-tile {
+  grid-column: 1 / -1 !important;
+  width: 100%;
+  min-width: 0;
+  height: auto !important;
+  min-height: 0 !important;
+
+  padding: 20px;
+
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+
+  overflow: visible;
+
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.06);
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   SUMMARY — TOP OF TILE
+========================================================= */
+
+.ead-item-movement-tile .ead-product-summary {
+  width: 100%;
+  margin: 0;
+
+  padding: 16px 18px;
+
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  gap: 0;
+
+  align-items: center;
+
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+
+  background: #f8fafc;
+
+  box-sizing: border-box;
+}
+
+
+/* Hide the old product-name section */
+.ead-item-movement-tile .ead-product-name {
+  display: none !important;
+}
+
+
+/* Each summary value */
+.ead-item-movement-tile .ead-product-summary-stat {
+  min-width: 0;
+
+  padding: 4px 24px;
+
+  border-left: 1px solid #e2e8f0;
+
+  text-align: center;
+}
+
+
+/* First summary box has no left border */
+.ead-item-movement-tile .ead-product-summary-stat:first-of-type {
+  border-left: none;
+}
+
+
+/* Summary labels */
+.ead-item-movement-tile .ead-product-summary-stat span {
+  display: block;
+
+  margin-bottom: 5px;
+
+  color: #64748b;
+
+  font-size: 10px;
+  font-weight: 700;
+
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+
+/* Summary numbers */
+.ead-item-movement-tile .ead-product-summary-stat strong {
+  display: block;
+
+  margin: 0;
+
+  color: #0f172a;
+
+  font-size: 20px;
+  font-weight: 800;
+}
+
+
+/* Highlight average rate/value if required */
+.ead-item-movement-tile
+.ead-product-summary-stat.ead-highlight
+strong {
+  color: #dc2626;
+}
+
+
+/* =========================================================
+   CHART SECTION
+   90PX GAP AFTER SUMMARY
+========================================================= */
+
+.ead-item-wise-chart-section {
+  width: 100%;
+
+  height: 420px;
+  min-height: 420px;
+
+  margin-top: 90px;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   CHART AREA
+========================================================= */
+
+.ead-item-wise-chart-section .ead-chart-area {
+  width: 100%;
+  height: 345px;
+
+  padding: 5px 10px 0;
+
+  overflow: visible;
+}
+
+
+/* =========================================================
+   SVG
+========================================================= */
+
+.ead-item-wise-chart-section .ead-svg-chart {
+  width: 100%;
+  height: 330px;
+
+  overflow: visible;
+}
+
+
+.ead-item-wise-chart-section .ead-chart-svg {
+  width: 100%;
+  height: 100%;
+
+  overflow: visible;
+}
+
+
+/* =========================================================
+   BAR TOP SPACE
+   Prevent values/labels from covering bar tops
+========================================================= */
+
+.ead-item-wise-chart-section .ead-chart-area {
+  padding-top: 45px;
+}
+
+
+/* =========================================================
+   MONTH LABEL
+========================================================= */
+
+.ead-item-wise-chart-section .ead-chart-month-label {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+/* =========================================================
+   REMOVE OLD SUMMARY / VALUE BOXES
+========================================================= */
+
+/* If old summary blocks are being rendered separately */
+.ead-item-movement-tile
+.ead-old-summary,
+.ead-item-old-summary,
+.ead-chart-summary,
+.ead-bar-summary {
+  display: none !important;
+}
+
+
+/* =========================================================
+   DESKTOP
+========================================================= */
+
+@media (min-width: 1200px) {
+
+  .ead-item-movement-tile {
+    padding: 22px;
+  }
+
+  .ead-item-movement-tile .ead-product-summary {
+    padding: 18px 20px;
+  }
+
+  .ead-item-movement-tile
+  .ead-product-summary-stat
+  strong {
+    font-size: 21px;
+  }
+
+  .ead-item-wise-chart-section {
+    margin-top: 90px;
+
+    height: 450px;
+    min-height: 450px;
+  }
+
+  .ead-item-wise-chart-section .ead-chart-area {
+    height: 370px;
+    padding-top: 45px;
+  }
+
+  .ead-item-wise-chart-section .ead-svg-chart {
+    height: 350px;
+  }
+}
+
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 1100px) {
+
+  .ead-item-movement-tile {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  .ead-item-movement-tile .ead-product-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ead-item-movement-tile
+  .ead-product-summary-stat {
+    padding: 4px 14px;
+  }
+
+  .ead-item-wise-chart-section {
+    margin-top: 90px;
+
+    height: 390px;
+    min-height: 390px;
+  }
+
+  .ead-item-wise-chart-section .ead-chart-area {
+    height: 315px;
+    padding-top: 40px;
+  }
+
+  .ead-item-wise-chart-section .ead-svg-chart {
+    height: 300px;
+  }
+}
+
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 700px) {
+
+  .ead-item-movement-tile {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .ead-item-movement-tile .ead-product-summary {
+    grid-template-columns: 1fr 1fr 1fr;
+
+    padding: 12px 6px;
+
+    border-radius: 14px;
+  }
+
+  .ead-item-movement-tile
+  .ead-product-summary-stat {
+    padding: 4px 6px;
+  }
+
+  .ead-item-movement-tile
+  .ead-product-summary-stat
+  span {
+    font-size: 8px;
+  }
+
+  .ead-item-movement-tile
+  .ead-product-summary-stat
+  strong {
+    font-size: 15px;
+  }
+
+  .ead-item-wise-chart-section {
+    margin-top: 90px;
+
+    height: 350px;
+    min-height: 350px;
+  }
+
+  .ead-item-wise-chart-section .ead-chart-area {
+    height: 275px;
+    padding: 3px;
+    padding-top: 35px;
+  }
+
+  .ead-item-wise-chart-section .ead-svg-chart {
+    height: 260px;
+  }
+}
+
+/* =========================================================
+   SECOND TILE — MONTHLY TOP 6 SALES
+   MAKE THIS MUCH LARGER
+   ========================================================= */
+
+.ead-monthly-top-six-standalone {
+  grid-column: 1 / -1 !important;
+  width: 100%;
+  min-width: 0;
+
+  min-height: 650px;
+  height: 650px;
+
+  box-sizing: border-box;
+
+  padding: 20px;
+
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+
+  overflow: hidden;
+
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.06);
+}
+
+
+/* Monthly graph heading */
+.ead-monthly-top-six-header {
+  width: 100%;
+  min-height: 65px;
+  height: 65px;
+}
+
+
+/* Monthly graph gets most of the tile */
+.ead-monthly-top-six-chart-area {
+  width: 100%;
+
+  height: 550px;
+  min-height: 550px;
+
+  box-sizing: border-box;
+
+  padding: 5px 2px 0;
+}
+
+
+/* SVG monthly graph */
+.ead-monthly-top-six-chart-area .ead-svg-chart {
+  width: 100%;
+  height: 530px;
+}
+
+
+/* =========================================================
+   DESKTOP — LARGE MONTHLY GRAPH
+   ========================================================= */
+
+@media (min-width: 1200px) {
+
+  .ead-monthly-top-six-standalone {
+    min-height: 700px;
+    height: 700px;
+  }
+
+  .ead-monthly-top-six-header {
+    height: 70px;
+    min-height: 70px;
+  }
+
+  .ead-monthly-top-six-chart-area {
+    height: 600px;
+    min-height: 600px;
+  }
+
+  .ead-monthly-top-six-chart-area .ead-svg-chart {
+    height: 580px;
+  }
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 1100px) {
+
+  .ead-item-movement-tile {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  .ead-item-wise-chart-section {
+    height: 390px;
+    min-height: 390px;
+  }
+
+  .ead-item-wise-chart-section .ead-chart-area {
+    height: 315px;
+  }
+
+  .ead-item-wise-chart-section .ead-svg-chart {
+    height: 300px;
+  }
+
+
+  .ead-monthly-top-six-standalone {
+    height: 560px;
+    min-height: 560px;
+  }
+
+  .ead-monthly-top-six-header {
+    height: 60px;
+    min-height: 60px;
+  }
+
+  .ead-monthly-top-six-chart-area {
+    height: 470px;
+    min-height: 470px;
+  }
+
+  .ead-monthly-top-six-chart-area .ead-svg-chart {
+    height: 450px;
+  }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+  .ead-item-wise-chart-section {
+    height: 350px;
+    min-height: 350px;
+  }
+
+  .ead-item-wise-chart-section .ead-chart-area {
+    height: 275px;
+  }
+
+  .ead-item-wise-chart-section .ead-svg-chart {
+    height: 260px;
+  }
+
+
+  .ead-monthly-top-six-standalone {
+    height: 500px;
+    min-height: 500px;
+
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .ead-monthly-top-six-header {
+    height: 55px;
+    min-height: 55px;
+  }
+
+  .ead-monthly-top-six-chart-area {
+    height: 420px;
+    min-height: 420px;
+  }
+
+  .ead-monthly-top-six-chart-area .ead-svg-chart {
+    height: 400px;
+  }
+}
+
+
+/* =========================================================
+   FIX GRAPH LABELS BEING CUT / HIDDEN
+========================================================= */
+
+.ead-two-sales-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  width: 100%;
+  overflow: visible;
+}
+
+.ead-sales-chart-tile {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 430px;
+  min-height: 430px;
+  overflow: visible;
+}
+
+.ead-sales-chart-tile .ead-chart-area {
+  width: 100%;
+  height: 335px;
+  overflow: visible;
+}
+
+.ead-sales-chart-tile .ead-svg-chart {
+  width: 100%;
+  height: 320px;
+  overflow: visible;
+}
+
+.ead-sales-chart-tile .ead-chart-svg {
+  overflow: visible;
+}
+
+.ead-monthly-top-six-tile {
+  overflow: visible;
+}
+
+/* Tooltip should stay above everything */
+.ead-chart-tooltip {
+  z-index: 100;
+}

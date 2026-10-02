@@ -1,0 +1,940 @@
+*{
+    box-sizing:border-box;
+  }
+
+.tc-page{
+    width:1400px;
+    max-width:100%;
+    margin:0;
+    padding:10px 14px 24px;
+    background:#f4f7fb;
+    min-height:100vh;
+    overflow-x:hidden;
+    font-family:Arial,sans-serif;
+    color:#172033;
+}
+  .tc-head,
+  .tc-panel,
+  .tc-person{
+    width:100%;
+    max-width:none;
+  }
+
+  .tc-page > *{
+    min-width:0;
+  }
+
+  .tc-head{
+    min-height:72px;
+  }
+
+  .tc-filter{
+    margin-left:auto;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+
+  .tc-kpis{
+    align-items:stretch;
+  }
+
+  .tc-kpi{
+    min-height:72px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+
+  /* =========================
+     HEADER
+     ========================= */
+
+  .tc-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:14px;
+    flex-wrap:wrap;
+    background:#fff;
+    padding:16px 18px;
+    border-radius:10px;
+    margin-bottom:10px;
+  }
+
+  .tc-eyebrow{
+    font-size:9px;
+    font-weight:800;
+    color:#64748b;
+    letter-spacing:1px;
+  }
+
+  .tc-head h1{
+    margin:4px 0;
+    font-size:24px;
+    line-height:1.2;
+  }
+
+  .tc-head p{
+    margin:0;
+    color:#64748b;
+    font-size:12px;
+  }
+
+/* =========================================================
+   FINAL YEAR / MONTH TOGGLE FIX
+   ========================================================= */
+
+.tc-mode-switch{
+  display:flex !important;
+  gap:2px !important;
+  padding:3px !important;
+  border:1px solid #dbe2ea !important;
+  border-radius:9px !important;
+  background:#f8fafc !important;
+}
+
+.tc-mode-switch button{
+  height:32px !important;
+  padding:0 10px !important;
+  border:0 !important;
+  border-radius:7px !important;
+  background:#fff !important;
+  color:#64748b !important;
+  font-size:11px !important;
+  font-weight:800 !important;
+  cursor:pointer !important;
+  transition:all .2s ease !important;
+}
+
+/* ONLY SELECTED BUTTON IS BLUE */
+.tc-mode-switch button.active{
+  background:#2563eb !important;
+  color:#fff !important;
+  box-shadow:0 2px 6px rgba(15,23,42,.12) !important;
+}
+
+/* Make sure the non-selected button stays white */
+.tc-mode-switch button:not(.active){
+  background:#fff !important;
+  color:#64748b !important;
+}
+        .tc-filter select{height:38px;padding:0 10px;border:1px solid #dbe2ea;border-radius:8px;background:#fff;color:#334155;font-size:12px;font-weight:600}
+
+        .tc-filter{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+
+  .tc-filter input,
+  .tc-filter button{
+    height:36px;
+    padding:0 10px;
+    border-radius:7px;
+    border:1px solid #cbd5e1;
+    font-size:12px;
+  }
+
+  .tc-filter button{
+    background:#0d6efd;
+    color:#fff;
+    border:0;
+    font-weight:700;
+    cursor:pointer;
+  }
+
+  /* =========================
+     REPORT MONTH
+     ========================= */
+
+  .tc-month{
+    background:#111827;
+    color:#fff;
+    padding:11px 15px;
+    border-radius:9px;
+    margin-bottom:10px;
+  }
+
+  .tc-month span{
+    display:block;
+    font-size:9px;
+    opacity:.7;
+  }
+
+  .tc-month b{
+    font-size:18px;
+  }
+
+  /* =========================
+     KPI CARDS
+     ========================= */
+
+  .tc-kpis{
+    width:100%;
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+    gap:8px;
+    margin-bottom:12px;
+  }
+
+  .tc-kpi{
+    background:#fff;
+    border-radius:9px;
+    padding:10px 12px;
+    min-width:0;
+    box-shadow:0 1px 5px #0000000c;
+  }
+
+  .tc-kpi div{
+    font-size:9px;
+    color:#64748b;
+    font-weight:700;
+    text-transform:uppercase;
+    line-height:1.3;
+  }
+
+  .tc-kpi strong{
+    display:block;
+    font-size:17px;
+    margin-top:4px;
+    word-break:keep-all;
+    white-space:nowrap;
+    overflow-wrap:normal;
+  }
+
+  .tc-kpi small{
+    color:#94a3b8;
+    font-size:9px;
+  }
+
+  /* =========================
+     PANELS
+     ========================= */
+
+  .tc-panel,
+  .tc-person{
+    background:#fff;
+    border-radius:10px;
+    padding:14px;
+    margin-bottom:12px;
+    box-shadow:0 1px 6px #0000000d;
+  }
+
+  .tc-panel h2,
+  .tc-person h2{
+    font-size:18px;
+    margin-top:0;
+  }
+
+  .tc-panel h3{
+    font-size:15px;
+    margin-top:0;
+  }
+
+  /* =========================
+     TABLE SCROLL
+     ========================= */
+
+  .tc-scroll{
+    width:100%;
+    max-width:100%;
+    overflow-x:auto;
+    overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  table{
+    width:100%;
+    min-width:820px;
+    border-collapse:separate;
+    border-spacing:0;
+  }
+
+  th,
+  td{
+    padding:10px 11px;
+    border-bottom:1px solid #e5e7eb;
+    text-align:left;
+    white-space:nowrap;
+    font-size:11px;
+    vertical-align:middle;
+  }
+
+  tbody tr:last-child td{
+    border-bottom:0;
+  }
+
+  tbody tr:hover td{
+    background:#f8fafc;
+  }
+
+  /* Right-align numerical columns */
+  .tc-panel table th:nth-child(n+3),
+  .tc-panel table td:nth-child(n+3),
+  .tc-person table th:nth-child(n+3),
+  .tc-person table td:nth-child(n+3){
+    text-align:right;
+  }
+
+  th{
+    background:#f8fafc;
+    font-size:10px;
+    color:#475569;
+    font-weight:700;
+  }
+    
+
+  /* =========================
+     PERSON HEADER
+     ========================= */
+
+  .tc-person-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:15px;
+    flex-wrap:wrap;
+    border-bottom:1px solid #e5e7eb;
+    padding-bottom:10px;
+  }
+
+  .tc-person-head h2{
+    margin:3px 0;
+    font-size:20px;
+  }
+
+  .tc-person-head > div > span{
+    font-size:9px;
+    color:#2563eb;
+    font-weight:800;
+  }
+
+  /* =========================
+     SUCCESS BOX
+     ========================= */
+
+  .tc-success{
+    background:#f0fdf4;
+    padding:9px 15px;
+    border-radius:9px;
+    text-align:right;
+  }
+
+  .tc-success b{
+    display:block;
+    font-size:24px;
+    color:#15803d;
+  }
+
+  .tc-success span,
+  .tc-success small{
+    font-size:9px;
+    color:#64748b;
+  }
+
+  .person-kpis{
+    margin-top:12px;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+
+  .person-kpis .tc-kpi{
+    min-height:78px;
+  }
+  /* =========================
+     PERFORMANCE ROW
+     ========================= */
+
+  .tc-people-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px;
+    align-items:start;
+  }
+
+  .tc-people-grid .tc-person{
+    min-width:0;
+  }
+
+  .tc-performance-row{
+    display:grid;
+    grid-template-columns:minmax(0,1.35fr) minmax(250px,.9fr);
+    gap:12px;
+    align-items:stretch;
+    margin:12px 0;
+  }
+
+  .tc-performance-row > *{
+    min-width:0;
+  }
+
+  .tc-section-title{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+    margin-bottom:8px;
+  }
+
+  .tc-section-title h2{
+    margin:0 0 4px;
+  }
+
+  .tc-overall-panel{
+    padding-bottom:12px;
+  }
+
+  .tc-overall-stats{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+
+  .tc-overall-stats div{
+    min-width:105px;
+    padding:8px 10px;
+    border:1px solid #e5e7eb;
+    border-radius:8px;
+    background:#f8fafc;
+    text-align:center;
+  }
+
+  .tc-overall-stats span{
+    display:block;
+    font-size:8px;
+    color:#64748b;
+    font-weight:700;
+    text-transform:uppercase;
+  }
+
+  .tc-overall-stats b{
+    display:block;
+    margin-top:3px;
+    font-size:16px;
+  }
+
+  .tc-month-conversion-chart{
+    height:245px;
+    display:flex;
+    align-items:stretch;
+    gap:8px;
+    padding:8px 6px 0;
+    overflow-x:auto;
+    border-bottom:1px solid #cbd5e1;
+  }
+
+  .tc-month-chart-item{
+    flex:0 0 76px;
+    min-width:76px;
+    height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+  }
+
+  .tc-month-chart-values{
+    height:20px;
+    width:100%;
+    display:flex;
+    justify-content:space-evenly;
+    align-items:center;
+    font-size:9px;
+  }
+
+  .tc-month-chart-values b:first-child{
+    color:#2563eb;
+  }
+
+  .tc-month-chart-values b:last-child{
+    color:#16a34a;
+  }
+
+  .tc-month-chart-bars{
+    height:165px;
+    width:100%;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    gap:5px;
+  }
+
+  .tc-month-chart-bar{
+    width:22px;
+    min-height:0;
+    border-radius:4px 4px 0 0;
+    transition:height .25s ease;
+  }
+
+  .tc-month-chart-bar.quotation{
+    background:#3b82f6;
+  }
+
+  .tc-month-chart-bar.converted{
+    background:#16a34a;
+  }
+
+  .tc-month-chart-label{
+    height:30px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    font-size:9px;
+    font-weight:700;
+    color:#334155;
+  }
+
+  .tc-month-chart-detail{
+    width:100%;
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:4px;
+    min-height:22px;
+    font-size:8px;
+    color:#64748b;
+  }
+
+  .tc-month-chart-detail b{
+    color:#172033;
+  }
+
+  .tc-chart-legend{
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+    margin-top:8px;
+    font-size:9px;
+    color:#64748b;
+  }
+
+  .tc-chart-legend span{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+  }
+
+  .tc-chart-legend i{
+    width:9px;
+    height:9px;
+    border-radius:2px;
+    display:inline-block;
+  }
+
+  .legend-quotation{
+    background:#3b82f6;
+  }
+
+  .legend-converted{
+    background:#16a34a;
+  }
+
+  .tc-empty-months{
+    padding:30px;
+    text-align:center;
+    color:#64748b;
+    font-size:11px;
+    background:#f8fafc;
+    border-radius:8px;
+  }
+
+  .tc-chart-card{
+    border:1px solid #e5e7eb;
+    border-radius:9px;
+    padding:12px;
+    min-width:0;
+  }
+
+  .tc-chart-card h3{
+    margin:0 0 10px;
+    font-size:14px;
+  }
+
+  .tc-activity-card{
+    margin:0;
+  }
+
+  /* =========================
+     BAR CHART
+     ========================= */
+
+  .tc-normal-bars{
+    height:210px;
+    display:flex;
+    align-items:stretch;
+    justify-content:center;
+    gap:0;
+    padding:6px 6px 0;
+    border-bottom:1px solid #cbd5e1;
+    overflow-x:auto;
+  }
+
+  .tc-normal-bar-item{
+    flex:0 0 60px;
+    width:60px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+    height:100%;
+  }
+
+  .tc-normal-value{
+    height:20px;
+    font-size:11px;
+    font-weight:700;
+    color:#172033;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .tc-normal-bar-area{
+    width:46px;
+    height:155px;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    background:transparent;
+  }
+
+  .tc-normal-bar{
+    width:100%;
+    min-height:0;
+    background:#3b82f6;
+    border-radius:4px 4px 0 0;
+    transition:height .25s ease;
+  }
+
+  .tc-normal-label{
+    height:30px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:10px;
+    color:#334155;
+    font-weight:600;
+    text-align:center;
+  }
+
+  /* =========================
+     MONTH DETAILS
+     ========================= */
+
+  .tc-month-details{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:8px;
+    margin:0;
+  }
+
+  .tc-month-box{
+    border:1px solid #e5e7eb;
+    border-radius:9px;
+    padding:10px;
+    min-width:0;
+    background:#fff;
+  }
+
+  .tc-month-box h4{
+    margin:0 0 7px;
+    font-size:12px;
+    color:#172033;
+  }
+
+  .tc-month-list{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+
+  .tc-month-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:5px 7px;
+    border-radius:6px;
+    background:#f8fafc;
+    font-size:10px;
+  }
+
+  .tc-month-row span{
+    color:#475569;
+  }
+
+  .tc-month-row b{
+    min-width:22px;
+    text-align:center;
+    font-size:11px;
+  }
+
+  /* =========================
+     NOTES
+     ========================= */
+
+  .tc-note{
+    color:#64748b;
+    font-size:10px;
+    margin:0 0 9px;
+    line-height:1.4;
+  }
+
+  /* =========================
+     FINAL TABLE
+     ========================= */
+
+  .tc-final-table{
+    height:240px;
+    overflow-x:auto;
+    overflow-y:auto;
+    border:1px solid #e5e7eb;
+    border-radius:7px;
+  }
+
+  .tc-final-table table{
+    margin:0;
+  }
+
+  .tc-final-table thead th{
+    position:sticky;
+    top:0;
+    z-index:10;
+    background:#1e293b !important;
+    color:#ffffff !important;
+    font-weight:700;
+    border-bottom:1px solid #334155;
+  }
+
+  /* =========================
+     ERROR
+     ========================= */
+
+  .tc-error{
+    padding:10px;
+    background:#fee2e2;
+    color:#991b1b;
+    border-radius:7px;
+    margin-bottom:10px;
+    font-size:12px;
+  }
+
+  /* =========================
+     LARGE SCREENS
+     ========================= */
+
+  @media(min-width:1600px){
+
+    .tc-page{
+      zoom:1;
+    }
+
+  }
+
+  /* =========================
+     SMALL LAPTOP / TABLET
+     ========================= */
+
+  @media(max-width:1200px){
+
+    .tc-page{
+      zoom:0.88;
+      padding:10px;
+    }
+
+    .tc-kpis{
+      grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+    }
+
+    .tc-people-grid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .tc-performance-row{
+      grid-template-columns:minmax(0,1.35fr) minmax(180px,.8fr);
+    }
+
+  }
+
+  /* =========================
+     TABLET
+     ========================= */
+
+  @media(max-width:900px){
+
+    .tc-page{
+      zoom:1;
+    }
+
+    .person-kpis{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .tc-people-grid{
+      grid-template-columns:1fr;
+    }
+
+    .tc-performance-row{
+      grid-template-columns:1fr;
+    }
+
+    .tc-section-title{
+      flex-direction:column;
+    }
+
+    .tc-overall-stats{
+      justify-content:flex-start;
+    }
+
+    .tc-month-details{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .tc-head h1{
+      font-size:21px;
+    }
+
+    .tc-normal-bars{
+      justify-content:center;
+    }
+
+  }
+
+  /* =========================
+     MOBILE
+     ========================= */
+
+  @media(max-width:700px){
+
+    .tc-page{
+      padding:8px;
+      zoom:1;
+    }
+
+    .person-kpis{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+
+    .tc-head{
+      padding:13px;
+    }
+
+    .tc-head h1{
+      font-size:19px;
+    }
+
+    .tc-head p{
+      font-size:10px;
+    }
+
+    .tc-filter{
+      width:100%;
+    }
+
+    .tc-filter select,
+    .tc-filter button{
+      flex:1;
+    }
+
+    .tc-month{
+      padding:10px 12px;
+    }
+
+    .tc-month b{
+      font-size:16px;
+    }
+
+    .tc-kpis{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:7px;
+    }
+
+    .tc-kpi{
+      padding:9px;
+    }
+
+    .tc-kpi strong{
+      font-size:17px;
+    }
+
+    .tc-panel,
+    .tc-person{
+      padding:11px;
+      border-radius:8px;
+    }
+
+    .tc-people-grid{
+      grid-template-columns:1fr;
+    }
+
+    .tc-month-conversion-chart{
+      height:225px;
+    }
+
+    .tc-month-chart-bars{
+      height:145px;
+    }
+
+    .tc-month-chart-item{
+      flex-basis:68px;
+      min-width:68px;
+    }
+
+    .tc-month-details{
+      grid-template-columns:1fr;
+    }
+
+    .tc-final-table{
+      height:220px;
+    }
+
+    table{
+      min-width:700px;
+    }
+
+    .tc-person-head{
+      align-items:flex-start;
+    }
+
+    .tc-success{
+      width:100%;
+      text-align:center;
+    }
+
+  }
+
+/* =========================
+   INCENTIVE SCORECARD
+   ========================= */
+
+.tc-incentive-note{
+  border-left:4px solid #2563eb;
+}
+
+.tc-scorecard-tags{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.tc-scorecard-tags span{
+  padding:6px 9px;
+  border-radius:999px;
+  background:#eff6ff;
+  color:#2563eb;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.4px;
+}
+
+.tc-person .person-kpis{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+
+@media(max-width:900px){
+  .tc-scorecard-tags{
+    justify-content:flex-start;
+  }
+}

@@ -1,0 +1,600 @@
+/* =========================================================
+   FADE ANIMATION
+========================================================= */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.25s ease;
+}
+
+
+/* =========================================================
+   BANNER HEADER
+========================================================= */
+
+.banner-header {
+    position: sticky;
+    top: 0;
+    z-index: 99999;
+    isolation: isolate;
+}
+
+
+/* =========================================================
+   MOBILE MENU
+========================================================= */
+
+.mobile-link,
+.mobile-dropdown-btn {
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 12px 0;
+
+    color: white;
+    font-size: 15px;
+
+    border: none;
+    background: transparent;
+
+    text-decoration: none;
+
+    text-align: left;
+}
+
+.mobile-link {
+    justify-content: flex-start;
+}
+
+.mobile-dropdown-btn {
+    text-align: left;
+}
+
+
+/* Mobile submenu */
+
+.mobile-submenu {
+    margin-left: 15px;
+    margin-bottom: 10px;
+}
+
+.mobile-submenu a {
+    display: block;
+
+    color: #cbd5e1;
+
+    padding: 10px 0;
+
+    text-decoration: none;
+
+    text-align: left;
+}
+
+.mobile-submenu a:hover {
+    color: white;
+}
+
+
+/* Mobile nested submenu */
+
+.mobile-sub-btn {
+    padding-left: 20px;
+    color: #cbd5e1;
+
+    justify-content: space-between;
+}
+
+.mobile-submenu-inner {
+    margin-left: 30px;
+}
+
+.mobile-submenu-inner a {
+    display: block;
+
+    padding: 10px 0;
+
+    color: #94a3b8;
+
+    text-decoration: none;
+
+    text-align: left;
+}
+
+.mobile-submenu-inner a:hover {
+    color: white;
+}
+
+
+/* =========================================================
+   ROTATION
+========================================================= */
+
+.rotate-180 {
+    transform: rotate(180deg);
+}
+
+
+/* =========================================================
+   DESKTOP MENU POPUP
+========================================================= */
+
+.menu-popup {
+    position: absolute;
+
+    top: 56px;
+    left: 0;
+    right: auto;
+
+    width: 290px;
+
+    background: #ffffff;
+
+    border-radius: 14px;
+
+    border: 1px solid #e5e7eb;
+
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+
+    padding: 8px;
+
+    overflow: visible;
+
+    z-index: 99999;
+
+    animation: fadeIn 0.25s ease;
+}
+
+
+/* =========================================================
+   MAIN DESKTOP MENU ITEMS
+========================================================= */
+
+.menu-item,
+.menu-dropdown-btn {
+    width: 100%;
+
+    display: flex;
+
+    align-items: center;
+
+    padding: 12px 14px;
+
+    background: #ffffff;
+
+    border: none;
+
+    border-radius: 10px;
+
+    cursor: pointer;
+
+    color: #334155;
+
+    font-weight: 500;
+
+    font-size: 16px;
+
+    transition: 0.2s;
+
+    box-sizing: border-box;
+
+    text-align: left;
+}
+
+
+/* =========================================================
+   NORMAL MENU LINKS
+========================================================= */
+
+.menu-item {
+    justify-content: flex-start;
+
+    gap: 12px;
+
+    text-decoration: none;
+}
+
+
+/* =========================================================
+   DROPDOWN BUTTONS
+========================================================= */
+
+.menu-dropdown-btn {
+    justify-content: space-between;
+
+    gap: 8px;
+}
+
+
+/* =========================================================
+   ICON + TEXT GROUP
+========================================================= */
+
+.menu-dropdown-btn > span {
+    display: flex;
+
+    align-items: center;
+
+    justify-content: flex-start;
+
+    gap: 12px;
+
+    flex: 1;
+
+    min-width: 0;
+
+    text-align: left;
+}
+
+
+/* Icons */
+
+.menu-item > svg,
+.menu-dropdown-btn > span > svg {
+    flex-shrink: 0;
+}
+
+
+/* =========================================================
+   DROPDOWN ARROW
+========================================================= */
+
+.menu-dropdown-btn > svg {
+    flex-shrink: 0;
+
+    margin-left: auto;
+}
+
+
+/* =========================================================
+   HOVER
+========================================================= */
+
+.menu-item:hover,
+.menu-dropdown-btn:hover {
+    background: #f1f5f9;
+}
+
+
+/* =========================================================
+   ACTIVE MENU
+========================================================= */
+
+.active-menu {
+    background: #fee2e2;
+
+    color: #b91c1c;
+}
+
+
+/* =========================================================
+   SUBMENU PARENT
+========================================================= */
+
+.submenu-parent {
+    position: relative;
+}
+
+
+/* =========================================================
+   FIRST LEVEL FLYOUT
+========================================================= */
+
+.menu-flyout {
+    position: absolute;
+
+    left: 100%;
+    top: 0;
+
+    margin-left: 8px;
+
+    width: 240px;
+
+    background: #ffffff;
+
+    border: 1px solid #e5e7eb;
+
+    border-radius: 12px;
+
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+
+    padding: 8px;
+
+    z-index: 999999;
+
+    animation: fadeIn 0.2s ease;
+}
+
+
+/* =========================================================
+   FIRST LEVEL FLYOUT LINKS
+========================================================= */
+
+.menu-flyout a {
+    display: block;
+
+    width: 100%;
+
+    padding: 10px 12px;
+
+    border-radius: 8px;
+
+    color: #475569;
+
+    text-decoration: none;
+
+    text-align: left;
+
+    box-sizing: border-box;
+
+    transition: 0.2s;
+}
+
+
+.menu-flyout a:hover {
+    background: #eff6ff;
+
+    color: #0f4c81;
+}
+
+
+/* =========================================================
+   SECOND LEVEL SUBMENU
+========================================================= */
+
+.menu-submenu-inner {
+    position: absolute;
+
+    left: 100%;
+    top: 0;
+
+    margin-left: 8px;
+
+    width: 220px;
+
+    background: #ffffff;
+
+    border: 1px solid #e5e7eb;
+
+    border-radius: 12px;
+
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+
+    padding: 8px;
+
+    z-index: 1000000;
+
+    animation: fadeIn 0.2s ease;
+}
+
+
+/* =========================================================
+   SECOND LEVEL LINKS
+========================================================= */
+
+.menu-submenu-inner a {
+    display: block;
+
+    width: 100%;
+
+    padding: 10px 12px;
+
+    border-radius: 8px;
+
+    color: #475569;
+
+    text-decoration: none;
+
+    text-align: left;
+
+    box-sizing: border-box;
+
+    transition: 0.2s;
+}
+
+
+.menu-submenu-inner a:hover {
+    background: #eff6ff;
+
+    color: #0f4c81;
+}
+
+
+/* =========================================================
+   ACTIVE SECOND LEVEL
+========================================================= */
+
+.active-submenu {
+    background: #dbeafe;
+
+    color: #0f4c81 !important;
+
+    font-weight: 600;
+}
+
+
+/* =========================================================
+   MOBILE RESPONSIVE
+========================================================= */
+
+@media (max-width: 1023px) {
+
+    .menu-popup {
+        display: none;
+    }
+
+}
+
+
+/* =========================================================
+   SMALL MOBILE DEVICES
+========================================================= */
+
+@media (max-width: 480px) {
+
+    .mobile-link,
+    .mobile-dropdown-btn {
+        font-size: 14px;
+
+        padding: 10px 0;
+    }
+
+    .mobile-submenu {
+        margin-left: 12px;
+    }
+
+    .mobile-submenu-inner {
+        margin-left: 24px;
+    }
+
+}
+
+
+/* =========================================================
+   DESKTOP SUBMENU
+========================================================= */
+
+.menu-flyout > a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  white-space: nowrap;
+  padding: 10px 16px;
+  text-decoration: none;
+  color: #475569;
+  font-size: 15px;
+  line-height: 1.2;
+  transition: all 0.2s ease;
+}
+
+.menu-flyout > a svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.menu-flyout > a:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+
+/* =========================================================
+   NESTED KSEB DIRECTORY SUBMENU
+========================================================= */
+
+.menu-submenu-inner > a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  white-space: nowrap;
+  padding: 8px 14px;
+  text-decoration: none;
+  color: #475569;
+  font-size: 14px;
+}
+
+.menu-submenu-inner > a svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.menu-submenu-inner > a:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+
+/* =========================================================
+   MOBILE SUBMENU
+========================================================= */
+
+.mobile-submenu > a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  white-space: nowrap;
+  padding: 9px 12px;
+  text-decoration: none;
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+.mobile-submenu > a svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.mobile-submenu > a:hover {
+  color: white;
+  background: #1e293b;
+}
+
+
+/* =========================================================
+   MOBILE NESTED SUBMENU
+========================================================= */
+
+.mobile-submenu-inner > a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  white-space: nowrap;
+  padding: 8px 12px;
+  text-decoration: none;
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+.mobile-submenu-inner > a svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.menu-dropdown-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.menu-dropdown-btn > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.mobile-dropdown-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.mobile-dropdown-btn > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}

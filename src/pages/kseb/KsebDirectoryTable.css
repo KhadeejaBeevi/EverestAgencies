@@ -1,0 +1,94 @@
+.table-container{
+  width:100%;
+  overflow-x:auto;
+  margin-top:20px;
+}
+
+.kseb-directory-container {
+    width: 100%;
+    min-height: 100vh;
+    padding: 20px;
+    box-sizing: border-box;
+    overflow-x: auto;
+}
+.kseb-table{
+  width:100%;
+  border-collapse:collapse;
+  background:white;
+}
+
+.kseb-table th{
+  background:#0f172a;
+  color:white;
+  padding:12px;
+  font-size:14px;
+  text-align:left;
+}
+
+.kseb-table td{
+  padding:10px;
+  border:1px solid #ddd;
+  font-size:14px;
+}
+
+.kseb-table tr:nth-child(even){
+  background:#f8fafc;
+}
+
+.kseb-table tr:hover{
+  background:#e2e8f0;
+}
+
+.decision-maker-cell {
+    min-width: 220px;
+    line-height: 1.4;
+}
+
+.decision-maker-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.designation {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2563eb;
+}
+
+.last-updated {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* Mobile layout */
+@media (max-width: 768px) {
+  .kseb-directory-container {
+    padding: 10px;
+    min-height: auto;
+  }
+
+  .table-container {
+    margin-top: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kseb-table {
+    min-width: 900px;
+  }
+
+  .kseb-table th,
+  .kseb-table td {
+    padding: 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .decision-maker-cell {
+    min-width: 180px;
+    white-space: normal;
+  }
+}

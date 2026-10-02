@@ -1,0 +1,100 @@
+/* Ensure the page has no margin or padding */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+}
+
+/* Red banner styles */
+.red-banner {
+  width: 100vw; /* Full viewport width */
+  background-color: red;
+  height: 60px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.hamburger-container {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 24px;
+  cursor: pointer;
+  color: white;
+  background-color: rgba(255, 255, 255, 0.15);
+  padding: 8px 12px;
+  border-radius: 8px;
+  transition: background-color 0.3s ease;
+  z-index: 1001;
+}
+
+.hamburger-container:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+
+
+.banner-logo {
+  height: 40px;
+}
+
+.dropdown-bboxmenu {
+  position: absolute;
+  top: 45px;
+  left: 50%;
+  transform: translateX(-10%);
+  background-color: #ffffff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  width: 160px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  animation: fadeInY 0.3s ease-in-out;
+  z-index: 1000;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+   padding: 12px 0;
+}
+
+@keyframes fadeInY {
+  from {
+    opacity: 0;
+    transform: translateX(-10%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-10%) translateY(0);
+  }
+}
+
+.dropdown-menu a {
+  display: block;
+  padding: 14px 18px;
+  color: #c90000;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  transition: background-color 0.25s, color 0.25s;
+}
+
+.dropdown-menu a:hover {
+  background-color: #ffe5e5; /* Light red background */
+  color: #b00000; /* Darker red */
+}
+
+
+@media (max-width: 600px) {
+  .red-banner { height: 54px; }
+  .hamburger-container { left: 10px; font-size: 20px; padding: 6px 9px; }
+  .banner-logo { height: 34px; max-width: 150px; object-fit: contain; }
+  .dropdown-bboxmenu { width: 180px; left: 10px; transform: none; top: 42px; }
+  .dropdown-menu a { padding: 12px 14px; font-size: 14px; }
+}

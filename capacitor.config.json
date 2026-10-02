@@ -1,0 +1,9 @@
+{
+  "appId": "com.everestagencies.app",
+  "appName": "Everest Agencies",
+  "webDir": "dist",
+  "server": {
+    "url": "https://app.everestagencies.com",
+    "cleartext": false
+  }
+}

@@ -1,0 +1,201 @@
+.call-container {
+  max-width: 900px;
+  margin: 40px auto;
+  background: #ffffff;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+.call-title {
+  text-align: center;
+  margin-bottom: 25px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #333;
+}
+
+.call-form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group.full-width {
+  grid-column: span 2;
+}
+
+.form-group label {
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #555;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: #007bff;
+  outline: none;
+}
+
+.form-group textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 25px;
+}
+
+/* Both buttons take equal space */
+.button-group button {
+  
+  padding: 12px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+/* Save button */
+.save-btn {
+  background: #348101ab;
+  color: #fff;
+}
+
+.save-btn:hover {
+  background: #026d0b;
+}
+
+/* Cancel button */
+.cancel-btn {
+  background: #e42020;
+  color: #dacece;
+}
+
+.cancel-btn:hover {
+  background: #860101;
+}
+.call-header {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+
+.call-header h2 {
+  margin-bottom: 10px;
+  color: #222;
+}
+
+.call-header p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+.remarks-history {
+  max-height: 250px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fafafa;
+  margin-bottom: 15px;
+}
+
+.remark-item {
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+}
+
+.remark-item:last-child {
+  border-bottom: none;
+}
+
+.remark-header {
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 5px;
+}
+
+.remark-status {
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: #0b63c5;
+}
+
+.remark-text {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+
+/* Mobile layout */
+@media (max-width: 768px) {
+  .call-container {
+    width: calc(100% - 20px);
+    margin: 16px auto;
+    padding: 16px;
+    border-radius: 10px;
+  }
+
+  .call-title {
+    font-size: 20px;
+    margin-bottom: 18px;
+  }
+
+  .call-form {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .form-group.full-width {
+    grid-column: span 1;
+  }
+
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    font-size: 16px;
+    min-height: 42px;
+  }
+
+  .form-group textarea {
+    min-height: 100px;
+  }
+
+  .button-group {
+    flex-direction: column;
+  }
+
+  .button-group button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .call-header {
+    padding: 12px;
+  }
+
+  .remarks-history {
+    max-height: 300px;
+  }
+}

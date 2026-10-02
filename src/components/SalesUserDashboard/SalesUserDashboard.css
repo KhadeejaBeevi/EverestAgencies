@@ -1,0 +1,358 @@
+/* ================= MAIN CONTAINER ================= */
+
+.sales-dashboard-container {
+  min-height: 100vh;
+  background: #f5f7fb;
+}
+
+/* ================= CONTENT ================= */
+
+.sales-dashboard-content {
+  width: 100%;
+  
+
+  margin: auto;
+
+  padding: 24px 32px;
+}
+
+/* ================= HERO SECTION ================= */
+
+.sales-hero-section {
+  background: #0f4c81;
+
+  border-radius: 22px;
+
+  padding: 24px 28px;
+
+  color: white;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  gap: 20px;
+
+  box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+}
+
+/* LEFT */
+
+.sales-hero-left {
+  flex: 1;
+}
+
+.sales-hero-left h1 {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.sales-hero-left p {
+  margin-top: 8px;
+
+  color: #bfdbfe;
+
+  font-size: 15px;
+
+  line-height: 1.5;
+
+  max-width: 500px;
+}
+
+/* ================= PROFILE CARD ================= */
+
+.sales-profile-mini-card {
+  width: 300px;
+
+  background: rgba(255,255,255,0.12);
+
+  backdrop-filter: blur(10px);
+
+  border-radius: 18px;
+
+  padding: 18px;
+}
+
+.sales-profile-top {
+  display: flex;
+  align-items: center;
+
+  gap: 14px;
+}
+
+.sales-avatar {
+  width: 58px;
+  height: 58px;
+
+  border-radius: 50%;
+
+  background: white;
+  color: #0f4c81;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.sales-profile-top h3 {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.sales-profile-top p {
+  color: #bfdbfe;
+  font-size: 13px;
+}
+
+.sales-profile-info {
+  margin-top: 14px;
+}
+
+.sales-profile-info p {
+  margin-bottom: 7px;
+  font-size: 13px;
+
+  color: #fff;
+}
+
+/* ================= KPI GRID ================= */
+
+.kpi-grid {
+  margin-top: 22px;
+
+  display: grid;
+
+  grid-template-columns: repeat(3, 1fr);
+
+  gap: 14px;
+}
+
+/* ================= KPI CARD ================= */
+
+.kpi-card {
+  border-radius: 18px;
+
+  padding: 18px 20px;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  color: white;
+
+  height:200px;
+  width:500px;
+border-color: #111827;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+
+  transition: 0.2s ease;
+}
+
+.kpi-card:hover {
+  transform: translateY(-3px);
+}
+
+/* COLORS */
+
+.red-card {
+  background: #f1f0f0;
+}
+
+.green-card {
+  background:  #f1f0f0;
+}
+
+.blue-card {
+  background:  #f1f0f0;
+}
+
+/* KPI NUMBER */
+
+.kpi-card h2 {
+  font-size: 52px;   /* increased */
+  font-weight: 800;
+  color: #0b3b63;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+
+/* KPI TITLE */
+
+.kpi-card p {
+  font-size: 20px;   /* increased */
+  color: #374151;
+  font-weight: 700;
+}
+
+/* KPI ICON */
+
+.kpi-card span {
+  font-size: 52px;   /* increased */
+  z-index: 2;
+}
+
+/* ================= QUICK ACCESS ================= */
+
+.quick-access-section {
+  margin-top: 28px;
+}
+
+.quick-access-section h2 {
+  font-size: 24px;
+  font-weight: 700;
+
+  color: #111827;
+
+  margin-bottom: 16px;
+}
+
+/* ================= QUICK GRID ================= */
+
+.quick-grid {
+  display: grid;
+
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
+
+  gap: 16px;
+}
+
+/* ================= QUICK CARD ================= */
+
+.quick-card {
+  background: white;
+
+  border-radius: 20px;
+
+  padding: 20px;
+
+  min-height: 160px;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+border-color: #111827;
+  transition: 0.2s ease;
+}
+
+.quick-card:hover {
+  transform: translateY(-4px);
+
+  box-shadow: 0 10px 18px rgba(0,0,0,0.08);
+}
+
+/* TEXT */
+
+.quick-card h3 {
+  font-size: 34px;   /* increased */
+  font-weight: 700;
+  color: #0b3b63;
+}
+
+/* QUICK CARD DESCRIPTION */
+
+.quick-card p {
+  margin-top: 12px;
+
+  font-size: 18px;   /* increased */
+  line-height: 1.7;
+
+  color: #6b7280;
+
+  max-width: 260px;
+}
+
+/* BUTTON */
+
+.quick-card button {
+  margin-top: 16px;
+
+  background: #0b3b63;
+
+  color: white;
+
+  border: none;
+
+  padding: 10px 18px;
+
+  border-radius: 12px;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: 0.2s ease;
+}
+
+.quick-card button:hover {
+  background: #1d4ed8;
+}
+
+/* ================= ICON ================= */
+
+.quick-icon {
+  width: 58px;
+  height: 58px;
+
+  border-radius: 16px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 26px;
+}
+
+.quick-icon.red {
+  background: #fee2e2;
+}
+
+/* ================= MOBILE ================= */
+
+@media (max-width: 900px) {
+
+  .sales-hero-section {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .sales-profile-mini-card {
+    width: 100%;
+  }
+
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+
+  .sales-dashboard-content {
+    padding: 14px;
+  }
+
+  .sales-hero-section {
+    padding: 20px;
+  }
+
+  .sales-hero-left h1 {
+    font-size: 24px;
+  }
+
+  .sales-hero-left p {
+    font-size: 14px;
+  }
+
+  .quick-card {
+    min-height: auto;
+  }
+}

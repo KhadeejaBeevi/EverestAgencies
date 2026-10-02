@@ -1,0 +1,73 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React / Vite
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# PHP / Composer
+vendor/
+
+# Android signing keys - NEVER upload
+*.jks
+*.keystore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Zip files
+*.zip
+
+# Android signing/config
+android/key.properties
+*.jks
+*.keystore
+
+# PHP sensitive/local configuration
+serverphp/db.php
+serverphp/db_config.php
+
+# Debug / temporary data
+serverphp/debug_*.txt
+serverphp/debug_*.xml
+serverphp/test*.php
+serverphp/tester.php
+
+# Tally/local data
+serverphp/*.xml
+
+# Database dumps
+serverphp/**/*.sql
+
+# Excel/data exports
+serverphp/**/*.xlsx
+serverphp/outputs/
+
+# Uploaded user/customer documents
+serverphp/uploads/
+
+# Temporary/generated files
+serverphp/enquiry_uploads/
+serverphp/expense_bills/
+
+serverphp/reminderkseb.php
+serverphp/chat.php
+
+zip
+

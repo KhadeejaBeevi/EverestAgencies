@@ -1,0 +1,180 @@
+
+.main-content {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  background-color: aqua;
+}
+.dashboard-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.dashboard-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 🧭 Centered heading with spacing */
+
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;                   /* increase spacing between icon and text */
+  width: 100%;
+  padding: 10px;          /* increase padding for height and horizontal spacing */
+  color: #0f4c81;
+  text-decoration: none;
+  font-weight: 500;            /* slightly bolder font */
+  transition: background-color 0.2s, color 0.2s, font-weight 0.2s;
+  box-sizing: border-box;
+  margin-bottom: 8px;          /* more gap between links */
+  font-size: 16px;             /* larger text */
+  text-align: left;            /* correct alignment (center was incorrect for flex layout) */
+  border-radius: 6px;          /* optional: smooth look */
+  flex-direction: column;
+
+}
+
+
+
+
+.sidebar-link:last-child {
+  margin-bottom: 0;         /* no margin after last link */
+}
+
+.sidebar-link:not(.active):hover {
+  background-color: whitesmoke;
+  color: #0f4c81;
+}
+
+.sidebar-link.active {
+  font-weight: bold;
+  background-color: #0f4c81;
+  color: white;
+}
+
+.sidebar-link.active:hover {
+  background-color: #0b3b63;
+  color: white;
+}
+
+
+.sidebar {
+  background-color: rgb(56, 51, 51);
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.2);
+  transition: width 0.3s ease;
+  width: 220px;
+  min-width: 60px;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar.collapsed {
+  width: 60px;
+}
+
+/* Sidebar links */
+.sidebar-links {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Main content */
+main {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+  }
+
+  .sidebar.collapsed {
+    width: 60px;
+  }
+}
+
+.sidebar.collapsed {
+  width: 1005;
+}
+
+
+/* Top section: toggle + title */
+.sidebar-top {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start; /* aligns items to top */
+  justify-content: space-between;
+  padding: 0 1rem;
+  height: 60px; /* Optional: fix height to control layout */
+  position: relative;
+  width: 100%;
+}
+
+
+
+.sidebar h2 {
+  margin: 0;
+  padding: 1rem 0;
+  font-size: 16px;
+  color: white;
+  border-bottom: none; /* Optional: remove the bottom border now that it's not centered */
+}
+
+.collapse-toggle {
+  background-color: rgb(56, 51, 51);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-weight: bold;
+  margin-top: 10px; /* increase this to move it lower */
+  transition: background-color 0.2s;
+  padding: 0;
+}
+
+
+/* Button */
+.collapse-toggle:hover {
+  background-color: #0b3b63;
+}
+
+/* Links area */
+.sidebar-links {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.sidebar.collapsed {
+  width: auto;
+  padding: 0.5rem;
+}
+.sidebar.collapsed .sidebar-link {
+  font-size: 0; /* hide text */
+  padding: 12px;
+  justify-content: center;
+}
+.sidebar.collapsed .sidebar-link span {
+  display: none; /* hide label text */
+}
+
+
+.sidebar.collapsed .sidebar-link::before {
+  font-size: 18px;
+}
+.sidebar-icon {
+  font-size: 20px;
+  stroke-width: 2;
+}
+

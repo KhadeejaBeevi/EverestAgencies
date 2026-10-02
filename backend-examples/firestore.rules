@@ -1,0 +1,23 @@
+// Starting point. ADJUST: I assumed roles/{uid}.role == "admin" is your admin marker.
+// Add a rule block for EVERY other collection you use, because anything unmatched is denied.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // Users may read their OWN role/permissions; only admins may change them.
+    match /roles/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+    match /PagePermissions/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+  }
+}
