@@ -1049,113 +1049,48 @@ function getNextEnquiryNumber($pdo)
 
 
 function getBaseUrl()
-
-
-
 {
 
-
-
-
-
-
-
     $https =
-
-
-
         (!empty($_SERVER["HTTPS"]) &&
-
-
-
-        $_SERVER["HTTPS"] !== "off");
-
-
-
-
-
-
-
-
-
+        $_SERVER["HTTPS"] !== "off") ||
+        strtolower($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? "") === "https" ||
+        (int)($_SERVER["SERVER_PORT"] ?? 0) === 443;
 
 
     $protocol =
-
-
-
         $https
-
-
-
             ? "https"
-
-
-
             : "http";
 
 
-
-
-
-
-
-
-
-
-
     $host =
-
-
-
         $_SERVER["HTTP_HOST"] ??
-
-
-
         "localhost";
 
 
+    /*
+       Use the folder this script actually runs from, so the URL is
+       correct on localhost (/everest/serverphp) and on hosting (/serverphp).
+    */
 
-
-
-
-
-
-
+    $scriptDir =
+        str_replace(
+            "\\",
+            "/",
+            dirname(
+                $_SERVER["SCRIPT_NAME"] ?? "/serverphp/enquiry_report.php"
+            )
+        );
 
 
     return
-
-
-
         $protocol .
-
-
-
         "://" .
-
-
-
         $host .
-
-
-
-        "/everest/serverphp";
-
-
-
-
-
-
+        rtrim($scriptDir, "/");
 
 }
-
-
-
-
-
-
-
 
 
 
@@ -2593,6 +2528,42 @@ function deleteAttachmentFile(
 
 
 /* =========================================================
+   NORMALIZE ATTACHMENT URLS
+   Old records store "http://localhost/everest/serverphp/...".
+   Always rebuild the URL from stored_name for the current server.
+========================================================= */
+
+function normalizeAttachmentUrls($attachments)
+{
+
+    foreach ($attachments as &$file) {
+
+        if (
+            is_array($file) &&
+            !empty($file["stored_name"])
+        ) {
+
+            $file["file_url"] =
+                getBaseUrl() .
+                "/enquiry_uploads/" .
+                rawurlencode(
+                    basename($file["stored_name"])
+                );
+
+        }
+
+    }
+
+    unset($file);
+
+    return $attachments;
+
+}
+
+
+
+
+/* =========================================================
 
 
 
@@ -2680,7 +2651,7 @@ function parseAttachments(
 
 
 
-        return $value;
+        return normalizeAttachmentUrls($value);
 
 
 
@@ -2744,7 +2715,7 @@ function parseAttachments(
 
 
 
-        return $decoded;
+        return normalizeAttachmentUrls($decoded);
 
 
 
@@ -3179,6 +3150,10 @@ if (
 
 
                 sales_order_no,
+
+
+
+                remarks,
 
 
 
@@ -3898,6 +3873,30 @@ if (
 
 
 
+        $remarks =
+
+
+
+            trim(
+
+
+
+                $_POST["remarks"] ??
+
+
+
+                ""
+
+
+
+            );
+
+
+
+
+
+
+
 
 
 
@@ -4211,6 +4210,10 @@ if (
 
 
             "Email",
+
+
+
+            "SMS",
 
 
 
@@ -5114,6 +5117,18 @@ if (
 
 
 
+                    remarks =
+
+
+
+                        :remarks,
+
+
+
+
+
+
+
                     updated_at =
 
 
@@ -5338,6 +5353,18 @@ if (
 
 
 
+                ":remarks" =>
+
+
+
+                    $remarks,
+
+
+
+
+
+
+
                 ":id" =>
 
 
@@ -5439,6 +5466,10 @@ if (
 
 
                         sales_order_no,
+
+
+
+                        remarks,
 
 
 
@@ -5838,6 +5869,10 @@ if (
 
 
 
+                    remarks,
+
+
+
                     created_at,
 
 
@@ -5903,6 +5938,10 @@ if (
 
 
                     :sales_order_no,
+
+
+
+                    :remarks,
 
 
 
@@ -6114,7 +6153,19 @@ if (
 
 
 
-                    $salesOrderNo
+                    $salesOrderNo,
+
+
+
+
+
+
+
+                ":remarks" =>
+
+
+
+                    $remarks
 
 
 
@@ -6311,6 +6362,10 @@ if (
 
 
                     sales_order_no,
+
+
+
+                    remarks,
 
 
 
