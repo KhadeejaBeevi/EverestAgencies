@@ -13,6 +13,13 @@ import { apiFetch } from "../../api/apiClient";
 
 const API = "/serverphp";
 
+const API_ENDPOINTS = {
+    GET_TENDERS: `${API}/get_tenders.php`,
+    ADD_TENDER: `${API}/add_tender.php`,
+    UPDATE_TENDER: `${API}/update_tender.php`,
+    DELETE_TENDER: `${API}/delete_tender.php`,
+};
+
 const TenderDetails = () => {
     const [tenders, setTenders] = useState([]);
     const [search, setSearch] = useState("");
@@ -85,7 +92,7 @@ const TenderDetails = () => {
 
                 try {
                     const SPECIAL_UID =
-                        "Zj0y6xogiIQLiP0qnYWoHFSLGrf2";
+                        "Zj0y6xogiIQLiP0qnYWoHFGrf2";
 
                     if (user.uid === SPECIAL_UID) {
                         setAuthorized(true);
@@ -156,17 +163,50 @@ const TenderDetails = () => {
     |--------------------------------------------------------------------------
     | FETCH TENDERS
     |--------------------------------------------------------------------------
+    | NEWEST TIMESTAMP FIRST
+    |--------------------------------------------------------------------------
     */
 
     const fetchTenders = async () => {
         try {
             const res = await apiFetch(
-                `${API}/get_tenders.php`
+                API_ENDPOINTS.GET_TENDERS
             );
 
             const data = await res.json();
 
-            setTenders(data);
+            // Sort by timestamp - newest tender first
+            const sortedData = [...data].sort(
+                (a, b) => {
+                    const valueA =
+                        String(
+                            a.timestamp || ""
+                        ).trim();
+
+                    const valueB =
+                        String(
+                            b.timestamp || ""
+                        ).trim();
+
+                    const timeA =
+                        new Date(
+                            valueA.includes("T")
+                                ? valueA
+                                : valueA.replace(" ", "T")
+                        ).getTime();
+
+                    const timeB =
+                        new Date(
+                            valueB.includes("T")
+                                ? valueB
+                                : valueB.replace(" ", "T")
+                        ).getTime();
+
+                    return timeB - timeA;
+                }
+            );
+
+            setTenders(sortedData);
         } catch (err) {
             console.error(err);
         }
@@ -223,7 +263,6 @@ const TenderDetails = () => {
             .trim()
             .toLowerCase();
 
-        // Do not check until BOTH fields have values
         if (!officeName || !noticeNumber) {
             setDuplicateTender(null);
             return;
@@ -241,16 +280,6 @@ const TenderDetails = () => {
             )
                 .trim()
                 .toLowerCase();
-
-            /*
-            ---------------------------------------------------------------
-            IMPORTANT:
-
-            Duplicate ONLY when BOTH are same.
-
-            Same notice number + different office = NOT duplicate.
-            ---------------------------------------------------------------
-            */
 
             return (
                 existingOffice === officeName &&
@@ -290,12 +319,6 @@ const TenderDetails = () => {
             [name]: value,
         };
 
-        /*
-        ---------------------------------------------------------------
-        AUTO FILL EXECUTIVE EMAIL
-        ---------------------------------------------------------------
-        */
-
         if (name === "executive_name") {
             updatedTender = {
                 ...updatedTender,
@@ -309,12 +332,6 @@ const TenderDetails = () => {
         }
 
         setNewTender(updatedTender);
-
-        /*
-        ---------------------------------------------------------------
-        LIVE DUPLICATE CHECK
-        ---------------------------------------------------------------
-        */
 
         if (
             name ===
@@ -381,12 +398,6 @@ const TenderDetails = () => {
     const addTender = async (e) => {
         e.preventDefault();
 
-        /*
-        ---------------------------------------------------------------
-        FINAL FRONTEND DUPLICATE CHECK
-        ---------------------------------------------------------------
-        */
-
         const officeName = (
             newTender.tender_invited_kseb_office ||
             ""
@@ -442,12 +453,6 @@ const TenderDetails = () => {
             return;
         }
 
-        /*
-        ---------------------------------------------------------------
-        CREATE FORM DATA
-        ---------------------------------------------------------------
-        */
-
         const formData = new FormData();
 
         Object.keys(newTender).forEach(
@@ -470,15 +475,9 @@ const TenderDetails = () => {
             }
         );
 
-        /*
-        ---------------------------------------------------------------
-        SEND TO PHP
-        ---------------------------------------------------------------
-        */
-
         try {
             const res = await apiFetch(
-                `${API}/add_tender.php`,
+                API_ENDPOINTS.ADD_TENDER,
                 {
                     method: "POST",
                     body: formData,
@@ -487,12 +486,6 @@ const TenderDetails = () => {
 
             const result =
                 await res.json();
-
-            /*
-            -----------------------------------------------------------
-            PHP DUPLICATE CHECK
-            -----------------------------------------------------------
-            */
 
             if (result.duplicate) {
                 alert(
@@ -508,12 +501,6 @@ const TenderDetails = () => {
 
                 return;
             }
-
-            /*
-            -----------------------------------------------------------
-            SUCCESS
-            -----------------------------------------------------------
-            */
 
             if (result.success) {
                 alert(
@@ -532,12 +519,14 @@ const TenderDetails = () => {
                     quotation_notice_no:
                         "",
                     quotation_date: "",
-                    tender_item_data: "",
+                    tender_item_data:
+                        "",
                     quotation_submission_last_date:
                         "",
                     executive_name: "",
                     other_executive: "",
-                    tender_receipt_email: "",
+                    tender_receipt_email:
+                        "",
                     tender_dispatched_date:
                         "",
                     tender_everest_executive_email:
@@ -545,6 +534,7 @@ const TenderDetails = () => {
                     tender_photo: null,
                 });
 
+                // Re-fetch and sort newest timestamp first
                 fetchTenders();
             } else {
                 alert(
@@ -615,7 +605,7 @@ const TenderDetails = () => {
 
         try {
             const res = await apiFetch(
-                `${API}/delete_tender.php`,
+                API_ENDPOINTS.DELETE_TENDER,
                 {
                     method: "POST",
                     headers: {
@@ -658,7 +648,7 @@ const TenderDetails = () => {
     const updateTender = async (id) => {
         try {
             const res = await apiFetch(
-                `${API}/update_tender.php`,
+                API_ENDPOINTS.UPDATE_TENDER,
                 {
                     method: "POST",
                     headers: {
@@ -732,69 +722,222 @@ const TenderDetails = () => {
 
     /*
     |--------------------------------------------------------------------------
-    | GROUP TENDERS
+    | GROUP TENDERS BY TIMESTAMP
+    |--------------------------------------------------------------------------
+    | IMPORTANT:
+    | Timestamp is the master ordering.
+    | Newest timestamp appears first.
+    |
+    | Month and week are also based on timestamp so that
+    | the visual grouping cannot rearrange the timestamp order.
     |--------------------------------------------------------------------------
     */
 
-    const groupedTenders =
-        filteredTenders.reduce(
-            (acc, tender) => {
-                if (
-                    !tender.quotation_date
-                )
-                    return acc;
+    const groupedTenders = filteredTenders.reduce(
+        (acc, tender) => {
+            if (!tender.timestamp) {
+                return acc;
+            }
 
-                const date =
-                    new Date(
-                        tender.quotation_date
-                    );
+            const timestampValue =
+                String(tender.timestamp).trim();
 
-                const month =
-                    date.toLocaleString(
-                        "en-US",
-                        {
-                            month: "long",
-                            year: "numeric",
+            const timestampDate =
+                new Date(
+                    timestampValue.includes("T")
+                        ? timestampValue
+                        : timestampValue.replace(" ", "T")
+                );
+
+            if (isNaN(timestampDate.getTime())) {
+                return acc;
+            }
+
+            /*
+            ---------------------------------------------------------------
+            MONTH KEY
+            ---------------------------------------------------------------
+            */
+
+            const monthKey =
+                `${timestampDate.getFullYear()}-${String(
+                    timestampDate.getMonth() + 1
+                ).padStart(2, "0")}`;
+
+            const monthLabel =
+                timestampDate.toLocaleString(
+                    "en-US",
+                    {
+                        month: "long",
+                        year: "numeric",
+                    }
+                );
+
+            /*
+            ---------------------------------------------------------------
+            WEEK NUMBER
+            ---------------------------------------------------------------
+            */
+
+            const firstDay =
+                new Date(
+                    timestampDate.getFullYear(),
+                    timestampDate.getMonth(),
+                    1
+                );
+
+            const weekNumber =
+                Math.ceil(
+                    (
+                        timestampDate.getDate() +
+                        firstDay.getDay()
+                    ) / 7
+                );
+
+            const weekKey =
+                `Week ${weekNumber}`;
+
+            /*
+            ---------------------------------------------------------------
+            CREATE MONTH
+            ---------------------------------------------------------------
+            */
+
+            if (!acc[monthKey]) {
+                acc[monthKey] = {
+                    label: monthLabel,
+                    weeks: {},
+                };
+            }
+
+            /*
+            ---------------------------------------------------------------
+            CREATE WEEK
+            ---------------------------------------------------------------
+            */
+
+            if (
+                !acc[monthKey].weeks[
+                    weekKey
+                ]
+            ) {
+                acc[monthKey].weeks[
+                    weekKey
+                ] = [];
+            }
+
+            /*
+            ---------------------------------------------------------------
+            ADD TENDER
+            ---------------------------------------------------------------
+            */
+
+            acc[monthKey].weeks[
+                weekKey
+            ].push(tender);
+
+            return acc;
+        },
+        {}
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | SORT MONTHS — NEWEST FIRST
+    |--------------------------------------------------------------------------
+    */
+
+    const sortedMonths =
+        Object.entries(
+            groupedTenders
+        ).sort(
+            ([monthA], [monthB]) =>
+                monthB.localeCompare(monthA)
+        );
+
+    /*
+    |--------------------------------------------------------------------------
+    | SORT WEEKS + TENDERS — NEWEST FIRST
+    |--------------------------------------------------------------------------
+    */
+
+    sortedMonths.forEach(
+        ([, monthData]) => {
+            const sortedWeeks =
+                Object.entries(
+                    monthData.weeks
+                ).sort(
+                    ([weekA], [weekB]) => {
+                        const numberA =
+                            parseInt(
+                                weekA.replace(
+                                    "Week ",
+                                    ""
+                                ),
+                                10
+                            );
+
+                        const numberB =
+                            parseInt(
+                                weekB.replace(
+                                    "Week ",
+                                    ""
+                                ),
+                                10
+                            );
+
+                        return (
+                            numberB -
+                            numberA
+                        );
+                    }
+                );
+
+            monthData.weeks =
+                Object.fromEntries(
+                    sortedWeeks
+                );
+
+            Object.values(
+                monthData.weeks
+            ).forEach(
+                (weekTenders) => {
+                    weekTenders.sort(
+                        (a, b) => {
+                            const valueA =
+                                String(
+                                    a.timestamp || ""
+                                ).trim();
+
+                            const valueB =
+                                String(
+                                    b.timestamp || ""
+                                ).trim();
+
+                            const timeA =
+                                new Date(
+                                    valueA.includes("T")
+                                        ? valueA
+                                        : valueA.replace(" ", "T")
+                                ).getTime();
+
+                            const timeB =
+                                new Date(
+                                    valueB.includes("T")
+                                        ? valueB
+                                        : valueB.replace(" ", "T")
+                                ).getTime();
+
+                            return (
+                                timeB -
+                                timeA
+                            );
                         }
                     );
-
-                const firstDay =
-                    new Date(
-                        date.getFullYear(),
-                        date.getMonth(),
-                        1
-                    );
-
-                const week =
-                    Math.ceil(
-                        (
-                            date.getDate() +
-                            firstDay.getDay()
-                        ) / 7
-                    );
-
-                if (!acc[month]) {
-                    acc[month] = {};
                 }
-
-                if (
-                    !acc[month][
-                        `Week ${week}`
-                    ]
-                ) {
-                    acc[month][
-                        `Week ${week}`
-                    ] = [];
-                }
-
-                acc[month][
-                    `Week ${week}`
-                ].push(tender);
-
-                return acc;
-            },
-            {}
-        );
+            );
+        }
+    );
 
     /*
     |--------------------------------------------------------------------------
@@ -1305,17 +1448,15 @@ const TenderDetails = () => {
 
                         <tbody>
 
-                            {Object.entries(
-                                groupedTenders
-                            ).map(
+                            {sortedMonths.map(
                                 ([
-                                    month,
-                                    weeks,
+                                    monthKey,
+                                    monthData,
                                 ]) => (
 
                                     <React.Fragment
                                         key={
-                                            month
+                                            monthKey
                                         }
                                     >
 
@@ -1339,14 +1480,14 @@ const TenderDetails = () => {
                                                 }}
                                             >
                                                 {
-                                                    month
+                                                    monthData.label
                                                 }
                                             </th>
 
                                         </tr>
 
                                         {Object.entries(
-                                            weeks
+                                            monthData.weeks
                                         ).map(
                                             ([
                                                 week,
@@ -1721,12 +1862,10 @@ const TenderDetails = () => {
 
                     <div className="mobile-tender-list">
 
-                        {Object.entries(
-                            groupedTenders
-                        ).map(
+                        {sortedMonths.map(
                             ([
-                                month,
-                                weeks,
+                                monthKey,
+                                monthData,
                             ]) => (
 
                                 <React.Fragment
@@ -1737,12 +1876,12 @@ const TenderDetails = () => {
 
                                     <div className="mobile-month-header">
                                         {
-                                            month
+                                            monthData.label
                                         }
                                     </div>
 
                                     {Object.entries(
-                                        weeks
+                                        monthData.weeks
                                     ).map(
                                         ([
                                             week,
