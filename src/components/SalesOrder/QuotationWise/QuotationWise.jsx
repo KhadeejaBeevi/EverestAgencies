@@ -716,6 +716,9 @@ const QuotationWise = () => {
                 row?.EveInvMailingAdd ||
                 "",
 
+            // Phone number (walk-in customer number)
+            walkinCustNo: String(row?.walkin_cust_no || "").trim(),
+
             month: month || row?.month || row?.Month || "",
             quotationNo,
             orderNo: item?.order_no || row?.order_no || row?.OrderNo || "",
@@ -4661,6 +4664,11 @@ const QuotationWise = () => {
                                     <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", borderBottom: "1px solid #ddd" }}>
                                         <div style={labelStyle}>Address</div>
                                         <div style={valueStyle}>{selectedQuotation?.mailingAddress}</div>
+                                    </div>
+
+                                    <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", borderBottom: "1px solid #ddd" }}>
+                                        <div style={labelStyle}>Phone No</div>
+                                        <div style={valueStyle}>{selectedQuotation?.walkinCustNo || ""}</div>
                                     </div>
 
                                 </div>
