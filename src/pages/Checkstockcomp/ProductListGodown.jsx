@@ -19,7 +19,7 @@ function ProductList() {
 
   const loadProducts = async () => {
     try {
-      const res = await apiFetch("http://localhost/everest/serverphp/getProducts.php");
+      const res = await apiFetch("/serverphp/getProducts.php");
       const data = await res.json();
 
       const products = [];
@@ -60,7 +60,7 @@ function ProductList() {
     setUpdateMessage("🟡 Updating stock from Tally...");
 
     try {
-      const res = await apiFetch("http://localhost/everest/serverphp/updateProducts.php");
+      const res = await apiFetch("/serverphp/updateProducts.php");
 
       const text = await res.text();
 

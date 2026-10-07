@@ -1,0 +1,514 @@
+.ssv-page {
+  padding: 0 20px 20px;
+  color: #111827;
+}
+
+/* HEADER */
+
+.ssv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+
+.ssv-header h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.ssv-add-btn {
+  height: 45px;
+  padding: 0 24px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  background: #013d10;
+  color: #fff;
+  cursor: pointer;
+}
+
+.ssv-add-btn:hover {
+  background: #02551a;
+}
+
+/* FORM */
+
+.ssv-form {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+}
+
+.ssv-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.ssv-span-2 {
+  grid-column: span 2;
+}
+
+.ssv-span-3 {
+  grid-column: span 3;
+}
+
+.ssv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ssv-field label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.ssv-field input,
+.ssv-field select,
+.ssv-field textarea,
+.ssv-filters input {
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.ssv-field textarea {
+  height: 70px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.ssv-field input[readonly] {
+  background: #f3f4f6;
+}
+
+.ssv-hint {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* AUTOCOMPLETE */
+
+.ssv-autocomplete {
+  position: relative;
+}
+
+.ssv-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.ssv-suggestion {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.ssv-suggestion span {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.ssv-suggestion:hover {
+  background: #f0fdf4;
+}
+
+/* OLD / NEW STATUS */
+
+.ssv-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.ssv-status-old {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.ssv-status-new {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.ssv-prev-visits {
+  margin-left: auto;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.ssv-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ssv-badge-new {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.ssv-badge-old {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+/* CAMERA */
+
+.ssv-camera {
+  margin: 20px 0;
+  text-align: center;
+}
+
+.ssv-camera-preview {
+  width: 100%;
+  max-width: 480px;
+  border-radius: 12px;
+  background: #000;
+}
+
+.ssv-camera-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.ssv-camera-buttons button,
+.ssv-retry-btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  background: #0d6efd;
+  color: #fff;
+  cursor: pointer;
+}
+
+.ssv-retry-btn {
+  align-self: flex-start;
+  background: #f59e0b;
+}
+
+/* FORM ACTIONS */
+
+.ssv-form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.ssv-save-btn,
+.ssv-cancel-btn {
+  height: 44px;
+  padding: 0 24px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ssv-save-btn {
+  background: #013d10;
+  color: #fff;
+}
+
+.ssv-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ssv-cancel-btn {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+/* KPIs */
+
+.ssv-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ssv-kpi {
+  padding: 18px;
+  border-radius: 12px;
+  background: #fff;
+  border-left: 5px solid #6b7280;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.ssv-kpi h3 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.ssv-kpi p {
+  margin: 4px 0 0;
+  color: #4b5563;
+}
+
+.ssv-kpi-new {
+  border-left-color: #16a34a;
+}
+
+.ssv-kpi-old {
+  border-left-color: #2563eb;
+}
+
+/* EXECUTIVE SUMMARY */
+
+.ssv-summary {
+  margin-bottom: 20px;
+}
+
+.ssv-summary h3 {
+  margin: 0 0 10px;
+}
+
+.ssv-bar {
+  position: relative;
+  min-width: 120px;
+  height: 20px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.ssv-bar-fill {
+  height: 100%;
+  background: #16a34a;
+}
+
+.ssv-bar span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* FILTERS */
+
+.ssv-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.ssv-filters input[type="month"] {
+  width: 170px;
+}
+
+.ssv-filters .ssv-search {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ssv-tabs {
+  display: flex;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ssv-tabs button {
+  padding: 10px 16px;
+  border: none;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ssv-tabs button.active {
+  background: #013d10;
+  color: #fff;
+}
+
+/* TABLE */
+
+.ssv-table-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.ssv-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.ssv-table-wrap th,
+.ssv-table-wrap td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ssv-table-wrap th {
+  background: #013d10;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.ssv-thumb {
+  width: 70px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.ssv-muted {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.ssv-delete {
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.ssv-empty {
+  text-align: center;
+  color: #6b7280;
+  padding: 20px;
+}
+
+/* MOBILE CARDS */
+
+.ssv-mobile {
+  display: none;
+}
+
+.ssv-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.ssv-card p {
+  margin: 6px 0;
+  font-size: 14px;
+}
+
+.ssv-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ssv-card-top h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.ssv-card-image {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.ssv-card-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ssv-delete-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 900px) {
+  .ssv-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ssv-span-2,
+  .ssv-span-3 {
+    grid-column: span 1;
+  }
+
+  .ssv-desktop {
+    display: none;
+  }
+
+  .ssv-mobile {
+    display: block;
+  }
+}
+
+@media (max-width: 600px) {
+  .ssv-page {
+    padding: 0 12px 16px;
+  }
+
+  .ssv-header h2 {
+    font-size: 22px;
+  }
+
+  .ssv-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .ssv-filters input[type="month"],
+  .ssv-tabs {
+    width: 100%;
+  }
+
+  .ssv-tabs button {
+    flex: 1;
+  }
+}

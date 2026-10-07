@@ -1,4 +1,15 @@
 import jsPDF from "jspdf";
+// Letterhead: quotation_header.jpg next to this file if present (bundled by
+// Vite), otherwise public/quotation_header.jpg. A missing file never breaks
+// the build - the PDF is then made without the letterhead.
+const bundledHeaders = import.meta.glob("./quotation_header.{jpg,jpeg,png}", {
+    eager: true,
+    query: "?url",
+    import: "default"
+});
+const quotationHeaderUrl =
+    Object.values(bundledHeaders)[0] ||
+    `${import.meta.env.BASE_URL || "/"}quotation_header.jpg`;
 
 // =====================================================
 // QUOTATION PDF - same layout as the TallyPrime quotation
@@ -6,8 +17,8 @@ import jsPDF from "jspdf";
 // Fixed text printed on every quotation. Edit here when it changes.
 export const EVEREST_COMPANY = {
     name: "Everest Agencies",
-    // Letterhead (logo, address, "Suppliers of ..." line) - public/quotation_header.jpg
-    headerImageUrl: "/quotation_header.jpg",
+    // Letterhead (logo, address, "Suppliers of ..." line) - quotation_header.jpg
+    headerImageUrl: quotationHeaderUrl,
     terms: [
         ["Terms of Delivery", "READY STOCK/2 WEEKS"],
         ["Payment Terms", "IMMEDIATELY"],
@@ -26,8 +37,9 @@ export const EVEREST_COMPANY = {
 const PAGE = { width: 210, height: 297 };
 const BOX = { left: 9.3, right: 203.3, top: 45, bottom: 290 };
 const TITLE_BOTTOM = 52.5;
-const PARTY_BOTTOM = 71.7;
-const HEAD_BOTTOM = 81.9;
+// Party box holds the name plus four lines (address, GSTIN, mobile).
+const PARTY_BOTTOM = 76;
+const HEAD_BOTTOM = PARTY_BOTTOM + 10.2;
 const TOTAL_TOP = 253.5;
 const TOTAL_BOTTOM = 258.9;
 const FOOTER_COLS = [83.8, 159.5];
@@ -35,18 +47,22 @@ const BUYER_RIGHT = 76.8;
 const ORDER_LEFT = 141;
 const ROW_HEIGHT = 4.6;
 const LINE_HEIGHT = 3.6;
+const PARTY_LINES = 4;
+// Long godown names are wrapped in a smaller font to fit the narrow Gdn column.
+const GODOWN_FONT_SIZE = 6;
+const GODOWN_LINE_HEIGHT = 2.6;
 
 // Item table columns: left edge of each column, then the box right edge.
 const COLUMNS = [
     { key: "sl", title: ["Sl.", "No"], x: 9.3, align: "center" },
     { key: "description", title: ["Description of Goods"], x: 16.1, align: "left" },
-    { key: "hsn", title: ["HSN/SAC"], x: 109.0, align: "left" },
-    { key: "gst", title: ["GST", "%"], x: 124.8, align: "center" },
-    { key: "godown", title: ["Gdn"], x: 133.2, align: "center" },
-    { key: "qty", title: ["Qty"], x: 143.4, align: "right" },
-    { key: "rate", title: ["Rate"], x: 164.3, align: "right" },
-    { key: "disc", title: ["Disc", "%"], x: 178.4, align: "center" },
-    { key: "amount", title: ["Amount"], x: 188.6, align: "right" }
+    { key: "hsn", title: ["HSN/SAC"], x: 101.0, align: "left" },
+    { key: "gst", title: ["GST", "%"], x: 116.8, align: "center" },
+    { key: "godown", title: ["Gdn"], x: 125.2, align: "center" },
+    { key: "qty", title: ["Qty"], x: 135.4, align: "right" },
+    { key: "rate", title: ["Rate"], x: 157.4, align: "right" },
+    { key: "disc", title: ["Disc", "%"], x: 173.0, align: "center" },
+    { key: "amount", title: ["Amount"], x: 182.6, align: "right" }
 ];
 const COLUMN_RIGHT = (index) =>
     index + 1 < COLUMNS.length ? COLUMNS[index + 1].x : BOX.right;
@@ -57,9 +73,17 @@ let headerImageCache = null;
 const loadImage = async (url) => {
     try {
         const response = await fetch(url);
-        if (!response.ok) return null;
+        if (!response.ok) {
+            console.error(`Quotation header image not found (${response.status}): ${url}`);
+            return null;
+        }
 
         const blob = await response.blob();
+        // A missing file can come back as the app's index.html.
+        if (!blob.type.startsWith("image/")) {
+            console.error(`Quotation header is not an image (${blob.type}): ${url}`);
+            return null;
+        }
         const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result);
@@ -96,6 +120,38 @@ const formatQty = (quantity, unit) => {
     return unit ? `${text} ${unit}` : text;
 };
 
+// "225.00 mtr" and "225 MTR" are the same quantity.
+const sameQuantity = (a, b) => {
+    const parse = (text) => {
+        const match = String(text).trim().match(/^([\d,.]+)\s*(.*)$/);
+        return match
+            ? [Number(match[1].replace(/,/g, "")), match[2].trim().toLowerCase()]
+            : [NaN, String(text).trim().toLowerCase()];
+    };
+    const [numberA, unitA] = parse(a);
+    const [numberB, unitB] = parse(b);
+    return Number.isNaN(numberA) || Number.isNaN(numberB)
+        ? unitA === unitB
+        : numberA === numberB && unitA === unitB;
+};
+
+// Tally's quantity text: JasPriBillQty first, then JasSecBillQty in
+// brackets, e.g. ["225.00 mtr", "(2 coil)"]. Shown once when both are equal.
+const getItemQtyParts = (item) => {
+    const unit = String(item?.unit || "").trim();
+    const primaryText = String(item?.quantity_text || "").trim();
+    const secondary = String(item?.secondary_quantity_text || "").trim();
+
+    const primary = !primaryText
+        ? formatQty(item?.quantity, unit)
+        : /[a-z]/i.test(primaryText) || !unit
+            ? primaryText
+            : `${primaryText} ${unit}`;
+
+    if (!secondary || sameQuantity(primary, secondary)) return [primary];
+    return [primary, `(${secondary})`];
+};
+
 const formatPercent = (value) => {
     const number = Number(value || 0);
     if (!number) return "";
@@ -122,12 +178,14 @@ const getItemGst = (item) => {
     return Number(item?.value || 0) * Number(item?.gst_rate || 0) / 100;
 };
 
+// Temporary items ("TEMPRORY ITEM", "TEMPORARY ITEM MTR", "TEMP ITEM", ...)
+// print their temp_item_desc instead of the generic item name.
+const isTemporaryItemName = (name) => /^TEMP[A-Z]*\s+ITEM\b|^TEMP\b/.test(name.toUpperCase());
+
 const getItemName = (item) => {
     const name = String(item?.item_name || "").trim();
-    const upper = name.toUpperCase();
     const tempDesc = String(item?.temp_item_desc || "").trim();
-    const isTemporaryItem = upper === "TEMPRORY ITEM" || upper === "TEMPRORY ITEM MTR";
-    return isTemporaryItem && tempDesc ? `${name} (${tempDesc})` : name;
+    return isTemporaryItemName(name) && tempDesc ? tempDesc : name;
 };
 
 const getRowQuotationNo = (row) =>
@@ -149,6 +207,13 @@ const cellText = (doc, text, columnIndex, y) => {
     const left = column.x + COLUMN_PADDING;
     const right = COLUMN_RIGHT(columnIndex) - COLUMN_PADDING;
 
+    // Shrink text that is wider than its column so it never crosses a line.
+    const fontSize = doc.getFontSize();
+    const width = doc.getTextWidth(text);
+    if (width > right - left) {
+        doc.setFontSize(fontSize * (right - left) / width);
+    }
+
     if (column.align === "right") {
         doc.text(text, right, y, { align: "right" });
     } else if (column.align === "center") {
@@ -156,16 +221,30 @@ const cellText = (doc, text, columnIndex, y) => {
     } else {
         doc.text(text, left, y);
     }
+
+    doc.setFontSize(fontSize);
 };
 
 // "Label : value" lines with the colons lined up after the longest label.
-const drawLabelValues = (doc, rows, x, firstY, lineGap) => {
+// With maxRight, values longer than the space left are cut to one line.
+const drawLabelValues = (doc, rows, x, firstY, lineGap, maxRight) => {
     const valueX = x + Math.max(...rows.map(([label]) => doc.getTextWidth(label))) + 1.5;
     rows.forEach(([label, value], index) => {
         const y = firstY + index * lineGap;
+        const text = `: ${value || ""}`;
         doc.text(label, x, y);
-        doc.text(`: ${value || ""}`, valueX, y);
+        doc.text(maxRight ? doc.splitTextToSize(text, maxRight - valueX)[0] : text, valueX, y);
     });
+};
+
+// Address lines, then "PH: mobile" and GSTIN (when present), in PARTY_LINES
+// lines. The address is cut short first so phone and GSTIN always print.
+const getPartyLines = (doc, address, gstin, mobile, width) => {
+    const extraLines = [mobile ? `PH: ${mobile}` : "", gstin ? `GSTIN : ${gstin}` : ""].filter(Boolean);
+    const addressLines = address
+        ? doc.splitTextToSize(address.replace(/\s*,?\s*\n\s*/g, ", "), width)
+        : [];
+    return [...addressLines.slice(0, PARTY_LINES - extraLines.length), ...extraLines];
 };
 
 /**
@@ -208,7 +287,10 @@ const drawPageFrame = (doc, row, headerImage, { isLastPage, pageNumber, pageCoun
     ).trim();
     const buyerAddress = String(row?.mailing_address || row?.EveInvMailingAdd || "").trim();
     const buyerMobile = String(row?.walkin_cust_no || row?.mobile || "").trim();
-    const consignee = String(row?.party_name || row?.PartyLedgerName || "").trim();
+    const partyGstin = String(row?.party_gstin || row?.EvePartyGSTIN || "").trim();
+    const consignee = String(
+        row?.mailing_name || row?.EveInvMailingName || row?.party_name || row?.PartyLedgerName || ""
+    ).trim();
 
     let y = TITLE_BOTTOM + 4;
     setFont(doc, "bold", 9);
@@ -225,28 +307,42 @@ const drawPageFrame = (doc, row, headerImage, { isLastPage, pageNumber, pageCoun
         buyerY += LINE_HEIGHT;
     });
     setFont(doc, "normal", 8.5);
-    const buyerLines = [
-        ...doc.splitTextToSize(buyerAddress.replace(/\s*\n\s*/g, ", "), buyerWidth),
-        buyerMobile
-    ].filter(Boolean);
-    buyerLines.slice(0, 3).forEach((line) => {
+    getPartyLines(doc, buyerAddress, partyGstin, buyerMobile, buyerWidth).forEach((line) => {
         doc.text(line, BOX.left + 1.5, buyerY);
         buyerY += LINE_HEIGHT;
     });
 
-    // Consignee
+    // Consignee: ledger name, then the same address, GSTIN and mobile.
+    const consigneeWidth = ORDER_LEFT - BUYER_RIGHT - 3;
+    let consigneeY = y + LINE_HEIGHT;
     setFont(doc, "bold", 9);
-    doc.splitTextToSize(consignee, ORDER_LEFT - BUYER_RIGHT - 3).slice(0, 3).forEach((line, index) => {
-        doc.text(line, BUYER_RIGHT + 1.5, y + LINE_HEIGHT * (index + 1));
+    doc.splitTextToSize(consignee, consigneeWidth).slice(0, 1).forEach((line) => {
+        doc.text(line, BUYER_RIGHT + 1.5, consigneeY);
+        consigneeY += LINE_HEIGHT;
+    });
+    setFont(doc, "normal", 8.5);
+    getPartyLines(doc, buyerAddress, partyGstin, buyerMobile, consigneeWidth).forEach((line) => {
+        doc.text(line, BUYER_RIGHT + 1.5, consigneeY);
+        consigneeY += LINE_HEIGHT;
     });
 
-    // Order & Despatch details
+    // Order & Despatch details. Payment Terms and Other Reference always
+    // print; Salesman only when Tally has a value.
     setFont(doc, "normal", 8.5);
+    const optionalDetails = [
+        ["Salesman", String(row?.executive || row?.EveExecutive || "").trim()]
+    ].filter(([, value]) => value);
     const orderDetails = [
-        ["Payment Terms", String(row?.credit_days || "").trim()],
-        ["Other Reference", String(row?.reference || "").trim()]
+        // Tally's due date of payment (EveBasicDueDateOfPymt), else the credit period.
+        ["Payment Terms", String(
+            row?.payment_due_date || row?.EveBasicDueDateOfPymt ||
+            row?.payment_terms || row?.credit_days || ""
+        ).trim()],
+        // Tally's order reference (EveBasicOrderRef).
+        ["Other Reference", String(row?.order_ref || row?.EveBasicOrderRef || row?.reference || "").trim()],
+        ...optionalDetails
     ];
-    drawLabelValues(doc, orderDetails, ORDER_LEFT + 1.5, y + LINE_HEIGHT, LINE_HEIGHT);
+    drawLabelValues(doc, orderDetails, ORDER_LEFT + 1.5, y + LINE_HEIGHT, LINE_HEIGHT, BOX.right - 1);
 
     // ---- Item table header ----
     doc.line(BOX.left, HEAD_BOTTOM, BOX.right, HEAD_BOTTOM);
@@ -316,6 +412,10 @@ export const buildQuotationPdf = async (row) => {
     // ---------------- ITEM LINES ----------------
     const items = Array.isArray(row?.items) ? row.items : [];
     const descriptionWidth = COLUMN_RIGHT(1) - COLUMNS[1].x - COLUMN_PADDING * 2;
+    const godownIndex = COLUMNS.findIndex((column) => column.key === "godown");
+    const qtyIndex = COLUMNS.findIndex((column) => column.key === "qty");
+    const qtyWidth = COLUMN_RIGHT(qtyIndex) - COLUMNS[qtyIndex].x - COLUMN_PADDING * 2;
+    const godownWidth = COLUMN_RIGHT(godownIndex) - COLUMNS[godownIndex].x - COLUMN_PADDING * 2;
     setFont(doc, "normal", 8.5);
 
     let taxableTotal = 0;
@@ -327,16 +427,36 @@ export const buildQuotationPdf = async (row) => {
         gstTotal += getItemGst(item);
 
         const descriptionLines = doc.splitTextToSize(getItemName(item), descriptionWidth);
+
+        // Short godown codes (GD1) print normally; long names shrink and wrap.
+        const godown = String(item?.godown || "").trim();
+        const godownFontSize = doc.getTextWidth(godown) <= godownWidth ? 8.5 : GODOWN_FONT_SIZE;
+        setFont(doc, "normal", godownFontSize);
+        const godownLines = doc.splitTextToSize(godown, godownWidth);
+        setFont(doc, "normal", 8.5);
+
+        // Qty and the bracketed second qty share one line when they fit.
+        const qtyParts = getItemQtyParts(item);
+        const qtyLines = doc.getTextWidth(qtyParts.join(" ")) <= qtyWidth
+            ? [qtyParts.join(" ")]
+            : qtyParts;
+
         return {
             type: "item",
-            height: Math.max(1, descriptionLines.length) * ROW_HEIGHT,
+            height: Math.max(
+                Math.max(1, descriptionLines.length, qtyLines.length) * ROW_HEIGHT,
+                (godownLines.length - 1) * GODOWN_LINE_HEIGHT + ROW_HEIGHT
+            ),
+            qtyLines,
+            godownLines,
+            godownFontSize,
             cells: [
                 String(index + 1),
                 descriptionLines,
                 String(item?.hsn || ""),
                 formatPercent(item?.gst_rate),
-                String(item?.godown || ""),
-                formatQty(item?.quantity, String(item?.unit || "").trim()),
+                "", // godown - drawn separately from godownLines
+                "", // qty - drawn separately from qtyLines
                 money(item?.rate),
                 formatPercent(item?.discount),
                 money(value)
@@ -406,6 +526,18 @@ export const buildQuotationPdf = async (row) => {
                         cellText(doc, cell, columnIndex, y);
                     }
                 });
+
+                line.qtyLines.forEach((textLine, lineIndex) => {
+                    cellText(doc, textLine, qtyIndex, y + lineIndex * ROW_HEIGHT);
+                });
+
+                if (line.godownLines.length) {
+                    setFont(doc, "normal", line.godownFontSize);
+                    line.godownLines.forEach((textLine, lineIndex) => {
+                        cellText(doc, textLine, godownIndex, y + lineIndex * GODOWN_LINE_HEIGHT);
+                    });
+                    setFont(doc, "normal", 8.5);
+                }
             } else {
                 doc.text(line.label, COLUMN_RIGHT(1) - COLUMN_PADDING - 1, y, { align: "right" });
                 cellText(doc, line.amount, COLUMNS.length - 1, y);

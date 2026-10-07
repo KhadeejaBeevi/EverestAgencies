@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/api_auth.php';
+
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
@@ -20,7 +21,7 @@ $conn = new mysqli(
 if ($conn->connect_error) {
     echo json_encode([
         "success" => false,
-        "message" => "Database Connection Failed"
+        "message" => "Database Connection Failed: " . $conn->connect_error
     ]);
     exit();
 }
@@ -51,6 +52,7 @@ SELECT
     formula,
     order_received_status,
     comparison,
+    comparison_text,
     created_at,
     updated_at
 FROM tender_details
@@ -62,33 +64,123 @@ $result = $conn->query($sql);
 $tenders = [];
 
 if ($result) {
+
     while ($row = $result->fetch_assoc()) {
 
-   if (!empty($row["tender_photo"])) {
+        /*
+        |--------------------------------------------------------------------------
+        | TENDER PHOTO URL
+        |--------------------------------------------------------------------------
+        */
 
-    // GOOGLE DRIVE LINK
-    if (
-        strpos($row["tender_photo"], "drive.google.com") !== false
-    ) {
+        if (!empty($row["tender_photo"])) {
 
-        $row["tender_photo_url"] = $row["tender_photo"];
+            // GOOGLE DRIVE LINK
+            if (
+                strpos($row["tender_photo"], "drive.google.com") !== false
+            ) {
 
-    } else {
+                $row["tender_photo_url"] = $row["tender_photo"];
 
-        // LOCAL UPLOADED FILE
-        $row["tender_photo_url"] =
-            "http://localhost/everest/serverphp/uploads/tenders/" .
-            $row["tender_photo"];
+            } else {
+
+                // LOCAL UPLOADED FILE
+                $row["tender_photo_url"] =
+                    "http://localhost/everest/serverphp/uploads/tenders/" .
+                    $row["tender_photo"];
+            }
+
+        } else {
+
+            $row["tender_photo_url"] = "";
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | COMPARISON IMAGE URL
+        |--------------------------------------------------------------------------
+        */
+
+        if (!empty($row["comparison"])) {
+
+            // Google Drive comparison image
+            if (
+                strpos($row["comparison"], "drive.google.com") !== false
+            ) {
+
+                $row["comparison_url"] = $row["comparison"];
+
+            } else {
+
+                // If already starts with http
+                if (
+                    strpos($row["comparison"], "http://") === 0 ||
+                    strpos($row["comparison"], "https://") === 0
+                ) {
+
+                    $row["comparison_url"] = $row["comparison"];
+
+                } else {
+
+                    // Local comparison image
+                    $comparisonPath = ltrim(
+                        $row["comparison"],
+                        "/"
+                    );
+
+                    $row["comparison_url"] =
+                        "http://localhost/everest/serverphp/" .
+                        $comparisonPath;
+                }
+            }
+
+        } else {
+
+            $row["comparison_url"] = "";
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | COMPARISON TEXT
+        |--------------------------------------------------------------------------
+        |
+        | This comes directly from:
+        | tender_details.comparison_text
+        |
+        */
+
+        $row["comparison_text"] =
+            $row["comparison_text"] ?? "";
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | ADD TENDER
+        |--------------------------------------------------------------------------
+        */
+
+        $tenders[] = $row;
     }
 
 } else {
 
-    $row["tender_photo_url"] = "";
+    echo json_encode([
+        "success" => false,
+        "message" => "Query Failed: " . $conn->error
+    ]);
+
+    $conn->close();
+    exit();
 }
 
-        $tenders[] = $row;
-    }
-}
+
+/*
+|--------------------------------------------------------------------------
+| RETURN DATA
+|--------------------------------------------------------------------------
+*/
 
 echo json_encode($tenders);
 

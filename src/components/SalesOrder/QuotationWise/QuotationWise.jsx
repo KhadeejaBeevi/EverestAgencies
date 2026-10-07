@@ -6,6 +6,11 @@ import { onAuthStateChanged } from "firebase/auth";
 import "./QuotationWise.css";
 import { apiFetch } from "../../../api/apiClient";
 import * as XLSX from "xlsx";
+import {
+    downloadQuotationPdf,
+    getQuotationPdfBlob,
+    getQuotationPdfFileName
+} from "./QuotationPdf.jsx";
 
 
 const API = "/serverphp";
@@ -115,6 +120,15 @@ const QuotationWise = () => {
     const [whatsappQueue, setWhatsappQueue] = useState([]);
     const [whatsappQueueIndex, setWhatsappQueueIndex] = useState(0);
     const [whatsappQueueSkipped, setWhatsappQueueSkipped] = useState(0);
+
+    // Quotation PDFs for the WhatsApp queue, by getWhatsappRowKey(row).
+    // The next customer's PDF is built BEFORE the button is clicked, so one
+    // click can download it and open WhatsApp (browsers only allow both
+    // directly from a click). The user then attaches the downloaded PDF.
+    const [whatsappPdfBlobs, setWhatsappPdfBlobs] = useState({});
+    const [whatsappPdfStatus, setWhatsappPdfStatus] = useState({ key: "", loading: false, error: "" });
+    const [whatsappPdfRetry, setWhatsappPdfRetry] = useState(0);
+    const [pdfDownloading, setPdfDownloading] = useState("");
 
     useEffect(() => {
         try {
@@ -1725,6 +1739,32 @@ const QuotationWise = () => {
         );
     };
 
+    // Save an already built PDF. Synchronous, so it still counts as part of
+    // the user's click.
+    const saveBlob = (blob, fileName) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
+
+    const handleDownloadQuotationPdf = async (row) => {
+        const quotationNo = getQuotationNo(row);
+        setPdfDownloading(quotationNo);
+        try {
+            await downloadQuotationPdf(row);
+        } catch (error) {
+            console.error("Quotation PDF error:", error);
+            alert("Unable to create the quotation PDF.");
+        } finally {
+            setPdfDownloading("");
+        }
+    };
+
     // Uses ALL loaded rows (not only the currently filtered ones), so a customer
     // ticked earlier is still included after the search/filters are changed.
     const getSelectedWhatsappRows = () =>
@@ -1853,11 +1893,49 @@ const QuotationWise = () => {
         setWhatsappQueueIndex(0);
     };
 
-    const openNextWhatsapp = () => {
+    // Build the PDF of the customer that is next in the queue.
+    useEffect(() => {
+        const row = whatsappQueue[whatsappQueueIndex];
+        if (!showWhatsappModal || !row) return;
+
+        const key = getWhatsappRowKey(row);
+        if (whatsappPdfBlobs[key]) return;
+
+        let cancelled = false;
+        setWhatsappPdfStatus({ key, loading: true, error: "" });
+
+        getQuotationPdfBlob(row)
+            .then((blob) => {
+                if (cancelled) return;
+                setWhatsappPdfBlobs((previous) => ({ ...previous, [key]: blob }));
+                setWhatsappPdfStatus({ key, loading: false, error: "" });
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                console.error("Quotation PDF error:", error);
+                setWhatsappPdfStatus({
+                    key,
+                    loading: false,
+                    error: error?.message || "Unable to create the quotation PDF."
+                });
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [showWhatsappModal, whatsappQueue, whatsappQueueIndex, whatsappPdfRetry]);
+
+    // Downloads the customer's quotation PDF (to attach in WhatsApp) and opens
+    // the chat. withoutPdf: open the chat even though the PDF failed.
+    const openNextWhatsapp = (withoutPdf = false) => {
         const template = whatsappTemplates.find((item) => item.id === selectedWhatsappTemplateId);
         const row = whatsappQueue[whatsappQueueIndex];
         if (!row || !template) return;
 
+        const pdfBlob = whatsappPdfBlobs[getWhatsappRowKey(row)];
+        if (!pdfBlob && !withoutPdf) return;
+
+        if (pdfBlob) saveBlob(pdfBlob, getQuotationPdfFileName(row));
         openWhatsappForQuotation(row, getWhatsappMessage(template, row));
         setWhatsappQueueIndex((previous) => previous + 1);
     };
@@ -1867,6 +1945,8 @@ const QuotationWise = () => {
         setWhatsappQueue([]);
         setWhatsappQueueIndex(0);
         setWhatsappQueueSkipped(0);
+        setWhatsappPdfStatus({ key: "", loading: false, error: "" });
+        setWhatsappPdfBlobs({});
     };
 
     // Open WhatsApp Desktop/App for the customer's mobile number.
@@ -3936,28 +4016,50 @@ const QuotationWise = () => {
                                                                                 }
                                                                             </div>
 
-                                                                            <button
-                                                                                onClick={() =>
-                                                                                    setExpandedQuotation(
-                                                                                        null
-                                                                                    )
-                                                                                }
-                                                                                style={{
-                                                                                    border: "none",
-                                                                                    background: "#dc3545",
-                                                                                    color: "#fff",
-                                                                                    width: "23px",
-                                                                                    height: "23px",
-                                                                                    borderRadius: "4px",
-                                                                                    cursor: "pointer",
-                                                                                    fontSize: "15px",
-                                                                                    fontWeight: "700",
-                                                                                    lineHeight: "20px",
-                                                                                    padding: 0
-                                                                                }}
-                                                                            >
-                                                                                ×
-                                                                            </button>
+                                                                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDownloadQuotationPdf(row)}
+                                                                                    disabled={pdfDownloading === quotationNo}
+                                                                                    style={{
+                                                                                        border: "1px solid #fff",
+                                                                                        background: "transparent",
+                                                                                        color: "#fff",
+                                                                                        height: "23px",
+                                                                                        padding: "0 9px",
+                                                                                        borderRadius: "4px",
+                                                                                        cursor: pdfDownloading === quotationNo ? "wait" : "pointer",
+                                                                                        fontSize: "11px",
+                                                                                        fontWeight: "700"
+                                                                                    }}
+                                                                                    title="Download quotation PDF"
+                                                                                >
+                                                                                    {pdfDownloading === quotationNo ? "Creating PDF..." : "📄 Download PDF"}
+                                                                                </button>
+
+                                                                                <button
+                                                                                    onClick={() =>
+                                                                                        setExpandedQuotation(
+                                                                                            null
+                                                                                        )
+                                                                                    }
+                                                                                    style={{
+                                                                                        border: "none",
+                                                                                        background: "#dc3545",
+                                                                                        color: "#fff",
+                                                                                        width: "23px",
+                                                                                        height: "23px",
+                                                                                        borderRadius: "4px",
+                                                                                        cursor: "pointer",
+                                                                                        fontSize: "15px",
+                                                                                        fontWeight: "700",
+                                                                                        lineHeight: "20px",
+                                                                                        padding: 0
+                                                                                    }}
+                                                                                >
+                                                                                    ×
+                                                                                </button>
+                                                                            </div>
                                                                         </div>
 
                                                                         {/* ITEM TABLE */}
@@ -4322,6 +4424,11 @@ const QuotationWise = () => {
                     const selectedTemplate = whatsappTemplates.find((item) => item.id === selectedWhatsappTemplateId);
                     const selectedRows = getSelectedWhatsappRows();
                     const previewRow = nextRow || selectedRows[0] || data[0] || {};
+                    const nextKey = nextRow ? getWhatsappRowKey(nextRow) : "";
+                    const nextPdfReady = !!(nextKey && whatsappPdfBlobs[nextKey]);
+                    const pdfStatus = whatsappPdfStatus.key === nextKey
+                        ? whatsappPdfStatus
+                        : { loading: !nextPdfReady, error: "" };
 
                     return (
                         <div
@@ -4382,6 +4489,13 @@ const QuotationWise = () => {
                                                         Next: <strong>{getWhatsappCustomerName(nextRow)}</strong>{" "}
                                                         ({getWhatsappMobile(getWhatsappRowMobile(nextRow))})
                                                     </div>
+                                                    <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: "700", color: pdfStatus.error ? "#dc3545" : nextPdfReady ? "#198754" : "#8a5a00" }}>
+                                                        {pdfStatus.error
+                                                            ? `❌ Quotation PDF failed: ${pdfStatus.error}`
+                                                            : nextPdfReady
+                                                                ? "📄 Quotation PDF ready"
+                                                                : "⏳ Preparing quotation PDF..."}
+                                                    </div>
                                                 </>
                                             )}
                                             {whatsappQueueSkipped > 0 && (
@@ -4415,7 +4529,7 @@ const QuotationWise = () => {
                                     )}
 
                                     <div style={{ marginTop: "12px", padding: "9px 10px", background: "#fff8e1", border: "1px solid #ffe08a", borderRadius: "6px", color: "#705d00", fontSize: "11px", lineHeight: "1.45" }}>
-                                        Each click opens ONE chat in the WhatsApp app with the personalized message pre-filled. Press Send in the app, then come back and click the next button. WhatsApp Desktop/App must be installed.
+                                        Each click downloads the customer's quotation PDF and opens ONE chat in the WhatsApp app with the personalized message pre-filled. Attach the downloaded PDF (📎 → Document), press Send in the app, then come back and click the next button. WhatsApp Desktop/App must be installed.
                                     </div>
 
                                     <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "15px" }}>
@@ -4433,13 +4547,35 @@ const QuotationWise = () => {
                                             </button>
                                         )}
 
+                                        {queueActive && !queueFinished && pdfStatus.error && (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setWhatsappPdfRetry((previous) => previous + 1)}
+                                                    style={{ padding: "9px 14px", border: "1px solid #05693a", background: "#fff", color: "#05693a", borderRadius: "5px", cursor: "pointer", fontWeight: "700" }}
+                                                >
+                                                    Retry PDF
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openNextWhatsapp(true)}
+                                                    style={{ padding: "9px 14px", border: "1px solid #dc3545", background: "#fff", color: "#dc3545", borderRadius: "5px", cursor: "pointer", fontWeight: "700" }}
+                                                >
+                                                    Send without PDF
+                                                </button>
+                                            </>
+                                        )}
+
                                         {queueActive && !queueFinished && (
                                             <button
                                                 type="button"
-                                                onClick={openNextWhatsapp}
-                                                style={{ padding: "9px 20px", border: "none", background: "#25D366", color: "#fff", borderRadius: "5px", cursor: "pointer", fontWeight: "800" }}
+                                                onClick={() => openNextWhatsapp()}
+                                                disabled={!nextPdfReady}
+                                                style={{ padding: "9px 20px", border: "none", background: nextPdfReady ? "#25D366" : "#aaa", color: "#fff", borderRadius: "5px", cursor: nextPdfReady ? "pointer" : "not-allowed", fontWeight: "800" }}
                                             >
-                                                Open WhatsApp ({whatsappQueueIndex + 1}/{whatsappQueue.length}) →
+                                                {nextPdfReady
+                                                    ? `Download PDF & Open WhatsApp (${whatsappQueueIndex + 1}/${whatsappQueue.length}) →`
+                                                    : "Preparing PDF..."}
                                             </button>
                                         )}
                                     </div>

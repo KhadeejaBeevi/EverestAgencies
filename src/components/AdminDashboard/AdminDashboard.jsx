@@ -10,8 +10,10 @@ import { auth, db } from "../firebase";
 import { Link } from "react-router-dom";
 
 import "./AdminDashboard.css";
+import { EditProfileModal } from "../MyProfile/MyProfile.jsx";
 
 import {
+  Pencil,
   Users,
   FileClock,
   MapPinned,
@@ -46,6 +48,8 @@ const AdminDashboard = () => {
     adminDetails,
     setAdminDetails,
   ] = useState(null);
+
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
 
   /* =========================================================
@@ -1954,6 +1958,14 @@ const AdminDashboard = () => {
 
       <Banner />
 
+      <EditProfileModal
+        open={showEditProfile}
+        onClose={() => setShowEditProfile(false)}
+        onSaved={(updates) =>
+          setAdminDetails((prev) => ({ ...prev, ...updates }))
+        }
+      />
+
 
       <main
         className="
@@ -2196,7 +2208,23 @@ const AdminDashboard = () => {
 
                 </p>
 
+                {adminDetails?.phone && (
+                  <p>
+                    <span className="font-semibold">Phone:</span>{" "}
+                    {adminDetails.phone}
+                  </p>
+                )}
+
               </div>
+
+              <button
+                type="button"
+                onClick={() => setShowEditProfile(true)}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white/90 hover:bg-white text-gray-800 text-sm font-semibold px-4 py-2 rounded-full transition"
+              >
+                <Pencil size={14} />
+                Edit Profile
+              </button>
 
             </div>
 

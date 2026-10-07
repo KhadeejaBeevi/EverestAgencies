@@ -29,52 +29,9 @@ export default function SidebarDashboard() {
 
   return (
     <>
-      {/* Compact Toggle Button */}
-      <div 
-        className="fixed top-1/2 transform -translate-y-1/2 z-50 transition-all duration-500 ease-in-out"
-        style={{ 
-         left: isOpen
-  ? (window.innerWidth >= 1280
-      ? "1050px"
-      : window.innerWidth >= 1024
-      ? "950px"
-      : "100%")
-  : "0px"
-        }}
-      >
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="group relative bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 
-                     text-white px-2 py-3 shadow-lg transition-all duration-300 hover:scale-105 
-                     focus:outline-none focus:ring-2 focus:ring-blue-300 active:scale-95
-                     lg:px-2 lg:py-3 md:px-1.5 md:py-2 sm:px-1 sm:py-2"
-          style={{
-            borderRadius: isOpen ? '6px 0 0 6px' : '0 6px 6px 0',
-          }}
-        >
-          <div className="flex items-center justify-center w-3 h-4 lg:w-3 lg:h-4 md:w-2.5 md:h-3 sm:w-2 sm:h-3">
-            {isOpen ? (
-              <ChevronLeft size={window.innerWidth >= 1024 ? 16 : window.innerWidth >= 768 ? 14 : 12} 
-                          className="transition-transform duration-200 group-hover:scale-110" />
-            ) : (
-              <ChevronRight size={window.innerWidth >= 1024 ? 16 : window.innerWidth >= 768 ? 14 : 12} 
-                           className="transition-transform duration-200 group-hover:scale-110" />
-            )}
-          </div>
-          
-          {/* Subtle glow effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-blue-500 opacity-0 
-                          group-hover:opacity-30 transition-opacity duration-300 pointer-events-none"
-               style={{
-                 borderRadius: isOpen ? '6px 0 0 6px' : '0 6px 6px 0',
-               }}>
-          </div>
-        </button>
-      </div>
-
       {/* Enhanced Sidebar Panel */}
- <div className={`fixed top-0 left-0 z-40 transition-transform duration-500 ease-in-out
-                      lg:w-[950px] xl:w-[1050px] md:w-[95vw] sm:w-[98vw] w-[100vw] h-full ${
+ <div className={`fixed top-0 left-0 z-[60] transition-transform duration-500 ease-in-out
+                      lg:w-[950px] xl:w-[1050px] md:w-[95vw] w-[calc(100vw-32px)] h-full ${
     isOpen ? "translate-x-0" : "-translate-x-full"
   }`}
   style={{
@@ -82,6 +39,21 @@ export default function SidebarDashboard() {
     height: "calc(100vh - 60px)",
   }}
 >
+        {/* Toggle Button - attached to the panel's right edge so it always moves with it */}
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          aria-label={isOpen ? "Close sidebar" : "Open sidebar"}
+          className="group absolute top-1/2 left-full -translate-y-1/2 z-50 bg-gradient-to-r from-blue-600 to-blue-700
+                     hover:from-blue-700 hover:to-blue-800 text-white px-1.5 py-3 shadow-lg transition-colors duration-300
+                     focus:outline-none focus:ring-2 focus:ring-blue-300 rounded-r-md"
+        >
+          {isOpen ? (
+            <ChevronLeft size={16} className="transition-transform duration-200 group-hover:scale-110" />
+          ) : (
+            <ChevronRight size={16} className="transition-transform duration-200 group-hover:scale-110" />
+          )}
+        </button>
+
         {/* Backdrop with subtle pattern */}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-100"></div>
         
@@ -179,7 +151,7 @@ export default function SidebarDashboard() {
       {/* Overlay for mobile/smaller screens */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 md:hidden"
+          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[55] md:hidden"
           onClick={() => setIsOpen(false)}
         ></div>
       )}

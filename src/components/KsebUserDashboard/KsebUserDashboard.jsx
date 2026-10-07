@@ -16,9 +16,13 @@ import {
 } from "firebase/firestore";
 
 import { Link } from "react-router-dom";
+import { Pencil } from "lucide-react";
+import { EditProfileModal } from "../MyProfile/MyProfile.jsx";
 
 const KsebUserDashboard = () => {
   const [KsebuserDetails, setUserDetails] = useState(null);
+
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
   const [distributionMembers, setDistributionMembers] = useState([]);
 
@@ -583,6 +587,14 @@ const KsebUserDashboard = () => {
 
       <Banner />
 
+      <EditProfileModal
+        open={showEditProfile}
+        onClose={() => setShowEditProfile(false)}
+        onSaved={(updates) =>
+          setUserDetails((prev) => ({ ...prev, ...updates }))
+        }
+      />
+
       {/* ================= MAIN ================= */}
 
       <main className="p-6">
@@ -650,8 +662,23 @@ const KsebUserDashboard = () => {
                   <p className="text-blue-200 text-sm">
                     {KsebuserDetails?.distribution}
                   </p>
+
+                  {KsebuserDetails?.phone && (
+                    <p className="text-blue-100 text-sm">
+                      {KsebuserDetails.phone}
+                    </p>
+                  )}
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setShowEditProfile(true)}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white/90 hover:bg-white text-gray-800 text-sm font-semibold px-4 py-2 rounded-full transition"
+              >
+                <Pencil size={14} />
+                Edit Profile
+              </button>
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@ import Banner from "../Banner/Banner.jsx";
 import React, { useState, useEffect } from "react";
 import { auth, db } from "../firebase";
 import { Link } from "react-router-dom";
+import { EditProfileModal } from "../MyProfile/MyProfile.jsx";
 
 import {
   doc,
@@ -11,12 +12,15 @@ import {
 import {
   Package,
 ClipboardList,
+  Pencil,
 } from "lucide-react";
 const UserDashboard = () => {
 
  
 
   const [userDetails, setUserDetails] = useState(null);
+
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
  
 
@@ -79,6 +83,14 @@ const UserDashboard = () => {
      
 
       <Banner />
+
+      <EditProfileModal
+        open={showEditProfile}
+        onClose={() => setShowEditProfile(false)}
+        onSaved={(updates) =>
+          setUserDetails((prev) => ({ ...prev, ...updates }))
+        }
+      />
 
       
 
@@ -178,7 +190,23 @@ const UserDashboard = () => {
 
                 </p>
 
+                {userDetails?.phone && (
+                  <p>
+                    <span className="font-semibold">Phone:</span>{" "}
+                    {userDetails.phone}
+                  </p>
+                )}
+
               </div>
+
+              <button
+                type="button"
+                onClick={() => setShowEditProfile(true)}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-white/90 hover:bg-white text-gray-800 text-sm font-semibold px-4 py-2 rounded-full transition"
+              >
+                <Pencil size={14} />
+                Edit Profile
+              </button>
 
             </div>
 

@@ -158,7 +158,11 @@ const GlobalAlterationAlert = () => {
 
     loadRequests();
 
-    const interval = setInterval(loadRequests, 10000);
+    // Skip polling while the tab is in the background to avoid
+    // "429 Too Many Requests" from the host.
+    const interval = setInterval(() => {
+      if (!document.hidden) loadRequests();
+    }, 20000);
 
     return () => {
       clearInterval(interval);

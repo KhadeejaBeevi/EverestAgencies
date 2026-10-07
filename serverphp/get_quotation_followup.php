@@ -14,6 +14,55 @@ $conn = new mysqli("localhost","root","","salescollection");
 
 $data = json_decode(file_get_contents("php://input"), true);
 
+// Batch mode: { "quotationNos": [...] } returns every history in ONE request,
+// so the Quotation Wise page doesn't fire one request per quotation
+// (which made the host answer "429 Too Many Requests").
+if (isset($data["quotationNos"]) && is_array($data["quotationNos"])) {
+    $quotationNos = array_values(array_unique(array_filter(
+        array_map(fn($q) => trim((string)$q), $data["quotationNos"]),
+        fn($q) => $q !== ""
+    )));
+
+    $results = [];
+    foreach ($quotationNos as $q) {
+        $results[$q] = [];
+    }
+
+    foreach (array_chunk($quotationNos, 500) as $chunk) {
+        $placeholders = implode(",", array_fill(0, count($chunk), "?"));
+        $stmt = $conn->prepare("
+            SELECT
+                quotation_no,
+                call_date,
+                followup_date,
+                telecaller,
+                status,
+                remarks,
+                created_at
+            FROM quotation_followups
+            WHERE quotation_no IN ($placeholders)
+            ORDER BY id DESC
+        ");
+        $stmt->bind_param(str_repeat("s", count($chunk)), ...$chunk);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        while ($row = $result->fetch_assoc()) {
+            $q = $row["quotation_no"];
+            unset($row["quotation_no"]);
+            $results[$q][] = $row;
+        }
+        $stmt->close();
+    }
+
+    echo json_encode([
+        "success" => true,
+        "results" => (object)$results
+    ]);
+    $conn->close();
+    exit;
+}
+
 $quotationNo = trim($data["quotationNo"] ?? "");
 
 if ($quotationNo == "") {

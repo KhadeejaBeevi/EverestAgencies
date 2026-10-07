@@ -13,48 +13,420 @@ while (ob_get_level()) {
     ob_end_flush();
 }
 
+@ini_set('zlib.output_compression', '0');
+@ini_set('output_buffering', '0');
+@ini_set('implicit_flush', '1');
+
 ob_implicit_flush(true);
 
 header("Content-Type: text/html; charset=UTF-8");
+header("X-Accel-Buffering: no");
+header("Cache-Control: no-cache");
+
+/* Browsers wait for ~1 KB before showing anything */
+echo str_repeat(" ", 4096) . "\n";
+flush();
 
 
 /* =========================================================
-   AUTOLOAD
+   CHUNK-WISE IMPORT
+
+   Each page load imports ONE chunk of rows and then
+   automatically opens the next chunk (?start=...).
+   The first page (no ?start) clears the table.
 ========================================================= */
 
-require_once __DIR__ . '/../vendor/autoload.php';
+$chunkSize = 10000;
 
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
+$startRow      = max(2, (int)($_GET['start'] ?? 2));
+$successCount  = max(0, (int)($_GET['ok'] ?? 0));
+$errorCount    = max(0, (int)($_GET['err'] ?? 0));
+$emptyRowCount = max(0, (int)($_GET['empty'] ?? 0));
+$startTime     = (float)($_GET['t'] ?? microtime(true));
+
+$isFirstChunk = !isset($_GET['start']);
 
 
 /* =========================================================
-   CHUNK FILTER
+   FAST XLSX STREAM READER
+
+   Reads the sheet XML directly with XMLReader instead of
+   PhpSpreadsheet. Only the rows of the current chunk are
+   parsed, so a 1 lakh+ row file is not re-loaded fully
+   for every chunk.
 ========================================================= */
 
-class ChunkReadFilter implements IReadFilter
+class XlsxStreamReader
 {
-    private $startRow = 0;
-    private $endRow = 0;
+    private $file;
+    private $sheetPath = 'xl/worksheets/sheet1.xml';
+    private $strings = [];
 
-    public function setRows($startRow, $chunkSize)
+    public function __construct($file)
     {
-        $this->startRow = $startRow;
-        $this->endRow = $startRow + $chunkSize - 1;
+        $this->file = realpath($file);
+
+        $zip = new ZipArchive();
+
+        if ($zip->open($this->file) !== true) {
+            throw new Exception("Cannot open Excel file.");
+        }
+
+        $this->sheetPath = $this->findFirstSheet($zip);
+
+        if ($zip->locateName($this->sheetPath) === false) {
+            $zip->close();
+            throw new Exception("Sheet not found in Excel file: " . $this->sheetPath);
+        }
+
+        $hasSharedStrings = $zip->locateName('xl/sharedStrings.xml') !== false;
+
+        $zip->close();
+
+        if ($hasSharedStrings) {
+            $this->loadSharedStrings();
+        }
     }
 
-    public function readCell(
-        $columnAddress,
-        $row,
-        $worksheetName = ''
-    ) {
-        return (
-            $row >= $this->startRow &&
-            $row <= $this->endRow
-        );
+    /* First sheet of the workbook (EveSalesCollection) */
+
+    private function findFirstSheet($zip)
+    {
+        $workbook = $zip->getFromName('xl/workbook.xml');
+        $rels = $zip->getFromName('xl/_rels/workbook.xml.rels');
+
+        if (
+            $workbook === false ||
+            $rels === false ||
+            !preg_match('/<sheet\b[^>]*\br:id="([^"]+)"/', $workbook, $sheet)
+        ) {
+            return 'xl/worksheets/sheet1.xml';
+        }
+
+        if (
+            preg_match_all('/<Relationship\b[^>]*>/', $rels, $relTags)
+        ) {
+            foreach ($relTags[0] as $tag) {
+
+                if (
+                    preg_match('/\bId="([^"]+)"/', $tag, $id) &&
+                    $id[1] === $sheet[1] &&
+                    preg_match('/\bTarget="([^"]+)"/', $tag, $target)
+                ) {
+                    $path = $target[1];
+
+                    return ($path[0] === '/')
+                        ? ltrim($path, '/')
+                        : 'xl/' . $path;
+                }
+            }
+        }
+
+        return 'xl/worksheets/sheet1.xml';
+    }
+
+    private function openXml($entry)
+    {
+        $xr = new XMLReader();
+
+        if (!$xr->open('zip://' . $this->file . '#' . $entry, null, LIBXML_NONET | LIBXML_COMPACT | LIBXML_PARSEHUGE)) {
+            throw new Exception("Cannot read " . $entry . " from Excel file.");
+        }
+
+        return $xr;
+    }
+
+    /* Text of <t> elements, ignoring phonetic runs (<rPh>) */
+
+    private static function nodeText($node)
+    {
+        $text = '';
+
+        foreach ($node->getElementsByTagName('t') as $t) {
+
+            if ($t->parentNode && $t->parentNode->localName === 'rPh') {
+                continue;
+            }
+
+            $text .= $t->textContent;
+        }
+
+        return $text;
+    }
+
+    private function loadSharedStrings()
+    {
+        $xr = $this->openXml('xl/sharedStrings.xml');
+
+        while ($xr->read()) {
+
+            if (
+                $xr->nodeType === XMLReader::ELEMENT &&
+                $xr->localName === 'si'
+            ) {
+                $node = $xr->expand();
+
+                $this->strings[] = $node ? self::nodeText($node) : '';
+            }
+        }
+
+        $xr->close();
+    }
+
+    /* "BH" -> 59 */
+
+    private static function columnIndex($cellRef)
+    {
+        $letters = strtoupper(preg_replace('/[^A-Za-z]/', '', $cellRef));
+
+        $index = 0;
+
+        for ($i = 0, $len = strlen($letters); $i < $len; $i++) {
+            $index = $index * 26 + (ord($letters[$i]) - 64);
+        }
+
+        return $index - 1;
+    }
+
+    private function cellValue($cell)
+    {
+        $type = $cell->getAttribute('t');
+
+        if ($type === 'inlineStr') {
+            return self::nodeText($cell);
+        }
+
+        $v = null;
+
+        foreach ($cell->childNodes as $child) {
+            if ($child->localName === 'v') {
+                $v = $child->textContent;
+                break;
+            }
+        }
+
+        if ($v === null) {
+            return null;
+        }
+
+        if ($type === 's') {
+            return $this->strings[(int)$v] ?? '';
+        }
+
+        if ($type === 'str' || $type === 'e' || $type === 'b') {
+            return $v;
+        }
+
+        /* Number: same text PHP would give for the number */
+
+        return is_numeric($v) ? (string)($v + 0) : $v;
+    }
+
+    private function parseRow($rowNode)
+    {
+        $row = [];
+        $next = 0;
+
+        foreach ($rowNode->childNodes as $cell) {
+
+            if ($cell->localName !== 'c') {
+                continue;
+            }
+
+            $ref = $cell->getAttribute('r');
+
+            $col = ($ref !== '') ? self::columnIndex($ref) : $next;
+
+            $row[$col] = $this->cellValue($cell);
+
+            $next = $col + 1;
+        }
+
+        return $row;
+    }
+
+    /*
+       Returns [excelRowNumber => [colIndex => value]] for every
+       row from $fromRow to $toRow. Rows missing in the file are
+       returned as empty arrays.
+    */
+
+    public function readRows($fromRow, $toRow)
+    {
+        $rows = [];
+
+        $xr = $this->openXml($this->sheetPath);
+
+        while ($xr->read()) {
+            if (
+                $xr->nodeType === XMLReader::ELEMENT &&
+                $xr->localName === 'row'
+            ) {
+                break;
+            }
+        }
+
+        $rowNumber = 0;
+
+        while (
+            $xr->nodeType === XMLReader::ELEMENT &&
+            $xr->localName === 'row'
+        ) {
+
+            $r = $xr->getAttribute('r');
+
+            $rowNumber = ($r !== null && $r !== '') ? (int)$r : $rowNumber + 1;
+
+            if ($rowNumber > $toRow) {
+                break;
+            }
+
+            if ($rowNumber >= $fromRow) {
+
+                $node = $xr->expand();
+
+                $rows[$rowNumber] = $node ? $this->parseRow($node) : [];
+            }
+
+            if (!$xr->next('row')) {
+                break;
+            }
+        }
+
+        $xr->close();
+
+        $lastRow = empty($rows) ? $fromRow - 1 : max(array_keys($rows));
+
+        for ($r = $fromRow; $r <= $lastRow; $r++) {
+            if (!isset($rows[$r])) {
+                $rows[$r] = [];
+            }
+        }
+
+        ksort($rows);
+
+        return $rows;
+    }
+
+    /* Row count from <dimension>, or by counting <row> tags */
+
+    public function totalRows()
+    {
+        $xr = $this->openXml($this->sheetPath);
+
+        $last = 0;
+
+        while ($xr->read()) {
+
+            if ($xr->nodeType !== XMLReader::ELEMENT) {
+                continue;
+            }
+
+            if ($xr->localName === 'dimension') {
+
+                $ref = (string)$xr->getAttribute('ref');
+
+                if (preg_match('/:[A-Z]+([0-9]+)$/i', $ref, $m)) {
+                    $xr->close();
+                    return (int)$m[1];
+                }
+            }
+
+            if ($xr->localName === 'row') {
+                break;
+            }
+        }
+
+        while (
+            $xr->nodeType === XMLReader::ELEMENT &&
+            $xr->localName === 'row'
+        ) {
+            $r = $xr->getAttribute('r');
+
+            $last = ($r !== null && $r !== '') ? (int)$r : $last + 1;
+
+            if (!$xr->next('row')) {
+                break;
+            }
+        }
+
+        $xr->close();
+
+        return $last;
     }
 }
+
+
+/* =========================================================
+   COLUMN MAPPING  (database column => Excel header)
+
+   The Excel export currently has 60 columns (A..BH).
+   Columns are located by their header text in row 1, so
+   inserting / reordering columns in the Excel export will
+   not break the import.
+
+   type: s = text, d = decimal, date = date (stored as text)
+
+   Excel columns NOT imported:
+     $MasterId, $VoucherId, $AlteredOn, $BasicDueDateOfPymt,
+     $BasicOrderRef, $VchOrderIndexExecutive, $PartyGSTIN,
+     $EvePymtDueDate, $EveEVE_COMMON_FIELDEXE_ENTRY,
+     $EveEVE_COMMON_TELECALLER_ENTRY, $EveEVE_COMMON_SALESCO_ENTRY
+========================================================= */
+
+$columnMap = [
+    ["db" => "VoucherTypeName",      "excel" => '$VoucherTypeName',                        "type" => "s"],
+    ["db" => "Date",                 "excel" => '$Date',                                   "type" => "date"],
+    ["db" => "VoucherNumber",        "excel" => '$VoucherNumber',                          "type" => "s"],
+    ["db" => "Reference",            "excel" => '$Reference',                              "type" => "s"],
+    ["db" => "OrderNo",              "excel" => '$OrderNo',                                "type" => "s"],
+    ["db" => "PartyLedgerName",      "excel" => '$PartyLedgerName',                        "type" => "s"],
+    ["db" => "ParentLedgerName",     "excel" => '$Parent:Ledger:$PartyLedgerName',         "type" => "s"],
+    ["db" => "StockItemName",        "excel" => '$StockItemName',                          "type" => "s"],
+    ["db" => "StockItemAlias",       "excel" => '$OnlyAlias:StockItem:$StockItemName',     "type" => "s"],
+    ["db" => "StockItemParent",      "excel" => '$Parent:StockItem:$StockItemName',        "type" => "s"],
+    ["db" => "StockItemGrandParent", "excel" => '$GrandParent:StockItem:$StockItemName',   "type" => "s"],
+    ["db" => "StockItemDescription", "excel" => '$Description:StockItem:$StockItemName',   "type" => "s"],
+    ["db" => "StockItemCategory",    "excel" => '$Category:StockItem:$StockitemName',      "type" => "s"],
+    ["db" => "GodownName",           "excel" => '$GodownName',                             "type" => "s"],
+    ["db" => "BatchName",            "excel" => '$BatchName',                              "type" => "s"],
+    ["db" => "BilledQty",            "excel" => '$BilledQty',                              "type" => "d"],
+    ["db" => "BatchRate",            "excel" => '$BatchRate',                              "type" => "d"],
+    ["db" => "BatchDiscount",        "excel" => '$BatchDiscount',                          "type" => "d"],
+    ["db" => "Amount",               "excel" => '$Amount',                                 "type" => "d"],
+    ["db" => "Rate",                 "excel" => '$Rate',                                   "type" => "d"],
+    ["db" => "Discount",             "excel" => '$Discount',                               "type" => "d"],
+    ["db" => "Narration",            "excel" => '$Narration',                              "type" => "s"],
+    ["db" => "EnteredBy",            "excel" => '$EnteredBy',                              "type" => "s"],
+    ["db" => "AlteredBy",            "excel" => '$AlteredBy',                              "type" => "s"],
+    ["db" => "JasSalesLedName",      "excel" => '$JasSalesLedName',                        "type" => "s"],
+    ["db" => "MyDateMonth",          "excel" => '$MyDateMonth',                            "type" => "s"],
+    ["db" => "EvePartyCrPeriod",     "excel" => '$EvePartyCrPeriod',                       "type" => "s"],
+    ["db" => "EveLandedCost",        "excel" => '$EveLandedCost',                          "type" => "d"],
+    ["db" => "Sales ID",             "excel" => '$EveSalesOrderMstID',                     "type" => "s"],
+    ["db" => "EveInvVchOrderNos",    "excel" => '$EveInvVchOrderNos',                      "type" => "s"],
+    ["db" => "EveInvMailingName",    "excel" => '$EveInvMailingName',                      "type" => "s"],
+    ["db" => "EveInvMailingAdd",     "excel" => '$EveInvMailingAdd',                       "type" => "s"],
+    ["db" => "walkin_cust_no",       "excel" => '$EveEIOrderRef',                          "type" => "s"],
+    ["db" => "assigned_to",          "excel" => '$EveEIAssigTo',                           "type" => "s"],
+    ["db" => "brought_by",           "excel" => '$EveEIBoughtBy',                          "type" => "s"],
+    ["db" => "enquiry_no",           "excel" => '$EveEIQuoteRef',                          "type" => "s"],
+    ["db" => "temp_item_desc",       "excel" => '$EveTempItemDesc',                        "type" => "s"],
+    ["db" => "ledger_grand_parent",  "excel" => '$EveLedGrandParent',                      "type" => "s"],
+    ["db" => "EveItemGstRate",       "excel" => '$EveItemGstRate',                         "type" => "d"],
+    ["db" => "EveItemTaxAmt",        "excel" => '$EveItemTaxAmt',                          "type" => "d"],
+    ["db" => "EveSolarCust_Shop",    "excel" => '$EveSolarCust_Shop',                      "type" => "s"],
+    ["db" => "JasSecBillQty",        "excel" => '$JasSecBillQty',                          "type" => "s"],
+    ["db" => "JasPriBillQty",        "excel" => '$JasPriBillQty',                          "type" => "s"],
+    ["db" => "JasBaseUnit",          "excel" => '$JasBaseUnit',                            "type" => "s"],
+    ["db" => "SafHSNSACCode",        "excel" => '$SafHSNSACCode',                          "type" => "s"],
+
+    /* New columns in the 60-column export */
+    ["db" => "EveBasicDueDateOfPymt", "excel" => '$EveBasicDueDateOfPymt',                "type" => "s", "optional" => true],
+    ["db" => "EveBasicOrderRef",      "excel" => '$EveBasicOrderRef',                     "type" => "s", "optional" => true],
+    ["db" => "EveExecutive",          "excel" => '$EveExecutive',                         "type" => "s", "optional" => true],
+    ["db" => "EvePartyGSTIN",         "excel" => '$EvePartyGSTIN',                        "type" => "s", "optional" => true]
+];
 
 
 /* =========================================================
@@ -85,6 +457,7 @@ $conn->set_charset("utf8mb4");
 
 $possibleFiles = [
     __DIR__ . "/EverestCRMSALES COLLECTION.xlsx",
+    __DIR__ . "/EverestCRMSALES_COLLECTION.xlsx",
     __DIR__ . "/EverestCRMSALES COLLECTION (1).xlsx"
 ];
 
@@ -106,7 +479,7 @@ if ($file === null) {
 if ($file === null) {
     die(
         "<h3 style='color:red;'>Excel file not found.</h3>" .
-        "<p>Place the 48-column Excel file in the same folder as this PHP file.</p>"
+        "<p>Place the Excel file in the same folder as this PHP file.</p>"
     );
 }
 
@@ -146,136 +519,226 @@ if (!$tableCheck || $tableCheck->num_rows === 0) {
 
 
 /* =========================================================
-   CHECK REQUIRED NEW COLUMNS
+   CHECK REQUIRED DATABASE COLUMNS
 ========================================================= */
 
-$requiredColumns = [
-    "walkin_cust_no",
-    "assigned_to",
-    "brought_by",
-    "enquiry_no",
-    "temp_item_desc",
-    "ledger_grand_parent",
-    "EveItemGstRate",
-    "EveItemTaxAmt"
+$alterDefinitions = [
+    "walkin_cust_no"        => "VARCHAR(255) NULL",
+    "assigned_to"           => "VARCHAR(255) NULL",
+    "brought_by"            => "VARCHAR(255) NULL",
+    "enquiry_no"            => "VARCHAR(255) NULL",
+    "temp_item_desc"        => "VARCHAR(255) NULL",
+    "ledger_grand_parent"   => "VARCHAR(255) NULL",
+    "EveItemGstRate"        => "DECIMAL(18,4) NULL",
+    "EveItemTaxAmt"         => "DECIMAL(18,4) NULL",
+    "EveSolarCust_Shop"     => "VARCHAR(255) NULL",
+    "JasSecBillQty"         => "VARCHAR(100) NULL",
+    "JasPriBillQty"         => "VARCHAR(100) NULL",
+    "JasBaseUnit"           => "VARCHAR(50) NULL",
+    "SafHSNSACCode"         => "VARCHAR(50) NULL",
+    "EveBasicDueDateOfPymt" => "VARCHAR(100) NULL",
+    "EveBasicOrderRef"      => "VARCHAR(255) NULL",
+    "EveExecutive"          => "VARCHAR(255) NULL",
+    "EvePartyGSTIN"         => "VARCHAR(20) NULL"
 ];
 
-foreach ($requiredColumns as $column) {
+$existingColumns = [];
 
-    $columnCheck = $conn->query(
-        "SHOW COLUMNS FROM `salesdata` LIKE '" .
-        $conn->real_escape_string($column) .
-        "'"
-    );
+$columnsResult = $conn->query("SHOW COLUMNS FROM `salesdata`");
 
-    if (!$columnCheck || $columnCheck->num_rows === 0) {
-
-        $conn->close();
-
-        die(
-            "<h3 style='color:red;'>
-                Missing column in salesdata:
-                " . htmlspecialchars($column) . "
-            </h3>
-
-            <p>Please run:</p>
-
-            <pre>
-ALTER TABLE salesdata
-ADD COLUMN walkin_cust_no VARCHAR(255) NULL,
-ADD COLUMN assigned_to VARCHAR(255) NULL,
-ADD COLUMN brought_by VARCHAR(255) NULL,
-ADD COLUMN enquiry_no VARCHAR(255) NULL,
-ADD COLUMN temp_item_desc VARCHAR(255) NULL,
-ADD COLUMN ledger_grand_parent VARCHAR(255) NULL,
-ADD COLUMN EveItemGstRate DECIMAL(18,4) NULL,
-ADD COLUMN EveItemTaxAmt DECIMAL(18,4) NULL;
-            </pre>"
-        );
+if ($columnsResult) {
+    while ($col = $columnsResult->fetch_assoc()) {
+        $existingColumns[$col['Field']] = true;
     }
 }
+
+$missingColumns = [];
+$skippedColumns = [];
+
+foreach ($columnMap as $key => $map) {
+
+    if (isset($existingColumns[$map["db"]])) {
+        continue;
+    }
+
+    if (!empty($map["optional"])) {
+
+        /* Optional column not in the table yet: skip it */
+
+        $skippedColumns[] = $map["db"];
+        unset($columnMap[$key]);
+        continue;
+    }
+
+    $missingColumns[] = $map["db"];
+}
+
+$columnMap = array_values($columnMap);
+
+if (!empty($skippedColumns)) {
+
+    echo "<div style='color:#cc6600;'>Note: these Excel columns are skipped " .
+        "because salesdata does not have them yet: " .
+        htmlspecialchars(implode(", ", $skippedColumns)) .
+        "<br>To import them, run:<pre>ALTER TABLE salesdata\n";
+
+    $alterLines = [];
+
+    foreach ($skippedColumns as $column) {
+        $alterLines[] = "ADD COLUMN `" . $column . "` " . $alterDefinitions[$column];
+    }
+
+    echo htmlspecialchars(implode(",\n", $alterLines)) . ";</pre></div>";
+
+    flush();
+}
+
+if (!empty($missingColumns)) {
+
+    $conn->close();
+
+    $alterLines = [];
+
+    foreach ($missingColumns as $column) {
+        $alterLines[] =
+            "ADD COLUMN `" . $column . "` " .
+            ($alterDefinitions[$column] ?? "VARCHAR(255) NULL");
+    }
+
+    die(
+        "<h3 style='color:red;'>Missing column(s) in salesdata: " .
+        htmlspecialchars(implode(", ", $missingColumns)) .
+        "</h3>" .
+        "<p>Please run:</p>" .
+        "<pre>ALTER TABLE salesdata\n" .
+        htmlspecialchars(implode(",\n", $alterLines)) .
+        ";</pre>"
+    );
+}
+
+
+/* =========================================================
+   EXCEL READER
+========================================================= */
+
+try {
+
+    $xlsx = new XlsxStreamReader($file);
+
+} catch (Exception $e) {
+
+    $conn->close();
+
+    die(
+        "<h3 style='color:red;'>Cannot read Excel file:</h3>" .
+        htmlspecialchars($e->getMessage())
+    );
+}
+
+
+/* =========================================================
+   TEXT CLEANUP
+
+   Tally exports contain control characters such as
+   "_x0004_ Not Applicable" / "_x0004_ Primary".
+========================================================= */
+
+function cleanText($value)
+{
+    if ($value === null) {
+        return '';
+    }
+
+    if ($value instanceof DateTimeInterface) {
+        return $value->format("Y-m-d");
+    }
+
+    $value = (string)$value;
+
+    $value = preg_replace('/_x[0-9A-Fa-f]{4}_/', '', $value);
+
+    $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $value);
+
+    return trim($value);
+}
+
+
+/* =========================================================
+   READ HEADER ROW AND LOCATE COLUMNS
+========================================================= */
+
+/* Compare headers ignoring "$", spaces and upper/lower case */
+
+function normalizeHeader($value)
+{
+    return strtolower(
+        str_replace(['$', ' '], '', cleanText($value))
+    );
+}
+
+$headerRows = $xlsx->readRows(1, 1);
+
+$headerRow = $headerRows[1] ?? [];
+
+$headerRow = empty($headerRow)
+    ? []
+    : array_replace(array_fill(0, max(array_keys($headerRow)) + 1, null), $headerRow);
+
+unset($headerRows);
+
+$headerIndex = [];
+
+foreach ($headerRow as $index => $header) {
+
+    $header = normalizeHeader($header);
+
+    if ($header !== '' && !isset($headerIndex[$header])) {
+        $headerIndex[$header] = $index;
+    }
+}
+
+$excelColumnCount = count($headerRow);
+
+$missingHeaders = [];
+
+foreach ($columnMap as $key => $map) {
+
+    $header = normalizeHeader($map["excel"]);
+
+    if (!isset($headerIndex[$header])) {
+        $missingHeaders[] = $map["excel"];
+        continue;
+    }
+
+    $columnMap[$key]["index"] = $headerIndex[$header];
+}
+
+if (!empty($missingHeaders)) {
+
+    $conn->close();
+
+    die(
+        "<h3 style='color:red;'>Excel header(s) not found in row 1:</h3>" .
+        "<pre>" . htmlspecialchars(implode("\n", $missingHeaders)) . "</pre>"
+    );
+}
+
+echo "<strong>Excel Columns:</strong> " .
+    number_format($excelColumnCount) .
+    "<br>";
+
+echo "<strong>Columns Imported:</strong> " .
+    number_format(count($columnMap)) .
+    "<br>";
+
+flush();
 
 
 /* =========================================================
    DETERMINE EXCEL ROW COUNT
 ========================================================= */
 
-$zip = new ZipArchive();
-
-if ($zip->open($file) !== true) {
-
-    $conn->close();
-
-    die(
-        "<h3 style='color:red;'>
-            Cannot open Excel file.
-        </h3>"
-    );
-}
-
-$xml = $zip->getFromName(
-    'xl/worksheets/sheet1.xml'
-);
-
-$zip->close();
-
-if ($xml === false) {
-
-    $conn->close();
-
-    die(
-        "<h3 style='color:red;'>
-            Cannot read sheet1.xml from Excel file.
-        </h3>"
-    );
-}
-
-$totalRows = 0;
-
-
-/* =========================================================
-   DETECT ROW COUNT FROM DIMENSION
-========================================================= */
-
-if (
-    preg_match(
-        '/<dimension[^>]*ref="[^"]*:[A-Z]+([0-9]+)"/i',
-        $xml,
-        $matches
-    )
-) {
-
-    $totalRows = intval($matches[1]);
-}
-
-
-/* =========================================================
-   FALLBACK ROW COUNT
-========================================================= */
-
-if ($totalRows <= 0) {
-
-    if (
-        preg_match_all(
-            '/<row[^>]*r="([0-9]+)"/i',
-            $xml,
-            $rowMatches
-        )
-    ) {
-
-        $rowNumbers = array_map(
-            'intval',
-            $rowMatches[1]
-        );
-
-        if (!empty($rowNumbers)) {
-            $totalRows = max($rowNumbers);
-        }
-    }
-}
-
-unset($xml);
-
+$totalRows = $xlsx->totalRows();
 
 if ($totalRows <= 0) {
 
@@ -308,6 +771,8 @@ flush();
    CLEAR OLD DATA
 ========================================================= */
 
+if ($isFirstChunk) {
+
 echo "<strong>Clearing old salesdata...</strong><br>";
 
 if (!$conn->query("TRUNCATE TABLE `salesdata`")) {
@@ -328,111 +793,29 @@ echo "Old data cleared.<br><br>";
 
 flush();
 
+}
+
 
 /* =========================================================
-   PREPARED INSERT
+   PREPARED INSERT (built from $columnMap)
 ========================================================= */
 
-/*
-    TOTAL DATABASE COLUMNS = 40
+$dbColumns = [];
+$bindTypes = "";
 
-    1  VoucherTypeName
-    2  Date
-    3  VoucherNumber
-    4  Reference
-    5  OrderNo
-    6  PartyLedgerName
-    7  ParentLedgerName
-    8  StockItemName
-    9  StockItemAlias
-    10 StockItemParent
-    11 StockItemGrandParent
-    12 StockItemDescription
-    13 StockItemCategory
-    14 GodownName
-    15 BatchName
-    16 BilledQty
-    17 BatchRate
-    18 BatchDiscount
-    19 Amount
-    20 Rate
-    21 Discount
-    22 Narration
-    23 EnteredBy
-    24 AlteredBy
-    25 JasSalesLedName
-    26 MyDateMonth
-    27 EvePartyCrPeriod
-    28 EveLandedCost
-    29 Sales ID
-    30 EveInvVchOrderNos
-    31 EveInvMailingName
-    32 EveInvMailingAdd
-    33 walkin_cust_no
-    34 assigned_to
-    35 brought_by
-    36 enquiry_no
-    37 temp_description
-    38 ledger_grand_parent
-*/
+foreach ($columnMap as $map) {
 
-$sql = "
+    $dbColumns[] = "`" . $map["db"] . "`";
 
-INSERT INTO `salesdata`
-(
-    `VoucherTypeName`,
-    `Date`,
-    `VoucherNumber`,
-    `Reference`,
-    `OrderNo`,
-    `PartyLedgerName`,
-    `ParentLedgerName`,
-    `StockItemName`,
-    `StockItemAlias`,
-    `StockItemParent`,
-    `StockItemGrandParent`,
-    `StockItemDescription`,
-    `StockItemCategory`,
-    `GodownName`,
-    `BatchName`,
-    `BilledQty`,
-    `BatchRate`,
-    `BatchDiscount`,
-    `Amount`,
-    `Rate`,
-    `Discount`,
-    `Narration`,
-    `EnteredBy`,
-    `AlteredBy`,
-    `JasSalesLedName`,
-    `MyDateMonth`,
-    `EvePartyCrPeriod`,
-    `EveLandedCost`,
-    `Sales ID`,
-    `EveInvVchOrderNos`,
-    `EveInvMailingName`,
-    `EveInvMailingAdd`,
-    `walkin_cust_no`,
-    `assigned_to`,
-    `brought_by`,
-    `enquiry_no`,
-    `temp_item_desc`,
-    `ledger_grand_parent`,
-    `EveItemGstRate`,
-    `EveItemTaxAmt`,
-    `EveSolarCust_Shop`
+    $bindTypes .= ($map["type"] === "d") ? "d" : "s";
+}
 
-)
-
-VALUES
-(
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?
-)
-
-";
+$sql =
+    "INSERT INTO `salesdata` (" .
+    implode(", ", $dbColumns) .
+    ") VALUES (" .
+    implode(", ", array_fill(0, count($dbColumns), "?")) .
+    ")";
 
 
 /* =========================================================
@@ -457,29 +840,10 @@ if (!$stmt) {
 
 
 /* =========================================================
-   EXCEL READER
-========================================================= */
-
-$reader = IOFactory::createReader("Xlsx");
-
-$reader->setReadDataOnly(true);
-
-$filter = new ChunkReadFilter();
-
-$reader->setReadFilter($filter);
-
-
-/* =========================================================
    SETTINGS
 ========================================================= */
 
-$chunkSize = 10000;
-
-$successCount = 0;
-$errorCount = 0;
-$emptyRowCount = 0;
-
-$startTime = microtime(true);
+/* $chunkSize and counters are set at the top (CHUNK-WISE IMPORT) */
 
 
 /* =========================================================
@@ -513,9 +877,9 @@ function convertExcelDate($value)
 
         try {
 
-            $date = ExcelDate::excelToDateTimeObject(
-                floatval($value)
-            );
+            $date = new DateTime("1899-12-30");
+
+            $date->modify("+" . (int)floor(floatval($value)) . " days");
 
             return $date->format("Y-m-d");
 
@@ -616,7 +980,9 @@ function numericOrNull($value)
    START IMPORT
 ========================================================= */
 
-echo "<strong>Starting import...</strong><br><br>";
+if ($isFirstChunk) {
+    echo "<strong>Starting import...</strong><br><br>";
+}
 
 flush();
 
@@ -625,11 +991,7 @@ flush();
    PROCESS EXCEL IN CHUNKS
 ========================================================= */
 
-for (
-    $startRow = 2;
-    $startRow <= $totalRows;
-    $startRow += $chunkSize
-) {
+if ($startRow <= $totalRows) {
 
     $endRow = min(
         $startRow + $chunkSize - 1,
@@ -655,19 +1017,13 @@ for (
        SET CHUNK
     ===================================================== */
 
-    $filter->setRows(
-        $startRow,
-        $chunkSize
-    );
-
-
     /* =====================================================
-       LOAD CHUNK
+       READ CHUNK
     ===================================================== */
 
     try {
 
-        $spreadsheet = $reader->load($file);
+        $rows = $xlsx->readRows($startRow, $endRow);
 
     } catch (Exception $e) {
 
@@ -678,25 +1034,11 @@ for (
             htmlspecialchars($e->getMessage()) .
             "<br>";
 
-        $errorCount++;
+        $stmt->close();
+        $conn->close();
 
-        continue;
+        exit;
     }
-
-
-    $sheet = $spreadsheet->getActiveSheet();
-
-
-    /* =====================================================
-       GET ROWS
-    ===================================================== */
-
-    $rows = $sheet->toArray(
-        null,
-        true,
-        false,
-        false
-    );
 
 
     /* =====================================================
@@ -713,82 +1055,7 @@ for (
        PROCESS ROWS
     ===================================================== */
 
-    foreach ($rows as $rowIndex => $row) {
-
-        /*
-        =====================================================
-        EXCEL COLUMN MAPPING
-
-        Excel has 48 columns:
-
-        0  VoucherTypeName
-        1  Date
-        2  VoucherNumber
-        3  Reference
-        4  OrderNo
-        5  PartyLedgerName
-        6  ParentLedgerName
-        7  StockItemName
-        8  StockItemAlias
-        9  StockItemParent
-        10 StockItemGrandParent
-        11 StockItemDescription
-        12 StockItemCategory
-        13 GodownName
-        14 BatchName
-        15 BilledQty
-        16 BatchRate
-        17 BatchDiscount
-        18 Amount
-        19 Rate
-        20 Discount
-        21 Narration
-
-        22 MasterId                  IGNORE
-        23 VoucherId                 IGNORE
-
-        24 EnteredBy
-        25 AlteredBy
-
-        26 AlteredOn                 IGNORE
-        27 BasicDueDateOfPymt        IGNORE
-
-        28 JasSalesLedName
-        29 MyDateMonth
-
-        30 EvePymtDueDate            IGNORE
-
-        31 EvePartyCrPeriod
-        32 EveLandedCost
-
-        33 Common Entry              IGNORE
-        34 Common Entry              IGNORE
-        35 Common Entry              IGNORE
-
-        36 EveSalesOrderMstID        -> Sales ID
-        37 EveInvVchOrderNos
-        38 EveInvMailingName
-        39 EveInvMailingAdd
-
-        40 EveEIOrderRef             -> walkin_cust_no
-        41 EveEIAssigTo              -> assigned_to
-        42 EveEIBroughtBy            -> brought_by
-        43 EveEIQuoteRef             -> enquiry_no
-        44 temp_description
-        45 EveLedGrandParent         -> ledger_grand_parent
-        46 EveItemGstRate
-        47 EveItemTaxAmt
-        =====================================================
-        */
-
-
-        /* Make sure row has 48 columns */
-
-        $row = array_pad(
-            $row,
-            48,
-            null
-        );
+    foreach ($rows as $excelRowNumber => $row) {
 
 
         /* =================================================
@@ -797,11 +1064,11 @@ for (
 
         $hasData = false;
 
-        for ($i = 0; $i < 48; $i++) {
+        foreach ($row as $cell) {
 
             if (
-                $row[$i] !== null &&
-                trim((string)$row[$i]) !== ''
+                $cell !== null &&
+                trim((string)$cell) !== ''
             ) {
 
                 $hasData = true;
@@ -822,226 +1089,41 @@ for (
         ================================================= */
 
         $currentExcelRow =
-            $startRow + $rowIndex;
+            $excelRowNumber;
 
 
         /* =================================================
            EXCEL -> DATABASE VALUES
         ================================================= */
 
-        $VoucherTypeName =
-            trim((string)$row[0]);
+        $values = [];
 
-        $Date =
-            convertExcelDate($row[1]);
+        foreach ($columnMap as $map) {
 
-        $VoucherNumber =
-            trim((string)$row[2]);
+            $cell = $row[$map["index"]] ?? null;
 
-        $Reference =
-            trim((string)$row[3]);
+            if ($map["type"] === "d") {
 
-        $OrderNo =
-            trim((string)$row[4]);
+                $values[] = numericOrNull($cell);
 
-        $PartyLedgerName =
-            trim((string)$row[5]);
+            } elseif ($map["type"] === "date") {
 
-        $ParentLedgerName =
-            trim((string)$row[6]);
+                $values[] = convertExcelDate($cell);
 
-        $StockItemName =
-            trim((string)$row[7]);
+            } else {
 
-        $StockItemAlias =
-            trim((string)$row[8]);
-
-        $StockItemParent =
-            trim((string)$row[9]);
-
-        $StockItemGrandParent =
-            trim((string)$row[10]);
-
-        $StockItemDescription =
-            trim((string)$row[11]);
-
-        $StockItemCategory =
-            trim((string)$row[12]);
-
-        $GodownName =
-            trim((string)$row[13]);
-
-        $BatchName =
-            trim((string)$row[14]);
-
-
-        /* =================================================
-           NUMERIC FIELDS
-        ================================================= */
-
-        $BilledQty =
-            numericOrNull($row[15]);
-
-        $BatchRate =
-            numericOrNull($row[16]);
-
-        $BatchDiscount =
-            numericOrNull($row[17]);
-
-        $Amount =
-            numericOrNull($row[18]);
-
-        $Rate =
-            numericOrNull($row[19]);
-
-        $Discount =
-            numericOrNull($row[20]);
-
-
-        /* =================================================
-           OTHER TEXT FIELDS
-        ================================================= */
-
-        $Narration =
-            trim((string)$row[21]);
-
-        $EnteredBy =
-            trim((string)$row[24]);
-
-        $AlteredBy =
-            trim((string)$row[25]);
-
-        $JasSalesLedName =
-            trim((string)$row[28]);
-
-        $MyDateMonth =
-            trim((string)$row[29]);
-
-        $EvePartyCrPeriod =
-            trim((string)$row[31]);
-
-        $EveLandedCost =
-            numericOrNull($row[32]);
-
-
-        /* =================================================
-           SALES ID
-        ================================================= */
-
-        $SalesID =
-            trim((string)$row[36]);
-
-
-        /* =================================================
-           INVOICE / VOUCHER ORDER
-        ================================================= */
-
-        $EveInvVchOrderNos =
-            trim((string)$row[37]);
-
-
-        /* =================================================
-           INVOICE MAILING DETAILS
-        ================================================= */
-
-        $EveInvMailingName =
-            trim((string)$row[38]);
-
-        $EveInvMailingAdd =
-            trim((string)$row[39]);
-
-
-        /* =================================================
-           NEW COLUMNS
-        ================================================= */
-
-        $walkin_cust_no =
-            trim((string)$row[40]);
-
-        $assigned_to =
-            trim((string)$row[41]);
-
-        $brought_by =
-            trim((string)$row[42]);
-
-        $enquiry_no =
-            trim((string)$row[43]);
-
-        $temp_item_desc =
-            trim((string)$row[44]);
-
-        $ledger_grand_parent =
-            trim((string)$row[45]);
-
-        $EveItemGstRate =
-            numericOrNull($row[46]);
-
-        $EveItemTaxAmt =
-            numericOrNull($row[47]);
-
-         $EveSolarCust_Shop
-            = trim((string)$row[48]);
+                $values[] = cleanText($cell);
+            }
+        }
 
 
         /* =================================================
            BIND PARAMETERS
-
-           Total parameters = 40
-
-           31 strings
-           9 decimals
         ================================================= */
 
         $bindResult = $stmt->bind_param(
-
-            "sssssssssssssssddddddssssssdssssssssssdds",
-
-            $VoucherTypeName,
-            $Date,
-            $VoucherNumber,
-            $Reference,
-            $OrderNo,
-            $PartyLedgerName,
-            $ParentLedgerName,
-            $StockItemName,
-            $StockItemAlias,
-            $StockItemParent,
-            $StockItemGrandParent,
-            $StockItemDescription,
-            $StockItemCategory,
-            $GodownName,
-            $BatchName,
-
-            $BilledQty,
-            $BatchRate,
-            $BatchDiscount,
-            $Amount,
-            $Rate,
-            $Discount,
-
-            $Narration,
-            $EnteredBy,
-            $AlteredBy,
-            $JasSalesLedName,
-            $MyDateMonth,
-            $EvePartyCrPeriod,
-
-            $EveLandedCost,
-
-            $SalesID,
-            $EveInvVchOrderNos,
-            $EveInvMailingName,
-            $EveInvMailingAdd,
-            $walkin_cust_no,
-            $assigned_to,
-            $brought_by,
-            $enquiry_no,
-            $temp_item_desc,
-            $ledger_grand_parent,
-            $EveItemGstRate,
-            $EveItemTaxAmt,
-            $EveSolarCust_Shop
-
+            $bindTypes,
+            ...$values
         );
 
 
@@ -1120,11 +1202,7 @@ for (
        CLEAN MEMORY
     ===================================================== */
 
-    $spreadsheet->disconnectWorksheets();
-
-    unset($sheet);
     unset($rows);
-    unset($spreadsheet);
 
     gc_collect_cycles();
 
@@ -1183,6 +1261,41 @@ for (
 $stmt->close();
 
 $conn->close();
+
+
+/* =========================================================
+   NEXT CHUNK
+========================================================= */
+
+$nextStart = $startRow + $chunkSize;
+
+if ($nextStart <= $totalRows) {
+
+    $nextUrl =
+        strtok($_SERVER['REQUEST_URI'] ?? basename(__FILE__), '?') .
+        '?' .
+        http_build_query([
+            'start' => $nextStart,
+            'ok'    => $successCount,
+            'err'   => $errorCount,
+            'empty' => $emptyRowCount,
+            't'     => $startTime
+        ]);
+
+    echo
+        "<p><strong>Loading next chunk (rows " .
+        number_format($nextStart) .
+        " - " .
+        number_format(min($nextStart + $chunkSize - 1, $totalRows)) .
+        ")...</strong></p>" .
+        "<p>If it does not continue automatically, " .
+        "<a href='" . htmlspecialchars($nextUrl, ENT_QUOTES) . "'>click here</a>.</p>" .
+        "<script>setTimeout(function () { window.location.href = " .
+        json_encode($nextUrl) .
+        "; }, 500);</script>";
+
+    exit;
+}
 
 
 /* =========================================================

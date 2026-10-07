@@ -1192,3 +1192,150 @@
         width: 100%;
     }
 }
+
+/* =========================================================
+   LAST REFRESHED
+========================================================= */
+
+.enquiry-refresh-info {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+
+/* =========================================================
+   PENDING QUOTATION FILTER
+========================================================= */
+
+.pending-filter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #343a40;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+}
+
+
+/* =========================================================
+   COMPACT ROWS
+========================================================= */
+
+.enquiry-table tbody td {
+    padding: 8px 10px;
+}
+
+.enquiry-row {
+    cursor: pointer;
+}
+
+.slno-column,
+.slno-cell {
+    width: 60px;
+    min-width: 60px;
+    text-align: center !important;
+    vertical-align: middle !important;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.timer-column,
+.timer-cell {
+    min-width: 110px;
+    text-align: center !important;
+    vertical-align: middle !important;
+}
+
+.nowrap-cell {
+    white-space: nowrap;
+}
+
+/* Long text is cut to 2 lines; hover shows the full text. */
+.enquiry-table .clamp-2 {
+    display: block;
+    line-height: 1.45;
+    max-height: calc(1.45em * 2);
+    overflow: hidden;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.address-column,
+.address-cell {
+    min-width: 180px;
+}
+
+
+/* =========================================================
+   REMARKS COLUMN
+========================================================= */
+
+.enquiry-table th.remarks-column,
+.enquiry-table td.remarks-cell {
+    min-width: 220px;
+    max-width: 260px;
+    white-space: normal;
+}
+
+.no-remarks {
+    color: #9ca3af;
+    font-size: 12px;
+    font-style: italic;
+}
+
+
+/* =========================================================
+   STICKY RIGHT COLUMNS (Quotation No. + Action)
+   Always visible – no need to scroll right.
+========================================================= */
+
+.enquiry-table th.sticky-quotation,
+.enquiry-table td.sticky-quotation {
+    position: sticky;
+    right: 90px;
+    width: 130px;
+    min-width: 130px;
+    z-index: 5;
+    text-align: center;
+    vertical-align: middle;
+    box-shadow: -4px 0 6px -4px rgba(0, 0, 0, 0.18);
+}
+
+.enquiry-table th.sticky-action,
+.enquiry-table td.sticky-action {
+    position: sticky;
+    right: 0;
+    width: 90px;
+    min-width: 90px;
+    z-index: 5;
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* Header corner cells sit above both the sticky header and sticky columns. */
+.enquiry-table thead th.sticky-quotation,
+.enquiry-table thead th.sticky-action {
+    z-index: 30;
+}
+
+
+/* =========================================================
+   ATTACHMENT LINK BUTTONS
+========================================================= */
+
+.attachment-link-btn {
+    border: none;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}

@@ -114,7 +114,28 @@ try {
 
             s.EveItemGstRate,
 
-            s.EveItemTaxAmt
+            s.EveItemTaxAmt,
+
+            s.GodownName,
+
+            s.Discount,
+
+            s.SafHSNSACCode,
+
+            s.JasBaseUnit,
+
+            s.JasPriBillQty,
+
+            s.JasSecBillQty,
+
+            s.EvePartyCrPeriod,
+
+            s.EnteredBy,
+            s.Reference,
+            s.EvePartyGSTIN,
+            s.EveExecutive,
+            s.EveBasicOrderRef,
+            s.EveBasicDueDateOfPymt
 
         FROM salesdata s
 
@@ -419,6 +440,24 @@ try {
         $gstRate = (float)($row["EveItemGstRate"] ?? 0);
 
         $gstAmount = (float)($row["EveItemTaxAmt"] ?? 0);
+        $discount = (float)($row["Discount"] ?? 0);
+        $godown = trim((string)($row["GodownName"] ?? ""));
+        $hsn = trim((string)($row["SafHSNSACCode"] ?? ""));
+        $unit = trim((string)($row["JasBaseUnit"] ?? ""));
+        // Tally's billed quantity as printed, e.g. "225.00 mtr".
+        $quantityText = trim((string)($row["JasPriBillQty"] ?? ""));
+        // Quantity in the alternate unit, printed in brackets.
+        $secondaryQuantityText = trim((string)($row["JasSecBillQty"] ?? ""));
+        $paymentTerms = trim((string)($row["EvePartyCrPeriod"] ?? ""));
+        $enteredBy = trim((string)($row["EnteredBy"] ?? ""));
+        // Voucher header fields printed on the quotation PDF.
+        $headerFields = [
+            "reference" => trim((string)($row["Reference"] ?? "")),
+            "party_gstin" => trim((string)($row["EvePartyGSTIN"] ?? "")),
+            "executive" => trim((string)($row["EveExecutive"] ?? "")),
+            "order_ref" => trim((string)($row["EveBasicOrderRef"] ?? "")),
+            "payment_due_date" => trim((string)($row["EveBasicDueDateOfPymt"] ?? ""))
+        ];
 
         $amountWithGst = $amount + $gstAmount;
 
@@ -477,6 +516,8 @@ try {
                 "party_name" => $partyName,
 
                 "credit_days" => $creditDays,
+                "payment_terms" => $paymentTerms,
+                "entered_by" => $enteredBy,
 
                 "mailing_name" => $mailingName,
 
@@ -540,7 +581,7 @@ try {
 
                 "items" => []
 
-            ];
+            ] + $headerFields;
 
         }
 
@@ -613,6 +654,25 @@ try {
         }
 
 
+
+        if (
+            $orders[$orderKey]["payment_terms"] === ""
+            && $paymentTerms !== ""
+        ) {
+            $orders[$orderKey]["payment_terms"] = $paymentTerms;
+        }
+
+        if (
+            $orders[$orderKey]["entered_by"] === ""
+            && $enteredBy !== ""
+        ) {
+            $orders[$orderKey]["entered_by"] = $enteredBy;
+        }
+        foreach ($headerFields as $field => $value) {
+            if ($orders[$orderKey][$field] === "" && $value !== "") {
+                $orders[$orderKey][$field] = $value;
+            }
+        }
 
         if (
 
@@ -730,7 +790,19 @@ try {
 
                 "value" => $amount,
 
-                "value_with_gst" => $amountWithGst
+                "value_with_gst" => $amountWithGst,
+
+                "hsn" => $hsn,
+
+                "unit" => $unit,
+
+                "quantity_text" => $quantityText,
+
+                "secondary_quantity_text" => $secondaryQuantityText,
+
+                "godown" => $godown,
+
+                "discount" => $discount
 
             ];
 

@@ -44,7 +44,7 @@ import AIChatbot from './AIChatbot';
 import TenderDetails from "./pages/kseb/TenderDetails";
 import Unauthorized from "./Unauthorized";
 import QuotationEntry from "./pages/Quotation/QuotationEntry";
-import TenderExecutive from "./pages/kseb/tenderexecutive";
+import TenderExecutive from "./pages/kseb/TenderExecutive";
 import ManageUsers from "./components/ManageUsers/ManageUsers";
 import TableCompare from "./components/TableCompare/TableCompare";
 import UserSessionManager from "./components/UserSessionManager";

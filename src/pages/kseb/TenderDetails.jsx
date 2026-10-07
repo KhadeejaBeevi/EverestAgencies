@@ -21,6 +21,7 @@ const API_ENDPOINTS = {
 };
 
 const TenderDetails = () => {
+
     const [tenders, setTenders] = useState([]);
     const [search, setSearch] = useState("");
 
@@ -48,6 +49,10 @@ const TenderDetails = () => {
 
     const navigate = useNavigate();
 
+    // =========================================================
+    // ADD TENDER DATA
+    // =========================================================
+
     const [newTender, setNewTender] = useState({
         tender_invited_kseb_office: "",
         opening_date: "",
@@ -64,6 +69,10 @@ const TenderDetails = () => {
         tender_photo: null,
     });
 
+    // =========================================================
+    // EDIT DATA
+    // =========================================================
+
     const [editData, setEditData] = useState({
         tender_info_given_to_gibin: "",
         tender_info_given_date: "",
@@ -74,16 +83,16 @@ const TenderDetails = () => {
         comparison: "",
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | AUTHORIZATION
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // AUTHORIZATION
+    // =========================================================
 
     useEffect(() => {
+
         const unsubscribe = onAuthStateChanged(
             auth,
             async (user) => {
+
                 if (!user) {
                     setAuthorized(false);
                     setCheckingAccess(false);
@@ -91,18 +100,23 @@ const TenderDetails = () => {
                 }
 
                 try {
+
                     const SPECIAL_UID =
-                        "Zj0y6xogiIQLiP0qnYWoHFGrf2";
+                        "Zj0y6xogiIQLp0qnYWoHFGrf2";
 
                     if (user.uid === SPECIAL_UID) {
+
                         setAuthorized(true);
                         setUserRole("special");
+
                         fetchTenders();
+
                         setCheckingAccess(false);
+
                         return;
                     }
 
-                    // Check Admin
+                    // ADMIN
                     const roleRef = doc(
                         db,
                         "roles",
@@ -117,14 +131,18 @@ const TenderDetails = () => {
                         roleSnap.exists() &&
                         roleSnap.data().role === "admin"
                     ) {
+
                         setAuthorized(true);
                         setUserRole("admin");
+
                         fetchTenders();
+
                         setCheckingAccess(false);
+
                         return;
                     }
 
-                    // Check KSEB User
+                    // KSEB USER
                     const userRef = doc(
                         db,
                         "Users",
@@ -139,17 +157,25 @@ const TenderDetails = () => {
                         userSnap.exists() &&
                         userSnap.data().role === "KsebUser"
                     ) {
+
                         setAuthorized(true);
                         setUserRole("ksebuser");
+
                         fetchTenders();
+
                         setCheckingAccess(false);
+
                         return;
                     }
 
                     setAuthorized(false);
+
                 } catch (err) {
+
                     console.error(err);
+
                     setAuthorized(false);
+
                 }
 
                 setCheckingAccess(false);
@@ -157,27 +183,26 @@ const TenderDetails = () => {
         );
 
         return () => unsubscribe();
+
     }, []);
 
-    /*
-    |--------------------------------------------------------------------------
-    | FETCH TENDERS
-    |--------------------------------------------------------------------------
-    | NEWEST TIMESTAMP FIRST
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // FETCH TENDERS
+    // =========================================================
 
     const fetchTenders = async () => {
+
         try {
+
             const res = await apiFetch(
                 API_ENDPOINTS.GET_TENDERS
             );
 
             const data = await res.json();
 
-            // Sort by timestamp - newest tender first
             const sortedData = [...data].sort(
                 (a, b) => {
+
                     const valueA =
                         String(
                             a.timestamp || ""
@@ -207,18 +232,20 @@ const TenderDetails = () => {
             );
 
             setTenders(sortedData);
+
         } catch (err) {
+
             console.error(err);
+
         }
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | FORMAT TIME
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // FORMAT TIME
+    // =========================================================
 
     const formatTime12Hour = (time) => {
+
         if (!time) return "-";
 
         let [hours, minutes] = time.split(":");
@@ -230,27 +257,34 @@ const TenderDetails = () => {
         return `${hours}:${minutes}`;
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | EXECUTIVE EMAILS
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // EXECUTIVE EMAILS
+    // =========================================================
 
     const executiveEmails = {
-        Libin: "libin.ksebexe1@everestagencies.org",
-        Sreelal: "sreelal.ksebexe2@everestagencies.org",
-        Stanly: "stanly.ksebexe3@everestagencies.org",
-        Revathy: "renju.kseb@everestagencies.org",
-        Sumi: "renju.kseb@everestagencies.org",
+
+        Libin:
+            "libin.ksebexe1@everestagencies.org",
+
+        Sreelal:
+            "sreelal.ksebexe2@everestagencies.org",
+
+        Stanly:
+            "stanly.ksebexe3@everestagencies.org",
+
+        Revathy:
+            "renju.kseb@everestagencies.org",
+
+        Sumi:
+            "renju.kseb@everestagencies.org",
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | LIVE DUPLICATE CHECK
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // DUPLICATE CHECK
+    // =========================================================
 
     const checkDuplicateTender = (tenderData) => {
+
         const officeName = (
             tenderData.tender_invited_kseb_office || ""
         )
@@ -264,11 +298,14 @@ const TenderDetails = () => {
             .toLowerCase();
 
         if (!officeName || !noticeNumber) {
+
             setDuplicateTender(null);
+
             return;
         }
 
         const duplicate = tenders.find((item) => {
+
             const existingOffice = (
                 item.tender_invited_kseb_office || ""
             )
@@ -292,13 +329,12 @@ const TenderDetails = () => {
         );
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | ADD FORM CHANGE
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // ADD FORM CHANGE
+    // =========================================================
 
     const handleAddChange = (e) => {
+
         const {
             name,
             value,
@@ -306,9 +342,13 @@ const TenderDetails = () => {
         } = e.target;
 
         if (name === "tender_photo") {
+
             setNewTender((prev) => ({
                 ...prev,
-                tender_photo: files[0],
+                tender_photo:
+                    files && files.length
+                        ? files[0]
+                        : null,
             }));
 
             return;
@@ -320,10 +360,12 @@ const TenderDetails = () => {
         };
 
         if (name === "executive_name") {
+
             updatedTender = {
                 ...updatedTender,
 
-                executive_name: value,
+                executive_name:
+                    value,
 
                 tender_everest_executive_email:
                     executiveEmails[value] ||
@@ -334,27 +376,31 @@ const TenderDetails = () => {
         setNewTender(updatedTender);
 
         if (
-            name ===
-                "tender_invited_kseb_office" ||
-            name ===
-                "quotation_notice_no"
+            name === "tender_invited_kseb_office" ||
+            name === "quotation_notice_no"
         ) {
+
             checkDuplicateTender(
                 updatedTender
             );
         }
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | FORMAT DATE
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // FORMAT DATE
+    // =========================================================
 
     const formatDate = (date) => {
+
         if (!date) return "-";
 
-        return new Date(date)
+        const parsedDate = new Date(date);
+
+        if (isNaN(parsedDate.getTime())) {
+            return date;
+        }
+
+        return parsedDate
             .toLocaleDateString("en-GB", {
                 day: "2-digit",
                 month: "long",
@@ -364,20 +410,26 @@ const TenderDetails = () => {
     };
 
     const formatInputDate = (date) => {
+
         if (!date) return "";
 
-        return new Date(date)
+        const parsedDate = new Date(date);
+
+        if (isNaN(parsedDate.getTime())) {
+            return "";
+        }
+
+        return parsedDate
             .toISOString()
             .split("T")[0];
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | EDIT CHANGE
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // EDIT CHANGE
+    // =========================================================
 
     const handleEditChange = (e) => {
+
         const {
             name,
             value,
@@ -389,13 +441,12 @@ const TenderDetails = () => {
         }));
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | ADD TENDER
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // ADD TENDER
+    // =========================================================
 
     const addTender = async (e) => {
+
         e.preventDefault();
 
         const officeName = (
@@ -414,6 +465,7 @@ const TenderDetails = () => {
 
         const duplicate = tenders.find(
             (item) => {
+
                 const existingOffice = (
                     item.tender_invited_kseb_office ||
                     ""
@@ -430,17 +482,81 @@ const TenderDetails = () => {
 
                 return (
                     existingOffice === officeName &&
-                    existingNoticeNumber ===
-                        noticeNumber
+                    existingNoticeNumber === noticeNumber
                 );
             }
         );
 
         if (duplicate) {
-            setDuplicateTender(duplicate);
+
+            setDuplicateTender(
+                duplicate
+            );
 
             alert(
                 "DUPLICATE TENDER\n\n" +
+                "KSEB Office: " +
+                newTender.tender_invited_kseb_office +
+                "\n" +
+                "Quotation Notice No: " +
+                newTender.quotation_notice_no +
+                "\n\n" +
+                "This tender already exists."
+            );
+
+            return;
+        }
+
+        const formData =
+            new FormData();
+
+        Object.keys(newTender).forEach(
+            (key) => {
+
+                let value =
+                    newTender[key];
+
+                if (
+                    key === "executive_name" &&
+                    newTender.executive_name ===
+                    "Others"
+                ) {
+
+                    value =
+                        newTender.other_executive;
+                }
+
+                if (
+                    value !== null &&
+                    value !== undefined
+                ) {
+
+                    formData.append(
+                        key,
+                        value
+                    );
+                }
+            }
+        );
+
+        try {
+
+            const res =
+                await apiFetch(
+                    API_ENDPOINTS.ADD_TENDER,
+                    {
+                        method: "POST",
+                        body: formData,
+                    }
+                );
+
+            const result =
+                await res.json();
+
+            if (result.duplicate) {
+
+                alert(
+                    "DUPLICATE TENDER\n\n" +
                     "KSEB Office: " +
                     newTender.tender_invited_kseb_office +
                     "\n" +
@@ -448,61 +564,13 @@ const TenderDetails = () => {
                     newTender.quotation_notice_no +
                     "\n\n" +
                     "This tender already exists."
-            );
-
-            return;
-        }
-
-        const formData = new FormData();
-
-        Object.keys(newTender).forEach(
-            (key) => {
-                let value = newTender[key];
-
-                if (
-                    key === "executive_name" &&
-                    newTender.executive_name ===
-                        "Others"
-                ) {
-                    value =
-                        newTender.other_executive;
-                }
-
-                formData.append(
-                    key,
-                    value
-                );
-            }
-        );
-
-        try {
-            const res = await apiFetch(
-                API_ENDPOINTS.ADD_TENDER,
-                {
-                    method: "POST",
-                    body: formData,
-                }
-            );
-
-            const result =
-                await res.json();
-
-            if (result.duplicate) {
-                alert(
-                    "DUPLICATE TENDER\n\n" +
-                        "KSEB Office: " +
-                        newTender.tender_invited_kseb_office +
-                        "\n" +
-                        "Quotation Notice No: " +
-                        newTender.quotation_notice_no +
-                        "\n\n" +
-                        "This tender already exists."
                 );
 
                 return;
             }
 
             if (result.success) {
+
                 alert(
                     "Tender Added Successfully"
                 );
@@ -512,37 +580,33 @@ const TenderDetails = () => {
                 setDuplicateTender(null);
 
                 setNewTender({
-                    tender_invited_kseb_office:
-                        "",
+                    tender_invited_kseb_office: "",
                     opening_date: "",
                     opening_time: "",
-                    quotation_notice_no:
-                        "",
+                    quotation_notice_no: "",
                     quotation_date: "",
-                    tender_item_data:
-                        "",
-                    quotation_submission_last_date:
-                        "",
+                    tender_item_data: "",
+                    quotation_submission_last_date: "",
                     executive_name: "",
                     other_executive: "",
-                    tender_receipt_email:
-                        "",
-                    tender_dispatched_date:
-                        "",
-                    tender_everest_executive_email:
-                        "",
+                    tender_receipt_email: "",
+                    tender_dispatched_date: "",
+                    tender_everest_executive_email: "",
                     tender_photo: null,
                 });
 
-                // Re-fetch and sort newest timestamp first
                 fetchTenders();
+
             } else {
+
                 alert(
                     result.message ||
-                        "Failed to add tender."
+                    "Failed to add tender."
                 );
             }
+
         } catch (err) {
+
             console.error(err);
 
             alert(
@@ -551,16 +615,16 @@ const TenderDetails = () => {
         }
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | OPEN EDIT
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // OPEN EDIT
+    // =========================================================
 
     const openEdit = (tender) => {
+
         setEditingId(tender.id);
 
         setEditData({
+
             tender_info_given_to_gibin:
                 tender.tender_info_given_to_gibin ||
                 "",
@@ -578,24 +642,31 @@ const TenderDetails = () => {
                 "",
 
             sku_rate:
-                tender.sku_rate || "",
+                tender.sku_rate ||
+                "",
 
             order_received_status:
                 tender.order_received_status ||
                 "",
 
+            // =================================================
+            // COMPARISON
+            // Supports both possible field names
+            // =================================================
+
             comparison:
-                tender.comparison || "",
+                tender.tender_comparison ||
+                tender.comparison ||
+                "",
         });
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | DELETE
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // DELETE
+    // =========================================================
 
     const deleteTender = async (id) => {
+
         const confirmDelete =
             window.confirm(
                 "Are you sure you want to delete this tender?"
@@ -604,33 +675,45 @@ const TenderDetails = () => {
         if (!confirmDelete) return;
 
         try {
-            const res = await apiFetch(
-                API_ENDPOINTS.DELETE_TENDER,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type":
-                            "application/json",
-                    },
-                    body: JSON.stringify({
-                        id,
-                    }),
-                }
-            );
+
+            const res =
+                await apiFetch(
+                    API_ENDPOINTS.DELETE_TENDER,
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                        },
+
+                        body: JSON.stringify({
+                            id,
+                        }),
+                    }
+                );
 
             const result =
                 await res.json();
 
             if (result.success) {
+
                 alert(
                     "Tender deleted successfully"
                 );
 
                 fetchTenders();
+
             } else {
-                alert(result.message);
+
+                alert(
+                    result.message ||
+                    "Failed to delete tender."
+                );
             }
+
         } catch (err) {
+
             console.error(err);
 
             alert(
@@ -639,33 +722,40 @@ const TenderDetails = () => {
         }
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | UPDATE
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // UPDATE
+    // =========================================================
 
     const updateTender = async (id) => {
+
         try {
-            const res = await apiFetch(
-                API_ENDPOINTS.UPDATE_TENDER,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type":
-                            "application/json",
-                    },
-                    body: JSON.stringify({
-                        id,
-                        ...editData,
-                    }),
-                }
-            );
+
+            const res =
+                await apiFetch(
+                    API_ENDPOINTS.UPDATE_TENDER,
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                        },
+
+                        body: JSON.stringify({
+
+                            id,
+
+                            ...editData,
+
+                        }),
+                    }
+                );
 
             const result =
                 await res.json();
 
             if (result.success) {
+
                 alert(
                     "Tender Updated Successfully"
                 );
@@ -673,22 +763,32 @@ const TenderDetails = () => {
                 setEditingId(null);
 
                 fetchTenders();
+
             } else {
-                alert(result.message);
+
+                alert(
+                    result.message ||
+                    "Failed to update tender."
+                );
             }
+
         } catch (err) {
+
             console.error(err);
+
+            alert(
+                "Failed to update tender."
+            );
         }
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | FILTER
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // FILTER
+    // =========================================================
 
     const filteredTenders =
         tenders.filter((item) => {
+
             const matchesSearch =
                 Object.values(item)
                     .join(" ")
@@ -700,7 +800,7 @@ const TenderDetails = () => {
             const matchesDate =
                 !filterDate ||
                 item.opening_date ===
-                    filterDate;
+                filterDate;
 
             const status = (
                 item.order_received_status ||
@@ -711,7 +811,7 @@ const TenderDetails = () => {
                 statusFilter === "All"
                     ? true
                     : status ===
-                      statusFilter;
+                    statusFilter;
 
             return (
                 matchesSearch &&
@@ -720,154 +820,132 @@ const TenderDetails = () => {
             );
         });
 
-    /*
-    |--------------------------------------------------------------------------
-    | GROUP TENDERS BY TIMESTAMP
-    |--------------------------------------------------------------------------
-    | IMPORTANT:
-    | Timestamp is the master ordering.
-    | Newest timestamp appears first.
-    |
-    | Month and week are also based on timestamp so that
-    | the visual grouping cannot rearrange the timestamp order.
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // GROUP BY MONTH / WEEK
+    // =========================================================
 
-    const groupedTenders = filteredTenders.reduce(
-        (acc, tender) => {
-            if (!tender.timestamp) {
-                return acc;
-            }
+    const groupedTenders =
+        filteredTenders.reduce(
+            (acc, tender) => {
 
-            const timestampValue =
-                String(tender.timestamp).trim();
+                if (!tender.timestamp) {
+                    return acc;
+                }
 
-            const timestampDate =
-                new Date(
-                    timestampValue.includes("T")
-                        ? timestampValue
-                        : timestampValue.replace(" ", "T")
-                );
+                const timestampValue =
+                    String(
+                        tender.timestamp
+                    ).trim();
 
-            if (isNaN(timestampDate.getTime())) {
-                return acc;
-            }
+                const timestampDate =
+                    new Date(
+                        timestampValue.includes("T")
+                            ? timestampValue
+                            : timestampValue.replace(
+                                " ",
+                                "T"
+                            )
+                    );
 
-            /*
-            ---------------------------------------------------------------
-            MONTH KEY
-            ---------------------------------------------------------------
-            */
+                if (
+                    isNaN(
+                        timestampDate.getTime()
+                    )
+                ) {
+                    return acc;
+                }
 
-            const monthKey =
-                `${timestampDate.getFullYear()}-${String(
-                    timestampDate.getMonth() + 1
-                ).padStart(2, "0")}`;
+                const monthKey =
+                    `${timestampDate.getFullYear()}-${String(
+                        timestampDate.getMonth() + 1
+                    ).padStart(2, "0")}`;
 
-            const monthLabel =
-                timestampDate.toLocaleString(
-                    "en-US",
-                    {
-                        month: "long",
-                        year: "numeric",
-                    }
-                );
+                const monthLabel =
+                    timestampDate.toLocaleString(
+                        "en-US",
+                        {
+                            month: "long",
+                            year: "numeric",
+                        }
+                    );
 
-            /*
-            ---------------------------------------------------------------
-            WEEK NUMBER
-            ---------------------------------------------------------------
-            */
+                const firstDay =
+                    new Date(
+                        timestampDate.getFullYear(),
+                        timestampDate.getMonth(),
+                        1
+                    );
 
-            const firstDay =
-                new Date(
-                    timestampDate.getFullYear(),
-                    timestampDate.getMonth(),
-                    1
-                );
+                const weekNumber =
+                    Math.ceil(
+                        (
+                            timestampDate.getDate() +
+                            firstDay.getDay()
+                        ) / 7
+                    );
 
-            const weekNumber =
-                Math.ceil(
-                    (
-                        timestampDate.getDate() +
-                        firstDay.getDay()
-                    ) / 7
-                );
+                const weekKey =
+                    `Week ${weekNumber}`;
 
-            const weekKey =
-                `Week ${weekNumber}`;
+                if (!acc[monthKey]) {
 
-            /*
-            ---------------------------------------------------------------
-            CREATE MONTH
-            ---------------------------------------------------------------
-            */
+                    acc[monthKey] = {
 
-            if (!acc[monthKey]) {
-                acc[monthKey] = {
-                    label: monthLabel,
-                    weeks: {},
-                };
-            }
+                        label:
+                            monthLabel,
 
-            /*
-            ---------------------------------------------------------------
-            CREATE WEEK
-            ---------------------------------------------------------------
-            */
+                        weeks: {},
+                    };
+                }
 
-            if (
-                !acc[monthKey].weeks[
+                if (
+                    !acc[monthKey].weeks[
                     weekKey
-                ]
-            ) {
+                    ]
+                ) {
+
+                    acc[monthKey].weeks[
+                        weekKey
+                    ] = [];
+                }
+
                 acc[monthKey].weeks[
                     weekKey
-                ] = [];
-            }
+                ].push(tender);
 
-            /*
-            ---------------------------------------------------------------
-            ADD TENDER
-            ---------------------------------------------------------------
-            */
+                return acc;
 
-            acc[monthKey].weeks[
-                weekKey
-            ].push(tender);
+            },
+            {}
+        );
 
-            return acc;
-        },
-        {}
-    );
-
-    /*
-    |--------------------------------------------------------------------------
-    | SORT MONTHS — NEWEST FIRST
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // SORT MONTHS
+    // =========================================================
 
     const sortedMonths =
         Object.entries(
             groupedTenders
         ).sort(
             ([monthA], [monthB]) =>
-                monthB.localeCompare(monthA)
+                monthB.localeCompare(
+                    monthA
+                )
         );
 
-    /*
-    |--------------------------------------------------------------------------
-    | SORT WEEKS + TENDERS — NEWEST FIRST
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // SORT WEEKS / TENDERS
+    // =========================================================
 
     sortedMonths.forEach(
         ([, monthData]) => {
+
             const sortedWeeks =
                 Object.entries(
                     monthData.weeks
                 ).sort(
                     ([weekA], [weekB]) => {
+
                         const numberA =
                             parseInt(
                                 weekA.replace(
@@ -902,30 +980,40 @@ const TenderDetails = () => {
                 monthData.weeks
             ).forEach(
                 (weekTenders) => {
+
                     weekTenders.sort(
                         (a, b) => {
+
                             const valueA =
                                 String(
-                                    a.timestamp || ""
+                                    a.timestamp ||
+                                    ""
                                 ).trim();
 
                             const valueB =
                                 String(
-                                    b.timestamp || ""
+                                    b.timestamp ||
+                                    ""
                                 ).trim();
 
                             const timeA =
                                 new Date(
                                     valueA.includes("T")
                                         ? valueA
-                                        : valueA.replace(" ", "T")
+                                        : valueA.replace(
+                                            " ",
+                                            "T"
+                                        )
                                 ).getTime();
 
                             const timeB =
                                 new Date(
                                     valueB.includes("T")
                                         ? valueB
-                                        : valueB.replace(" ", "T")
+                                        : valueB.replace(
+                                            " ",
+                                            "T"
+                                        )
                                 ).getTime();
 
                             return (
@@ -939,17 +1027,21 @@ const TenderDetails = () => {
         }
     );
 
-    /*
-    |--------------------------------------------------------------------------
-    | DOWNLOAD EXCEL
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // DOWNLOAD EXCEL
+    // =========================================================
 
     const downloadExcel = () => {
+
         const filteredData =
             tenders.filter((item) => {
-                if (!fromDate || !toDate)
+
+                if (
+                    !fromDate ||
+                    !toDate
+                ) {
                     return true;
+                }
 
                 const openingDate =
                     new Date(
@@ -969,54 +1061,60 @@ const TenderDetails = () => {
             });
 
         const excelData =
-            filteredData.map((item) => ({
-                ID: item.id,
+            filteredData.map(
+                (item) => ({
 
-                Timestamp:
-                    item.timestamp,
+                    ID:
+                        item.id,
 
-                "KSEB Office":
-                    item.tender_invited_kseb_office,
+                    Timestamp:
+                        item.timestamp,
 
-                "Opening Date":
-                    item.opening_date,
+                    "KSEB Office":
+                        item.tender_invited_kseb_office,
 
-                "Opening Time":
-                    item.opening_time,
+                    "Opening Date":
+                        item.opening_date,
 
-                "Quotation Notice No":
-                    item.quotation_notice_no,
+                    "Opening Time":
+                        item.opening_time,
 
-                "Quotation Date":
-                    item.quotation_date,
+                    "Quotation Notice No":
+                        item.quotation_notice_no,
 
-                "Tender Item Data":
-                    item.tender_item_data,
+                    "Quotation Date":
+                        item.quotation_date,
 
-                "Submission Last Date":
-                    item.quotation_submission_last_date,
+                    "Tender Item Data":
+                        item.tender_item_data,
 
-                "Executive Name":
-                    item.executive_name,
+                    "Submission Last Date":
+                        item.quotation_submission_last_date,
 
-                "Executive Email":
-                    item.tender_everest_executive_email,
+                    "Executive Name":
+                        item.executive_name,
 
-                "Everest Quotation No":
-                    item.everest_quotation_no,
+                    "Executive Email":
+                        item.tender_everest_executive_email,
 
-                "SKU Rate":
-                    item.sku_rate,
+                    "Everest Quotation No":
+                        item.everest_quotation_no,
 
-                "Tender Dispatched Date":
-                    item.tender_dispatched_date,
+                    "SKU Rate":
+                        item.sku_rate,
 
-                "Order Received Status":
-                    item.order_received_status,
+                    "Tender Dispatched Date":
+                        item.tender_dispatched_date,
 
-                comparison:
-                    item.comparison,
-            }));
+                    "Order Received Status":
+                        item.order_received_status,
+
+                    Comparison:
+                        item.tender_comparison ||
+                        item.comparison ||
+                        "",
+                })
+            );
 
         const worksheet =
             XLSX.utils.json_to_sheet(
@@ -1033,18 +1131,22 @@ const TenderDetails = () => {
         );
 
         const excelBuffer =
-            XLSX.write(workbook, {
-                bookType: "xlsx",
-                type: "array",
-            });
+            XLSX.write(
+                workbook,
+                {
+                    bookType: "xlsx",
+                    type: "array",
+                }
+            );
 
-        const data = new Blob(
-            [excelBuffer],
-            {
-                type:
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            }
-        );
+        const data =
+            new Blob(
+                [excelBuffer],
+                {
+                    type:
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }
+            );
 
         saveAs(
             data,
@@ -1052,17 +1154,16 @@ const TenderDetails = () => {
         );
     };
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESIZE
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // RESIZE
+    // =========================================================
 
     useEffect(() => {
+
         const handleResize = () => {
+
             setIsMobile(
-                window.innerWidth <=
-                    768
+                window.innerWidth <= 768
             );
         };
 
@@ -1072,34 +1173,41 @@ const TenderDetails = () => {
         );
 
         return () => {
+
             window.removeEventListener(
                 "resize",
                 handleResize
             );
         };
+
     }, []);
 
-    /*
-    |--------------------------------------------------------------------------
-    | ACCESS CHECKING
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // ACCESS CHECK
+    // =========================================================
 
     if (checkingAccess) {
+
         return (
+
             <div className="tender-container">
+
                 <Banner />
 
                 <h2>
                     Checking Access...
                 </h2>
+
             </div>
         );
     }
 
     if (!authorized) {
+
         return (
+
             <div className="tender-container">
+
                 <Banner />
 
                 <h2>
@@ -1110,6 +1218,7 @@ const TenderDetails = () => {
                     You are not authorized
                     to view this page.
                 </p>
+
             </div>
         );
     }
@@ -1119,18 +1228,19 @@ const TenderDetails = () => {
             .toISOString()
             .split("T")[0];
 
-    /*
-    |--------------------------------------------------------------------------
-    | RETURN
-    |--------------------------------------------------------------------------
-    */
+    // =========================================================
+    // RETURN
+    // =========================================================
 
     return (
+
         <div className="tender-container">
 
             <Banner />
 
-            {/* HEADER */}
+            {/* =================================================
+                HEADER
+            ================================================= */}
 
             <div className="tender-header">
 
@@ -1141,12 +1251,10 @@ const TenderDetails = () => {
                 <button
                     className="tender_add-btn"
                     onClick={() => {
-                        setShowAddModal(
-                            true
-                        );
-                        setDuplicateTender(
-                            null
-                        );
+
+                        setShowAddModal(true);
+
+                        setDuplicateTender(null);
                     }}
                 >
                     + Add Tender
@@ -1154,7 +1262,9 @@ const TenderDetails = () => {
 
             </div>
 
-            {/* FILTER MENU */}
+            {/* =================================================
+                FILTER MENU
+            ================================================= */}
 
             <div className="filter-menu-container">
 
@@ -1170,6 +1280,7 @@ const TenderDetails = () => {
                 </button>
 
                 {showFilters && (
+
                     <div className="tender_filter-dropdown">
 
                         <div className="tender_filter-group">
@@ -1184,11 +1295,11 @@ const TenderDetails = () => {
                                 }
                                 onChange={(e) =>
                                     setStatusFilter(
-                                        e.target
-                                            .value
+                                        e.target.value
                                     )
                                 }
                             >
+
                                 <option value="All">
                                     All
                                 </option>
@@ -1204,6 +1315,7 @@ const TenderDetails = () => {
                                 <option value="Lost">
                                     Lost
                                 </option>
+
                             </select>
 
                         </div>
@@ -1211,21 +1323,14 @@ const TenderDetails = () => {
                         <button
                             className="clear-filter-btn"
                             onClick={() => {
-                                setSearch(
-                                    ""
-                                );
 
-                                setFilterDate(
-                                    ""
-                                );
+                                setSearch("");
 
-                                setFromDate(
-                                    ""
-                                );
+                                setFilterDate("");
 
-                                setToDate(
-                                    ""
-                                );
+                                setFromDate("");
+
+                                setToDate("");
 
                                 setStatusFilter(
                                     "All"
@@ -1240,7 +1345,9 @@ const TenderDetails = () => {
 
             </div>
 
-            {/* FILTER ROW */}
+            {/* =================================================
+                FILTER ROW
+            ================================================= */}
 
             <div className="tender_filter-row">
 
@@ -1250,9 +1357,7 @@ const TenderDetails = () => {
                         type="text"
                         placeholder="Search..."
                         className="tender_search-box"
-                        value={
-                            search
-                        }
+                        value={search}
                         onChange={(e) =>
                             setSearch(
                                 e.target.value
@@ -1272,13 +1377,10 @@ const TenderDetails = () => {
 
                         <input
                             type="date"
-                            value={
-                                filterDate
-                            }
+                            value={filterDate}
                             onChange={(e) =>
                                 setFilterDate(
-                                    e.target
-                                        .value
+                                    e.target.value
                                 )
                             }
                         />
@@ -1293,13 +1395,10 @@ const TenderDetails = () => {
 
                         <input
                             type="date"
-                            value={
-                                fromDate
-                            }
+                            value={fromDate}
                             onChange={(e) =>
                                 setFromDate(
-                                    e.target
-                                        .value
+                                    e.target.value
                                 )
                             }
                         />
@@ -1314,13 +1413,10 @@ const TenderDetails = () => {
 
                         <input
                             type="date"
-                            value={
-                                toDate
-                            }
+                            value={toDate}
                             onChange={(e) =>
                                 setToDate(
-                                    e.target
-                                        .value
+                                    e.target.value
                                 )
                             }
                         />
@@ -1330,18 +1426,14 @@ const TenderDetails = () => {
                     <button
                         className="clear-btn"
                         onClick={() => {
-                            setSearch(
-                                ""
-                            );
-                            setFilterDate(
-                                ""
-                            );
-                            setFromDate(
-                                ""
-                            );
-                            setToDate(
-                                ""
-                            );
+
+                            setSearch("");
+
+                            setFilterDate("");
+
+                            setFromDate("");
+
+                            setToDate("");
                         }}
                     >
                         Clear
@@ -1360,7 +1452,9 @@ const TenderDetails = () => {
 
             </div>
 
-            {/* TABLE */}
+            {/* =================================================
+                TABLE
+            ================================================= */}
 
             <div className="tender_table-wrapper">
 
@@ -1460,12 +1554,12 @@ const TenderDetails = () => {
                                         }
                                     >
 
+                                        {/* MONTH */}
+
                                         <tr>
 
                                             <th
-                                                colSpan={
-                                                    20
-                                                }
+                                                colSpan={20}
                                                 style={{
                                                     background:
                                                         "#1e3a8a",
@@ -1499,6 +1593,8 @@ const TenderDetails = () => {
                                                         week
                                                     }
                                                 >
+
+                                                    {/* WEEK */}
 
                                                     <tr>
 
@@ -1543,11 +1639,15 @@ const TenderDetails = () => {
                                                                 }
                                                             >
 
+                                                                {/* ID */}
+
                                                                 <td>
                                                                     {
                                                                         item.id
                                                                     }
                                                                 </td>
+
+                                                                {/* TIMESTAMP */}
 
                                                                 <td>
                                                                     {formatDate(
@@ -1555,11 +1655,15 @@ const TenderDetails = () => {
                                                                     )}
                                                                 </td>
 
+                                                                {/* KSEB OFFICE */}
+
                                                                 <td>
                                                                     {
                                                                         item.tender_invited_kseb_office
                                                                     }
                                                                 </td>
+
+                                                                {/* OPENING DATE */}
 
                                                                 <td>
                                                                     {formatDate(
@@ -1567,11 +1671,15 @@ const TenderDetails = () => {
                                                                     )}
                                                                 </td>
 
+                                                                {/* OPENING TIME */}
+
                                                                 <td>
                                                                     {formatTime12Hour(
                                                                         item.opening_time
                                                                     )}
                                                                 </td>
+
+                                                                {/* QUOTATION NOTICE */}
 
                                                                 <td>
                                                                     {
@@ -1579,11 +1687,15 @@ const TenderDetails = () => {
                                                                     }
                                                                 </td>
 
+                                                                {/* QUOTATION DATE */}
+
                                                                 <td>
                                                                     {formatDate(
                                                                         item.quotation_date
                                                                     )}
                                                                 </td>
+
+                                                                {/* EVEREST QUOTATION */}
 
                                                                 <td>
 
@@ -1603,11 +1715,14 @@ const TenderDetails = () => {
 
                                                                     ) : (
 
-                                                                        item.everest_quotation_no
+                                                                        item.everest_quotation_no ||
+                                                                        "-"
 
                                                                     )}
 
                                                                 </td>
+
+                                                                {/* SKU RATE */}
 
                                                                 <td className="sku-rate-column">
 
@@ -1623,6 +1738,7 @@ const TenderDetails = () => {
                                                                             onChange={
                                                                                 handleEditChange
                                                                             }
+                                                                            rows={4}
                                                                         />
 
                                                                     ) : (
@@ -1638,6 +1754,7 @@ const TenderDetails = () => {
                                                                                         line,
                                                                                         index
                                                                                     ) => (
+
                                                                                         <div
                                                                                             key={
                                                                                                 index
@@ -1647,14 +1764,20 @@ const TenderDetails = () => {
                                                                                                 line
                                                                                             }
                                                                                         </div>
+
                                                                                     )
                                                                                 )}
+
+                                                                            {!item.sku_rate &&
+                                                                                "-"}
 
                                                                         </div>
 
                                                                     )}
 
                                                                 </td>
+
+                                                                {/* TENDER ITEM DATA */}
 
                                                                 <td>
 
@@ -1694,11 +1817,15 @@ const TenderDetails = () => {
 
                                                                 </td>
 
+                                                                {/* LAST DATE */}
+
                                                                 <td>
                                                                     {formatDate(
                                                                         item.quotation_submission_last_date
                                                                     )}
                                                                 </td>
+
+                                                                {/* PHOTO */}
 
                                                                 <td>
 
@@ -1724,10 +1851,14 @@ const TenderDetails = () => {
                                                                         />
 
                                                                     ) : (
+
                                                                         "-"
+
                                                                     )}
 
                                                                 </td>
+
+                                                                {/* EXECUTIVE */}
 
                                                                 <td>
                                                                     {
@@ -1735,11 +1866,15 @@ const TenderDetails = () => {
                                                                     }
                                                                 </td>
 
+                                                                {/* EMAIL */}
+
                                                                 <td>
                                                                     {
                                                                         item.tender_everest_executive_email
                                                                     }
                                                                 </td>
+
+                                                                {/* DISPATCHED DATE */}
 
                                                                 <td>
                                                                     {formatDate(
@@ -1747,17 +1882,89 @@ const TenderDetails = () => {
                                                                     )}
                                                                 </td>
 
-                                                                <td>
-                                                                    {
-                                                                        item.tender_comparison
-                                                                    }
+                                                                {/* =================================================
+                                                                    COMPARISON EDITING
+                                                                ================================================= */}
+
+                                                                <td className="comparison-column">
+
+                                                                    {editingId ===
+                                                                    item.id ? (
+
+                                                                        <textarea
+                                                                            className="comparison-edit-box"
+                                                                            name="comparison"
+                                                                            value={
+                                                                                editData.comparison
+                                                                            }
+                                                                            onChange={
+                                                                                handleEditChange
+                                                                            }
+                                                                            placeholder="Enter comparison details..."
+                                                                            rows={4}
+                                                                        />
+
+                                                                    ) : (
+
+                                                                        <div className="comparison-display">
+
+                                                                            {
+                                                                                item.tender_comparison ||
+                                                                                item.comparison
+                                                                                
+                                                                            }
+
+                                                                        </div>
+
+                                                                    )}
+
                                                                 </td>
 
+                                                                {/* ORDER STATUS */}
+
                                                                 <td>
-                                                                    {
-                                                                        item.order_received_status
-                                                                    }
+
+                                                                    {editingId ===
+                                                                    item.id ? (
+
+                                                                        <select
+                                                                            name="order_received_status"
+                                                                            value={
+                                                                                editData.order_received_status
+                                                                            }
+                                                                            onChange={
+                                                                                handleEditChange
+                                                                            }
+                                                                        >
+
+                                                                            <option value="">
+                                                                                Select
+                                                                            </option>
+
+                                                                            <option value="Active">
+                                                                                Active
+                                                                            </option>
+
+                                                                            <option value="Won">
+                                                                                Won
+                                                                            </option>
+
+                                                                            <option value="Lost">
+                                                                                Lost
+                                                                            </option>
+
+                                                                        </select>
+
+                                                                    ) : (
+
+                                                                        item.order_received_status 
+                                                                        
+
+                                                                    )}
+
                                                                 </td>
+
+                                                                {/* ACTION */}
 
                                                                 <td>
 
@@ -1840,17 +2047,23 @@ const TenderDetails = () => {
                             {filteredTenders.length ===
                                 0 && (
 
-                                <tr>
+                                    <tr>
 
-                                    <td
-                                        colSpan="24"
-                                    >
-                                        No Data Found
-                                    </td>
+                                        <td
+                                            colSpan="20"
+                                            style={{
+                                                textAlign:
+                                                    "center",
+                                                padding:
+                                                    "30px",
+                                            }}
+                                        >
+                                            No Data Found
+                                        </td>
 
-                                </tr>
+                                    </tr>
 
-                            )}
+                                )}
 
                         </tbody>
 
@@ -1858,7 +2071,9 @@ const TenderDetails = () => {
 
                 ) : (
 
-                    /* MOBILE */
+                    /* =================================================
+                       MOBILE
+                    ================================================= */
 
                     <div className="mobile-tender-list">
 
@@ -1870,14 +2085,16 @@ const TenderDetails = () => {
 
                                 <React.Fragment
                                     key={
-                                        month
+                                        monthKey
                                     }
                                 >
 
                                     <div className="mobile-month-header">
+
                                         {
                                             monthData.label
                                         }
+
                                     </div>
 
                                     {Object.entries(
@@ -1895,9 +2112,11 @@ const TenderDetails = () => {
                                             >
 
                                                 <div className="mobile-week-header">
+
                                                     {
                                                         week
                                                     }
+
                                                 </div>
 
                                                 {weekTenders.map(
@@ -1943,10 +2162,13 @@ const TenderDetails = () => {
                                                                 </div>
 
                                                                 <div className="mobile-id">
+
                                                                     #
+
                                                                     {
                                                                         item.id
                                                                     }
+
                                                                 </div>
 
                                                             </div>
@@ -1954,60 +2176,133 @@ const TenderDetails = () => {
                                                             <div className="tender_mobile-card-body">
 
                                                                 <p>
+
                                                                     <strong>
                                                                         Quotation Date:
                                                                     </strong>{" "}
+
                                                                     {formatDate(
                                                                         item.quotation_date
                                                                     )}
+
                                                                 </p>
 
                                                                 <p>
+
                                                                     <strong>
                                                                         Opening Date:
                                                                     </strong>{" "}
+
                                                                     {formatDate(
                                                                         item.opening_date
                                                                     )}
+
                                                                 </p>
 
                                                                 <p>
+
                                                                     <strong>
                                                                         Opening Time:
                                                                     </strong>{" "}
+
                                                                     {formatTime12Hour(
                                                                         item.opening_time
                                                                     )}
+
                                                                 </p>
 
                                                                 <p>
+
                                                                     <strong>
                                                                         Executive:
                                                                     </strong>{" "}
+
                                                                     {
                                                                         item.executive_name
                                                                     }
+
                                                                 </p>
 
                                                                 <p>
+
                                                                     <strong>
                                                                         Status:
                                                                     </strong>{" "}
+
                                                                     {
-                                                                        item.order_received_status ||
-                                                                        "-"
+                                                                        item.order_received_status 
+                                                                        
                                                                     }
+
                                                                 </p>
 
                                                                 <p>
+
                                                                     <strong>
                                                                         Quotation No:
                                                                     </strong>{" "}
+
                                                                     {
-                                                                        item.everest_quotation_no ||
-                                                                        "-"
+                                                                        item.everest_quotation_no 
+                                                                        
                                                                     }
+
                                                                 </p>
+
+                                                                {/* MOBILE COMPARISON */}
+
+                                                                <div
+                                                                    style={{
+                                                                        marginTop:
+                                                                            "10px",
+                                                                    }}
+                                                                >
+
+                                                                    <strong>
+                                                                        Comparison:
+                                                                    </strong>
+
+                                                                    {editingId ===
+                                                                    item.id ? (
+
+                                                                        <textarea
+                                                                            className="comparison-edit-box"
+                                                                            name="comparison"
+                                                                            value={
+                                                                                editData.comparison
+                                                                            }
+                                                                            onChange={
+                                                                                handleEditChange
+                                                                            }
+                                                                            placeholder="Enter comparison details..."
+                                                                            rows={4}
+                                                                            style={{
+                                                                                marginTop:
+                                                                                    "6px",
+                                                                            }}
+                                                                        />
+
+                                                                    ) : (
+
+                                                                        <div
+                                                                            className="comparison-display"
+                                                                            style={{
+                                                                                marginTop:
+                                                                                    "5px",
+                                                                            }}
+                                                                        >
+
+                                                                            {
+                                                                                item.tender_comparison ||
+                                                                                item.comparison ||
+                                                                                "-"
+                                                                            }
+
+                                                                        </div>
+
+                                                                    )}
+
+                                                                </div>
 
                                                             </div>
 
@@ -2110,11 +2405,11 @@ const TenderDetails = () => {
                         {filteredTenders.length ===
                             0 && (
 
-                            <div className="no-mobile-data">
-                                No Data Found
-                            </div>
+                                <div className="no-mobile-data">
+                                    No Data Found
+                                </div>
 
-                        )}
+                            )}
 
                     </div>
 
@@ -2166,6 +2461,7 @@ const TenderDetails = () => {
                                                 duplicateTender
                                                     ? "2px solid #dc2626"
                                                     : undefined,
+
                                             backgroundColor:
                                                 duplicateTender
                                                     ? "#fef2f2"
@@ -2197,6 +2493,7 @@ const TenderDetails = () => {
                                                 duplicateTender
                                                     ? "2px solid #dc2626"
                                                     : undefined,
+
                                             backgroundColor:
                                                 duplicateTender
                                                     ? "#fef2f2"
@@ -2204,33 +2501,24 @@ const TenderDetails = () => {
                                         }}
                                     />
 
-                                    {/* LIVE DUPLICATE WARNING */}
-
                                     {duplicateTender && (
 
                                         <div
                                             style={{
                                                 marginTop:
                                                     "8px",
-
                                                 padding:
                                                     "12px 14px",
-
                                                 background:
                                                     "#fee2e2",
-
                                                 border:
                                                     "1px solid #ef4444",
-
                                                 borderRadius:
                                                     "7px",
-
                                                 color:
                                                     "#991b1b",
-
                                                 fontSize:
                                                     "14px",
-
                                                 fontWeight:
                                                     "600",
                                             }}
@@ -2442,12 +2730,18 @@ const TenderDetails = () => {
                                         }
                                     />
 
-                                    <datalist id="executiveList">
+                                    <datalist
+                                        id="executiveList"
+                                    >
 
                                         <option value="Libin" />
+
                                         <option value="Sreelal" />
+
                                         <option value="Stanly" />
+
                                         <option value="Revathy" />
+
                                         <option value="Sumi" />
 
                                     </datalist>
@@ -2475,7 +2769,9 @@ const TenderDetails = () => {
                                         }
                                     />
 
-                                    <datalist id="emailList">
+                                    <datalist
+                                        id="emailList"
+                                    >
 
                                         <option value="libin.ksebexe1@everestagencies.org" />
 
@@ -2538,6 +2834,7 @@ const TenderDetails = () => {
                                     type="button"
                                     className="tender_cancel-btn"
                                     onClick={() => {
+
                                         setShowAddModal(
                                             false
                                         );

@@ -128,10 +128,13 @@ const SalesUserDashboard = () => {
       }
     };
 
+    // Refresh every 30s, and skip while the tab is in the background
+    // (polling every 5s caused "429 Too Many Requests" on the host).
     const interval = setInterval(() => {
+      if (document.hidden) return;
       fetchOrders();
       fetchLR();
-    }, 5000);
+    }, 30000);
 
     return () => {
       unsubscribe();

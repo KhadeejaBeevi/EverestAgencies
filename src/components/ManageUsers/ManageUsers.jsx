@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "../../components/firebase";
+import { resizeImage, MAX_UPLOAD_BYTES } from "../MyProfile/profilePhoto";
 
 
 const ManageUsers = () => {
@@ -30,6 +31,8 @@ const ManageUsers = () => {
         lastName: "",
         email: "",
         role: "",
+        phone: "",
+        photo: "",
 
     });
 
@@ -113,6 +116,40 @@ const ManageUsers = () => {
     };
 
 
+    const handlePhotoSelect = async (e) => {
+
+        const file = e.target.files?.[0];
+        e.target.value = "";
+
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
+            alert("Please choose an image file");
+            return;
+        }
+
+        if (file.size > MAX_UPLOAD_BYTES) {
+            alert("Image must be smaller than 10 MB");
+            return;
+        }
+
+        try {
+
+            const photo = await resizeImage(file);
+
+            setSelectedUser((prev) => ({ ...prev, photo }));
+
+        } catch (err) {
+
+            console.log(err);
+
+            alert(err.message);
+
+        }
+
+    };
+
+
     const updateUser = async () => {
 
         try {
@@ -123,7 +160,8 @@ const ManageUsers = () => {
                 lastName: selectedUser.lastName,
                 email: selectedUser.email,
                 role: selectedUser.role,
-
+                phone: (selectedUser.phone || "").trim(),
+                photo: selectedUser.photo || "",
 
             });
 
@@ -220,6 +258,8 @@ const ManageUsers = () => {
 
                                     <th>No</th>
 
+                                    <th>Photo</th>
+
                                     <th>FirstName</th>
                                     <th>LastName</th>
 
@@ -244,7 +284,7 @@ const ManageUsers = () => {
                                     <tr>
 
                                         <td
-                                            colSpan="7"
+                                            colSpan="8"
                                             style={{
                                                 textAlign: "center",
                                                 padding: "25px"
@@ -262,6 +302,20 @@ const ManageUsers = () => {
                                         <tr key={user.id}>
 
                                             <td>{index + 1}</td>
+
+                                            <td>
+                                                {user.photo ? (
+                                                    <img
+                                                        src={user.photo}
+                                                        alt=""
+                                                        className="user-thumb"
+                                                    />
+                                                ) : (
+                                                    <span className="user-thumb user-thumb-initial">
+                                                        {(user.firstName || "?").charAt(0).toUpperCase()}
+                                                    </span>
+                                                )}
+                                            </td>
 
                                             <td>{user.firstName}</td>
 
@@ -314,6 +368,48 @@ const ManageUsers = () => {
 
                                 <h2>Edit User</h2>
 
+                                <div className="photo-group">
+
+                                    {selectedUser.photo ? (
+                                        <img
+                                            src={selectedUser.photo}
+                                            alt="Profile"
+                                            className="edit-photo"
+                                        />
+                                    ) : (
+                                        <span className="edit-photo user-thumb-initial">
+                                            {(selectedUser.firstName || "?").charAt(0).toUpperCase()}
+                                        </span>
+                                    )}
+
+                                    <div className="photo-actions">
+
+                                        <label className="photo-btn">
+                                            {selectedUser.photo ? "Change Photo" : "Add Photo"}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                hidden
+                                                onChange={handlePhotoSelect}
+                                            />
+                                        </label>
+
+                                        {selectedUser.photo && (
+                                            <button
+                                                type="button"
+                                                className="photo-btn photo-remove"
+                                                onClick={() =>
+                                                    setSelectedUser((prev) => ({ ...prev, photo: "" }))
+                                                }
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+
+                                    </div>
+
+                                </div>
+
                                 <div className="form-group">
 
                                     <label>FirstName</label>
@@ -353,6 +449,19 @@ const ManageUsers = () => {
                                 </div>
 
 
+
+                                <div className="form-group">
+
+                                    <label>Phone</label>
+
+                                    <input
+                                        type="tel"
+                                        name="phone"
+                                        value={selectedUser.phone || ""}
+                                        onChange={handleChange}
+                                    />
+
+                                </div>
 
                                 <div className="form-group">
 

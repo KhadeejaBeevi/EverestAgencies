@@ -38,11 +38,40 @@ import {
   X,
   UserRoundCheck,
   BarChart3,
+  UserRound,
 } from "lucide-react";
 
 function Banner() {
   const [dashboardPath, setDashboardPath] = useState("/");
   const [tenderPath, setTenderPath] = useState("/tenderexecutive");
+  const [profile, setProfile] = useState({ photo: "", initials: "" });
+
+  // =====================================================
+  // PROFILE AVATAR
+  // Re-read when MyProfile saves changes
+  // =====================================================
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      try {
+        const snap = await getDoc(doc(db, "Users", user.uid));
+        const data = snap.exists() ? snap.data() : {};
+
+        setProfile({
+          photo: data.photo || "",
+          initials: `${(data.firstName || "").charAt(0)}${(data.lastName || "").charAt(0)}`.toUpperCase(),
+        });
+      } catch (error) {
+        console.error("Banner profile lookup failed:", error);
+      }
+    };
+
+    window.addEventListener("profile-updated", loadProfile);
+    return () => window.removeEventListener("profile-updated", loadProfile);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
@@ -68,6 +97,12 @@ function Banner() {
         let role = userSnap.exists()
           ? userSnap.data().role || ""
           : "";
+
+        const userData = userSnap.exists() ? userSnap.data() : {};
+        setProfile({
+          photo: userData.photo || "",
+          initials: `${(userData.firstName || "").charAt(0)}${(userData.lastName || "").charAt(0)}`.toUpperCase(),
+        });
 
         // =====================================================
         // FALLBACK TO ROLES COLLECTION
@@ -469,6 +504,14 @@ function Banner() {
                         >
                           <Truck size={16} />
                           <span>LR Details</span>
+                        </Link>
+
+                        <Link
+                          to="/salessitevisit"
+                          onClick={closeDesktopMenu}
+                        >
+                          <MapPinned size={16} />
+                          <span>Site Visits</span>
                         </Link>
 
                         <Link
@@ -987,6 +1030,39 @@ function Banner() {
               <Bell size={18} />
             </button>
 
+            {/* PROFILE */}
+
+            <Link
+              to="/myprofile"
+              className="
+                w-8 h-8 md:w-9 md:h-9
+                rounded-full
+                overflow-hidden
+                bg-red-600
+                text-white
+                text-xs md:text-sm
+                font-semibold
+                flex items-center justify-center
+                ring-2 ring-slate-700
+                hover:ring-slate-400
+                transition
+              "
+              title="My Profile"
+              aria-label="My Profile"
+            >
+              {profile.photo ? (
+                <img
+                  src={profile.photo}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : profile.initials ? (
+                profile.initials
+              ) : (
+                <UserRound size={18} />
+              )}
+            </Link>
+
             {/* LOGOUT */}
 
             <button
@@ -1035,6 +1111,17 @@ function Banner() {
           >
             <LayoutDashboard size={18} />
             <span>Dashboard</span>
+          </Link>
+
+          {/* MY PROFILE */}
+
+          <Link
+            to="/myprofile"
+            onClick={closeMobileMenu}
+            className="mobile-link"
+          >
+            <UserRound size={18} />
+            <span>My Profile</span>
           </Link>
 
           {/* USERS */}
@@ -1461,6 +1548,16 @@ function Banner() {
                 <Truck size={16} />
                 <span>
                   LR Details
+                </span>
+              </Link>
+
+              <Link
+                to="/salessitevisit"
+                onClick={closeMobileMenu}
+              >
+                <MapPinned size={16} />
+                <span>
+                  Site Visits
                 </span>
               </Link>
 

@@ -46,6 +46,7 @@ const ALL_PAGES = [
     "Sales Orders",
     "Solar New Leads",
     "Lorry Receipt",
+    "Sales Site Visit",
 
     "User Activity Report",
     "Manage Users",

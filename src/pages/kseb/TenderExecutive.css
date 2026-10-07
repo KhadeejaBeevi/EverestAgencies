@@ -82,7 +82,6 @@
     vertical-align: top;
 }
 
-
 .tender-status-filter-buttons{
     display:flex;
     gap:12px;
@@ -127,7 +126,7 @@
 .tender-filter-menu-container{
     position: relative;
     display: flex;
-    justify-content: flex-start;   /* Left side */
+    justify-content: flex-start;
     margin:15px 20px;
 }
 
@@ -152,7 +151,7 @@
 .tender-filter-dropdown{
     position:absolute;
     top:55px;
-    left:0;               /* Open from left */
+    left:0;
     width:280px;
     background:#fff;
     border-radius:10px;
@@ -195,6 +194,7 @@
 .tender-clear-filter-btn:hover {
     background: #bb2d3b;
 }
+
 /* Mobile Card */
 .tender-mobile-card {
     background: #fff;
@@ -277,16 +277,18 @@
     margin: 12px;
     width: calc(100% - 24px);
 }
+
 /* Last item no border */
 .tender-mobile-card-body > *:last-child{
     border-bottom: none;
 }
 
 .tender-sku-rate-text {
-    white-space: pre-line;   /* Preserves Enter key line breaks */
+    white-space: pre-line;
     word-break: break-word;
     line-height: 1.5;
 }
+
 .tender-date-filter{
     display: flex;
     flex-direction: column;
@@ -316,6 +318,7 @@
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(37,99,235,.15);
 }
+
 .tender-filter-row {
     display: flex;
     align-items: flex-start;
@@ -325,7 +328,7 @@
 }
 
 .tender-filter-left {
-    width: 200px; /* Empty space or other controls if needed */
+    width: 200px;
 }
 
 .tender-filter-center {
@@ -377,7 +380,6 @@
     cursor: pointer;
 }
 
-
 .tender-table-wrapper{
     width:100%;
     overflow-x:auto;
@@ -389,10 +391,9 @@
     -webkit-overflow-scrolling:touch;
 }
 
-
 .tender-table{
     width:max-content;
-    min-width:3200px;      /* adjust based on number of columns */
+    min-width:3200px;
     border-collapse:collapse;
 }
 
@@ -445,7 +446,6 @@
     align-items:center;
 }
 
-
 .image-preview-overlay{
     position:fixed;
     inset:0;
@@ -489,4 +489,204 @@
 .image-preview-close:hover{
     background:#ef4444;
     color:#fff;
+}
+
+/* =========================================================
+   COMPARISON COLUMN - DESKTOP
+   ========================================================= */
+
+.tender-table th:nth-child(13),
+.tender-table td:nth-child(13),
+.comparison-column {
+    width: 460px;
+    min-width: 460px;
+    max-width: 460px;
+    vertical-align: top;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.tender-table th:nth-child(14),
+.tender-table td:nth-child(14) {
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    vertical-align: top;
+    box-sizing: border-box;
+    text-align: center;
+}
+
+.comparison-edit-box {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+    padding: 10px;
+    background: #f8fafc;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.comparison-file-section,
+.comparison-text-section {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.comparison-label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.comparison-file-input {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 5px;
+    border: 1px solid #2563eb;
+    border-radius: 5px;
+    background: #fff;
+    font-size: 12px;
+}
+
+.comparison-or {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    margin: 10px 0;
+}
+
+.comparison-or::before,
+.comparison-or::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #d1d5db;
+}
+
+.comparison-or span {
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+}
+
+.comparison-textarea {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 110px;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #fff;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+    outline: none;
+}
+
+.comparison-textarea:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.comparison-preview-wrapper {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+}
+
+.comparison-preview-image {
+    display: block;
+    width: 100px;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.comparison-text-display {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+    padding: 8px;
+    background: #f8fafc;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #374151;
+}
+
+.tender-table td:nth-child(14) {
+    white-space: normal;
+}
+
+.tender-table td:nth-child(14) .tender-save-btn,
+.tender-table td:nth-child(14) .tender-cancel-btn,
+.tender-table td:nth-child(14) .tender-edit-btn {
+    display: inline-block;
+    margin: 3px;
+    box-sizing: border-box;
+}
+
+/* =========================================================
+   MOBILE COMPARISON
+   ========================================================= */
+
+.mobile-comparison-edit-box {
+    margin: 10px 15px;
+    width: calc(100% - 30px);
+}
+
+.mobile-comparison-text {
+    margin: 10px 15px;
+    width: calc(100% - 30px);
+}
+
+@media (max-width: 768px) {
+
+    .comparison-edit-box {
+        width: 100%;
+        max-width: 100%;
+        padding: 10px;
+        box-sizing: border-box;
+    }
+
+    .comparison-file-input {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        font-size: 12px;
+    }
+
+    .comparison-textarea {
+        width: 100%;
+        max-width: 100%;
+        min-height: 110px;
+        box-sizing: border-box;
+    }
+
+    .comparison-text-display {
+        width: calc(100% - 30px);
+        max-width: calc(100% - 30px);
+        margin: 10px 15px;
+        box-sizing: border-box;
+    }
+
 }
