@@ -258,11 +258,23 @@ const TenderExecutive = () => {
 
     });
 
-    const groupedTenders = filteredTenders.reduce((acc, tender) => {
+    const parseTimestamp = (ts) =>
 
-        if (!tender.quotation_date) return acc;
+        ts ? new Date(ts.replace(" ", "T")).getTime() || 0 : 0;
 
-        const date = new Date(tender.quotation_date);
+    // Newest timestamp first
+
+    const sortedTenders = [...filteredTenders].sort(
+
+        (a, b) => parseTimestamp(b.timestamp) - parseTimestamp(a.timestamp)
+
+    );
+
+    const groupedTenders = sortedTenders.reduce((acc, tender) => {
+
+        if (!tender.timestamp) return acc;
+
+        const date = new Date(tender.timestamp.replace(" ", "T"));
 
         const month = date.toLocaleString("default", {
 
