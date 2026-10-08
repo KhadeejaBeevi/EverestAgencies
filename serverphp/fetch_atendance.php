@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/api_auth.php';
-$conn = new mysqli("localhost", "root", "", "kseb_db");
+$conn = new mysqli("localhost", "root", "", "tally_db");
 
 $result = $conn->query("
     SELECT * FROM attendance 

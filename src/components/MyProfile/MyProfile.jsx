@@ -3,10 +3,12 @@ import { Navigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { toast } from "react-toastify";
-import { Camera, Trash2, UserRound, X } from "lucide-react";
+import { Camera, Eye, KeyRound, Trash2, UserRound, X } from "lucide-react";
 import Banner from "../Banner/Banner.jsx";
 import { auth, db } from "../firebase";
 import { resizeImage, MAX_UPLOAD_BYTES } from "./profilePhoto";
+import PhotoViewer from "./PhotoViewer.jsx";
+import ChangePasswordModal from "./ChangePassword.jsx";
 
 const lockedInputClass =
   "mt-1 w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-100 text-gray-500";
@@ -24,6 +26,8 @@ function ProfileForm({ onSaved, onCancel }) {
   const [details, setDetails] = useState({});
   const [phone, setPhone] = useState("");
   const [photo, setPhoto] = useState("");
+  const [viewing, setViewing] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -117,14 +121,22 @@ function ProfileForm({ onSaved, onCancel }) {
   ).charAt(0)}`.toUpperCase();
 
   return (
+    <>
+    <ChangePasswordModal
+      open={changingPassword}
+      onClose={() => setChangingPassword(false)}
+    />
+
     <form onSubmit={handleSave} className="space-y-4 text-left">
       {/* PHOTO */}
       <div className="flex flex-col items-center gap-3">
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() =>
+            photo ? setViewing(true) : fileInputRef.current?.click()
+          }
           className="relative group w-28 h-28 rounded-full overflow-hidden border-4 border-red-100 bg-red-600 text-white flex items-center justify-center text-3xl font-bold"
-          title="Change photo"
+          title={photo ? "View photo" : "Add photo"}
         >
           {photo ? (
             <img src={photo} alt="Profile" className="w-full h-full object-cover" />
@@ -135,7 +147,7 @@ function ProfileForm({ onSaved, onCancel }) {
           )}
 
           <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-            <Camera size={28} />
+            {photo ? <Eye size={28} /> : <Camera size={28} />}
           </span>
         </button>
 
@@ -147,7 +159,18 @@ function ProfileForm({ onSaved, onCancel }) {
           onChange={handlePhotoSelect}
         />
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-center gap-2">
+          {photo && (
+            <button
+              type="button"
+              onClick={() => setViewing(true)}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100"
+            >
+              <Eye size={14} />
+              View photo
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -169,6 +192,14 @@ function ProfileForm({ onSaved, onCancel }) {
           )}
         </div>
       </div>
+
+      <PhotoViewer
+        open={viewing}
+        photo={photo}
+        name={`${details.firstName || ""} ${details.lastName || ""}`.trim()}
+        subtitle={details.role}
+        onClose={() => setViewing(false)}
+      />
 
       {/* EDITABLE */}
       <div>
@@ -206,6 +237,19 @@ function ProfileForm({ onSaved, onCancel }) {
         </div>
       )}
 
+      {/* PASSWORD */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Password</label>
+        <button
+          type="button"
+          onClick={() => setChangingPassword(true)}
+          className="mt-1 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-gray-400 text-sm text-gray-700 hover:bg-gray-100"
+        >
+          <KeyRound size={16} />
+          Change password
+        </button>
+      </div>
+
       <p className="text-xs text-gray-500">
         To change your name or email, contact an administrator.
       </p>
@@ -241,6 +285,7 @@ function ProfileForm({ onSaved, onCancel }) {
         </button>
       </div>
     </form>
+    </>
   );
 }
 

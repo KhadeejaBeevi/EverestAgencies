@@ -320,3 +320,100 @@ tbody tr:hover {
     color: #dc2626;
     border-color: #fecaca;
 }
+
+.user-thumb-clickable {
+    cursor: zoom-in;
+    transition: transform .15s, box-shadow .15s;
+}
+
+.user-thumb-clickable:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 2px #0b4f9c;
+}
+
+/* =========================================================
+   PASSWORD RESET LINK
+========================================================= */
+
+.password-btn {
+    margin-left: 6px;
+    padding: 6px 12px;
+    border: 1px solid #0b4f9c;
+    border-radius: 6px;
+    background: white;
+    color: #0b4f9c;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.password-btn:hover {
+    background: #eef4fb;
+}
+
+.pw-user {
+    text-align: center;
+    margin: -8px 0 16px;
+    color: #374151;
+    line-height: 1.5;
+}
+
+.pw-user span {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.pw-hint {
+    margin-top: 5px;
+    color: #b45309;
+    font-size: 12px;
+}
+
+.pw-message {
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    background: #f9fafb;
+}
+
+.pw-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.pw-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 7px;
+    border: 1px solid #ccc;
+    background: white;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.pw-btn:hover {
+    background: #f3f4f6;
+}
+
+.pw-whatsapp {
+    background: #25d366;
+    border-color: #25d366;
+    color: white;
+}
+
+.pw-whatsapp:hover {
+    background: #1ebe5a;
+}
+
+.pw-sms {
+    background: #0b4f9c;
+    border-color: #0b4f9c;
+    color: white;
+}
+
+.pw-sms:hover {
+    background: #093f7d;
+}

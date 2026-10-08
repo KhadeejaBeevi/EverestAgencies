@@ -20,13 +20,21 @@ export async function apiFetch(url, options = {}) {
         headers,
     });
 
-    // API authentication failed
-    if (response.status === 401) {
-        throw new Error("API authentication failed. Invalid or missing API key.");
-    }
+    // API authentication failed. Prefer the server's own message
+    // (e.g. "Only Admin can edit Long-Term Client.") when it sends one.
+    if (response.status === 401 || response.status === 403) {
+        let serverMessage = "";
+        try {
+            serverMessage = (await response.clone().json())?.message || "";
+        } catch {
+            // Not JSON.
+        }
 
-    if (response.status === 403) {
-        throw new Error("API access forbidden. API key may be disabled or expired.");
+        if (response.status === 401) {
+            throw new Error(serverMessage || "API authentication failed. Invalid or missing API key.");
+        }
+
+        throw new Error(serverMessage || "API access forbidden. API key may be disabled or expired.");
     }
 
     if (!response.ok) {

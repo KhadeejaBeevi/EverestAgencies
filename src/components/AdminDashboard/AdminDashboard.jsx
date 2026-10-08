@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 
 import "./AdminDashboard.css";
 import { EditProfileModal } from "../MyProfile/MyProfile.jsx";
+import PhotoViewer from "../MyProfile/PhotoViewer.jsx";
 
 import {
   Pencil,
@@ -50,6 +51,8 @@ const AdminDashboard = () => {
   ] = useState(null);
 
   const [showEditProfile, setShowEditProfile] = useState(false);
+
+  const [showPhoto, setShowPhoto] = useState(false);
 
 
   /* =========================================================
@@ -1958,6 +1961,13 @@ const AdminDashboard = () => {
 
       <Banner />
 
+      <PhotoViewer
+        open={showPhoto}
+        photo={adminDetails?.photo}
+        name={`${adminDetails?.firstName || ""} ${adminDetails?.lastName || ""}`.trim()}
+        onClose={() => setShowPhoto(false)}
+      />
+
       <EditProfileModal
         open={showEditProfile}
         onClose={() => setShowEditProfile(false)}
@@ -2070,6 +2080,9 @@ const AdminDashboard = () => {
                       src={
                         adminDetails.photo
                       }
+                    onClick={() => setShowPhoto(true)}
+                    title="View photo"
+                    style={{ cursor: "zoom-in" }}
 
                       alt="Profile"
 

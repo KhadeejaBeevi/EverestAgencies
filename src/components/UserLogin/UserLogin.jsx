@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase";
 import { toast } from "react-toastify";
 import { useNavigate, Link } from "react-router-dom";
@@ -22,6 +22,39 @@ function Userlogin() {
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
+
+ // Emails a reset link. Accounts with a dummy email never receive it,
+ // so those users are told to ask an admin, who can send the link to
+ // their mobile from Manage Users.
+ const handleForgotPassword = async () => {
+  const trimmed = email.trim();
+
+  if (!trimmed) {
+    toast.info("Enter your email above, then tap Forgot Password");
+    return;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, trimmed);
+  } catch (err) {
+    console.error(err);
+    if (err?.code === "auth/invalid-email") {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    if (err?.code === "auth/too-many-requests") {
+      toast.error("Too many requests. Please try again later");
+      return;
+    }
+    // Other errors (e.g. no such account) get the same message below,
+    // so the screen doesn't reveal which emails are registered.
+  }
+
+  toast.success(
+    "If this email is registered, a reset link has been sent. No email access? Ask your admin to send the link to your mobile.",
+    { autoClose: 8000 }
+  );
+ };
 
  const handleSubmit = async (e) => {
   e.preventDefault();
@@ -303,6 +336,7 @@ function Userlogin() {
 
                   <button
                     type="button"
+                    onClick={handleForgotPassword}
                     className="text-red-600 hover:text-red-700 font-medium"
                   >
                     Forgot Password?

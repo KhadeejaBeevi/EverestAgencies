@@ -18,11 +18,14 @@ import {
 import { Link } from "react-router-dom";
 import { Pencil } from "lucide-react";
 import { EditProfileModal } from "../MyProfile/MyProfile.jsx";
+import PhotoViewer from "../MyProfile/PhotoViewer.jsx";
 
 const KsebUserDashboard = () => {
   const [KsebuserDetails, setUserDetails] = useState(null);
 
   const [showEditProfile, setShowEditProfile] = useState(false);
+
+  const [showPhoto, setShowPhoto] = useState(false);
 
   const [distributionMembers, setDistributionMembers] = useState([]);
 
@@ -587,6 +590,13 @@ const KsebUserDashboard = () => {
 
       <Banner />
 
+      <PhotoViewer
+        open={showPhoto}
+        photo={KsebuserDetails?.photo}
+        name={`${KsebuserDetails?.firstName || ""} ${KsebuserDetails?.lastName || ""}`.trim()}
+        onClose={() => setShowPhoto(false)}
+      />
+
       <EditProfileModal
         open={showEditProfile}
         onClose={() => setShowEditProfile(false)}
@@ -639,6 +649,9 @@ const KsebUserDashboard = () => {
                 {KsebuserDetails?.photo ? (
                   <img
                     src={KsebuserDetails.photo}
+                    onClick={() => setShowPhoto(true)}
+                    title="View photo"
+                    style={{ cursor: "zoom-in" }}
                     alt="User"
                     className="w-24 h-24 rounded-full object-cover border-4 border-white"
                   />

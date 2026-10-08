@@ -46,6 +46,7 @@ import Unauthorized from "./Unauthorized";
 import QuotationEntry from "./pages/Quotation/QuotationEntry";
 import TenderExecutive from "./pages/kseb/TenderExecutive";
 import ManageUsers from "./components/ManageUsers/ManageUsers";
+import MyProfile from "./components/MyProfile/MyProfile";
 import TableCompare from "./components/TableCompare/TableCompare";
 import UserSessionManager from "./components/UserSessionManager";
 import UserActivityReport from "./components/UserActivityReport/UserActivityReport";
@@ -113,6 +114,10 @@ function App() {
           </ProtectedRoute>} />
 
         <Route path="/login" element={<UserLogin />} />
+
+        {/* Every logged-in user can open their own profile; the page
+            itself sends logged-out visitors back to the home page. */}
+        <Route path="/myprofile" element={<MyProfile />} />
 
         <Route path="/user-dashboard" element={
           <ProtectedRoute page="User Dashboard">

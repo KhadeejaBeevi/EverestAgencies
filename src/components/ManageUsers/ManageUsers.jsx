@@ -11,6 +11,8 @@ import {
 
 import { db } from "../../components/firebase";
 import { resizeImage, MAX_UPLOAD_BYTES } from "../MyProfile/profilePhoto";
+import PhotoViewer from "../MyProfile/PhotoViewer.jsx";
+import PasswordLinkModal from "./PasswordLinkModal.jsx";
 
 
 const ManageUsers = () => {
@@ -24,6 +26,21 @@ const ManageUsers = () => {
 
     // Edit Modal
     const [showEdit, setShowEdit] = useState(false);
+
+    // Full-size photo preview
+    const [viewPhoto, setViewPhoto] = useState(null);
+
+    // Password reset link popup
+    const [passwordUser, setPasswordUser] = useState(null);
+
+    const openPhoto = (u) => {
+        if (!u?.photo) return;
+        setViewPhoto({
+            photo: u.photo,
+            name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+            subtitle: [u.role, u.email].filter(Boolean).join(" · "),
+        });
+    };
 
     const [selectedUser, setSelectedUser] = useState({
         id: "",
@@ -308,7 +325,9 @@ const ManageUsers = () => {
                                                     <img
                                                         src={user.photo}
                                                         alt=""
-                                                        className="user-thumb"
+                                                        className="user-thumb user-thumb-clickable"
+                                                        title="View photo"
+                                                        onClick={() => openPhoto(user)}
                                                     />
                                                 ) : (
                                                     <span className="user-thumb user-thumb-initial">
@@ -343,6 +362,14 @@ const ManageUsers = () => {
                                                     Edit
                                                 </button>
 
+                                                <button
+                                                    className="password-btn"
+                                                    onClick={() => setPasswordUser(user)}
+                                                    title="Send a password reset link to this user's mobile"
+                                                >
+                                                    Password
+                                                </button>
+
                                             </td>
 
                                         </tr>
@@ -374,7 +401,9 @@ const ManageUsers = () => {
                                         <img
                                             src={selectedUser.photo}
                                             alt="Profile"
-                                            className="edit-photo"
+                                            className="edit-photo user-thumb-clickable"
+                                            title="View photo"
+                                            onClick={() => openPhoto(selectedUser)}
                                         />
                                     ) : (
                                         <span className="edit-photo user-thumb-initial">
@@ -393,6 +422,16 @@ const ManageUsers = () => {
                                                 onChange={handlePhotoSelect}
                                             />
                                         </label>
+
+                                        {selectedUser.photo && (
+                                            <button
+                                                type="button"
+                                                className="photo-btn"
+                                                onClick={() => openPhoto(selectedUser)}
+                                            >
+                                                View Photo
+                                            </button>
+                                        )}
 
                                         {selectedUser.photo && (
                                             <button
@@ -516,6 +555,19 @@ const ManageUsers = () => {
 
                     )
                 }
+
+                <PasswordLinkModal
+                    user={passwordUser}
+                    onClose={() => setPasswordUser(null)}
+                />
+
+                <PhotoViewer
+                    open={!!viewPhoto}
+                    photo={viewPhoto?.photo}
+                    name={viewPhoto?.name}
+                    subtitle={viewPhoto?.subtitle}
+                    onClose={() => setViewPhoto(null)}
+                />
 
             </div>
 

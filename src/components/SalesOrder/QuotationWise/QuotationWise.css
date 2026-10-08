@@ -20,7 +20,8 @@
 
     scroll-behavior: smooth;
 
-    scrollbar-gutter: stable both-edges;
+    /* No empty strip on the left: the table starts at the page edge. */
+    scrollbar-gutter: auto;
 
     flex: 1 1 auto;
 
@@ -37,10 +38,10 @@
     border-spacing: 0;
 
     /*
-       Keep table wide enough for all columns.
-       Only the TABLE scrolls horizontally.
+       Desktops: the table fits the screen width (columns are % widths).
+       Phones/tablets (900px and below) keep a wider table that scrolls sideways.
     */
-    min-width: 1400px;
+    min-width: 0;
 }
 
 
@@ -196,6 +197,10 @@
 
 @media (max-width: 900px) {
 
+    .quotation-table-container table {
+        min-width: 1100px;
+    }
+
     .quotation-table-container {
         height: calc(100vh - 250px);
 
@@ -234,4 +239,26 @@
   font-weight: 600;
   margin-top: 4px;
   font-size: 13px;
+}
+
+/* =========================================================
+   PAGE ZOOM: same as the Telecaller Report page
+   Small desktops (up to 1200px wide) see the page at 88%, so more
+   fits on screen without scrolling. Tablets/phones stay at 100%.
+   ========================================================= */
+
+.qw-page {
+    zoom: 1;
+}
+
+@media (max-width: 1200px) {
+    .qw-page {
+        zoom: 0.88;
+    }
+}
+
+@media (max-width: 900px) {
+    .qw-page {
+        zoom: 1;
+    }
 }

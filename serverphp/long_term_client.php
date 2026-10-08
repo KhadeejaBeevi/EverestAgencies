@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/api_auth.php';
+require_once __DIR__ . '/firebase_auth.php';
 
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
@@ -93,23 +94,14 @@ try {
     }
 
     /*
-     * WRITE:
-     * The React page passes its already-verified Admin role.
-     *
-     * IMPORTANT:
-     * Your current app determines Admin from Firebase's "roles" collection
-     * on the client. This check enforces the same application rule at the
-     * endpoint level, but a fully tamper-proof server-side permission check
-     * would require verifying the Firebase ID token on this PHP server.
+     * WRITE: Admin only. The Admin role is checked on the server from the
+     * verified Firebase login (roles/{uid}.role), not taken from the request.
      */
     if ($action === "update") {
 
-        $isAdmin = filter_var(
-            $input["is_admin"] ?? false,
-            FILTER_VALIDATE_BOOLEAN
-        );
+        $user = firebase_require_user();
 
-        if (!$isAdmin) {
+        if (!$user["is_admin"]) {
             http_response_code(403);
 
             echo json_encode([
@@ -139,13 +131,7 @@ try {
 
         $isLongTermClient = !empty($input["is_long_term_client"]) ? 1 : 0;
 
-        /*
-         * The frontend can optionally send the logged-in user's display name.
-         * It is stored only for audit purposes.
-         */
-        $updatedBy = trim(
-            (string)($input["updated_by"] ?? "Admin")
-        );
+        $updatedBy = $user["name"];
 
         $sql = "
             INSERT INTO long_term_clients

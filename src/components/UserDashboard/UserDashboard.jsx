@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { auth, db } from "../firebase";
 import { Link } from "react-router-dom";
 import { EditProfileModal } from "../MyProfile/MyProfile.jsx";
+import PhotoViewer from "../MyProfile/PhotoViewer.jsx";
 
 import {
   doc,
@@ -21,6 +22,8 @@ const UserDashboard = () => {
   const [userDetails, setUserDetails] = useState(null);
 
   const [showEditProfile, setShowEditProfile] = useState(false);
+
+  const [showPhoto, setShowPhoto] = useState(false);
 
  
 
@@ -84,6 +87,13 @@ const UserDashboard = () => {
 
       <Banner />
 
+      <PhotoViewer
+        open={showPhoto}
+        photo={userDetails?.photo}
+        name={`${userDetails?.firstName || ""} ${userDetails?.lastName || ""}`.trim()}
+        onClose={() => setShowPhoto(false)}
+      />
+
       <EditProfileModal
         open={showEditProfile}
         onClose={() => setShowEditProfile(false)}
@@ -133,6 +143,9 @@ const UserDashboard = () => {
 
                   <img
                     src={userDetails.photo}
+                    onClick={() => setShowPhoto(true)}
+                    title="View photo"
+                    style={{ cursor: "zoom-in" }}
                     alt="Profile"
                     className="w-20 h-20 rounded-full object-cover border-4 border-white"
                   />

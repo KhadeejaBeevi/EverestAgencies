@@ -1,16 +1,46 @@
 import Banner from "../../Banner/Banner.jsx";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { auth, db } from "../../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import "./QuotationWise.css";
 import { apiFetch } from "../../../api/apiClient";
-import * as XLSX from "xlsx";
 import {
     downloadQuotationPdf,
     getQuotationPdfBlob,
     getQuotationPdfFileName
 } from "./QuotationPdf.jsx";
+import WhatsappLogModal from "./WhatsappLogModal.jsx";
+import {
+    addDaysLocal,
+    authHeaders,
+    cleanBilledParty,
+    formatAmount,
+    formatDate,
+    formatDateTime,
+    formatFinancialYear,
+    formatLastActive,
+    getBilledAmountWithGst,
+    getCustomerType,
+    getDateValue,
+    getFinancialMonth,
+    getFinancialYear,
+    getFollowupPerson,
+    getItemGstTotal,
+    getItemTotal,
+    getPartyNameForLongTerm,
+    getQuotationNo,
+    getQuotationTotalWithGst,
+    getWhatsappCustomerName,
+    getWhatsappMobile,
+    getWhatsappRowKey,
+    getWhatsappRowMobile,
+    normalizeDate,
+    normalizePartyKey,
+    openWhatsappChat,
+    saveBlob,
+    todayLocal
+} from "./quotationUtils.js";
 
 
 const API = "/serverphp";
@@ -19,6 +49,37 @@ const getCurrentFinancialMonth = () => {
     return String(new Date().getMonth() + 1);
 };
 
+// Follow-up details (Followed By, Last Active, Today's calls) refresh every
+// minute while the page is on screen.
+const FOLLOWUP_REFRESH_MS = 60 * 1000;
+
+// View settings remembered per browser, so a reload keeps the user's view.
+const SAVED_VIEW_KEY = "everest_quotationwise_view";
+
+const loadSavedView = () => {
+    try {
+        const saved = JSON.parse(localStorage.getItem(SAVED_VIEW_KEY) || "{}");
+        return saved && typeof saved === "object" ? saved : {};
+    } catch {
+        return {};
+    }
+};
+
+const DEFAULT_WHATSAPP_TEMPLATES = [
+    {
+        id: "quotation-ready",
+        name: "Quotation Ready",
+        message:
+            "Hello {{customer_name}},\n\nGreetings from Everest Agencies!\n\nYour quotation {{quotation_no}} is ready.\n\nQuotation Amount: ₹{{quotation_amount}}\n\nPlease review the quotation and let us know if you need any changes or further assistance.\n\nThank you,\nEverest Agencies\nErnakulam"
+    },
+    {
+        id: "quotation-followup",
+        name: "Quotation Follow-up",
+        message:
+            "Hello {{customer_name}},\n\nGreetings from Everest Agencies!\n\nWe are following up regarding quotation {{quotation_no}} for ₹{{quotation_amount}}.\n\nPlease let us know if you have any questions or if any changes are required.\n\nThank you,\nEverest Agencies"
+    }
+];
+
 
 const QuotationWise = () => {
 
@@ -26,25 +87,31 @@ const QuotationWise = () => {
     const [loading, setLoading] = useState(false);
     const [userRole, setUserRole] = useState("");
 
+    const [savedView] = useState(loadSavedView);
+
     const [searchTerm, setSearchTerm] = useState("");
+    // Search runs 250 ms after typing stops, not on every key press.
+    const [debouncedSearch, setDebouncedSearch] = useState("");
 
     const [screenWidth, setScreenWidth] = useState(
         typeof window !== "undefined" ? window.innerWidth : 1200
     );
 
-    const [statusFilter, setStatusFilter] = useState("all");
-    const [customerTypeFilter, setCustomerTypeFilter] = useState("all");
+    const [statusFilter, setStatusFilter] = useState(savedView.statusFilter || "all");
+    const [customerTypeFilter, setCustomerTypeFilter] = useState(savedView.customerTypeFilter || "all");
 
     const [selectedMonth, setSelectedMonth] = useState(getCurrentFinancialMonth());
+    // Financial year (April-March) the month filter applies to; "all" = every year.
+    const [selectedFinancialYear, setSelectedFinancialYear] = useState(String(getFinancialYear()));
 
-    const [sortOrder, setSortOrder] = useState("newest");
+    const [sortOrder, setSortOrder] = useState(savedView.sortOrder || "newest");
     const [followupByQuotation, setFollowupByQuotation] = useState({});
     const [followupFilter, setFollowupFilter] = useState("all");
     const [followupLoading, setFollowupLoading] = useState(false);
     const [followupDateFilter, setFollowupDateFilter] = useState("");
     const [followupDateByQuotation, setFollowupDateByQuotation] = useState({});
-    const [quotationSort, setQuotationSort] = useState("default");
-    const [viewMode, setViewMode] = useState("party"); // "party" or "date"
+    const [quotationSort, setQuotationSort] = useState(savedView.quotationSort || "default");
+    const [viewMode, setViewMode] = useState(savedView.viewMode || "party"); // "party" or "date"
     const [followupQuickFilter, setFollowupQuickFilter] = useState("all");
 
     const [followupStatusByQuotation, setFollowupStatusByQuotation] = useState({});
@@ -70,7 +137,7 @@ const QuotationWise = () => {
 
     const [telecallerName, setTelecallerName] = useState("");
     const [followup, setFollowup] = useState({
-        callDate: new Date().toISOString().split("T")[0],
+        callDate: todayLocal(),
         followupDate: "",
         telecaller: "",
         status: "",
@@ -80,24 +147,9 @@ const QuotationWise = () => {
 
     // =====================================================
     // WHATSAPP QUOTATION TEMPLATES / BULK SELECTION
-    // Templates are stored in the browser localStorage so they can
-    // be created and edited without changing the React code.
+    // Templates are shared by the whole team (MySQL, whatsapp_templates.php).
+    // The last loaded list is cached in localStorage for a fast first paint.
     // =====================================================
-    const DEFAULT_WHATSAPP_TEMPLATES = [
-        {
-            id: "quotation-ready",
-            name: "Quotation Ready",
-            message:
-                "Hello {{customer_name}},\n\nGreetings from Everest Agencies!\n\nYour quotation {{quotation_no}} is ready.\n\nQuotation Amount: ₹{{quotation_amount}}\n\nPlease review the quotation and let us know if you need any changes or further assistance.\n\nThank you,\nEverest Agencies\nErnakulam"
-        },
-        {
-            id: "quotation-followup",
-            name: "Quotation Follow-up",
-            message:
-                "Hello {{customer_name}},\n\nGreetings from Everest Agencies!\n\nWe are following up regarding quotation {{quotation_no}} for ₹{{quotation_amount}}.\n\nPlease let us know if you have any questions or if any changes are required.\n\nThank you,\nEverest Agencies"
-        }
-    ];
-
     const [whatsappTemplates, setWhatsappTemplates] = useState(() => {
         try {
             const saved = localStorage.getItem("everest_whatsapp_quotation_templates");
@@ -108,6 +160,8 @@ const QuotationWise = () => {
             return DEFAULT_WHATSAPP_TEMPLATES;
         }
     });
+    const [templatesFromServer, setTemplatesFromServer] = useState(null);
+    const [templateSaving, setTemplateSaving] = useState(false);
 
     const [selectedQuotationKeys, setSelectedQuotationKeys] = useState([]);
     const [showWhatsappModal, setShowWhatsappModal] = useState(false);
@@ -130,6 +184,60 @@ const QuotationWise = () => {
     const [whatsappPdfRetry, setWhatsappPdfRetry] = useState(0);
     const [pdfDownloading, setPdfDownloading] = useState("");
 
+    // WhatsApp send log (who opened which chat, to which number, when).
+    // Stored in MySQL through whatsapp_send_log.php.
+    const [whatsappLog, setWhatsappLog] = useState([]);
+    const [whatsappLogLoading, setWhatsappLogLoading] = useState(false);
+    const [showWhatsappLog, setShowWhatsappLog] = useState(false);
+    // Search text the log window opens with (a quotation no. from its row).
+    const [whatsappLogInitialSearch, setWhatsappLogInitialSearch] = useState("");
+    const [currentUserInfo, setCurrentUserInfo] = useState({ uid: "", email: "" });
+
+    // Short message at the bottom of the screen, instead of alert() boxes.
+    const [toast, setToast] = useState(null);
+    const toastTimerRef = useRef(null);
+
+    const showToast = (message, type) => {
+        const text = String(message || "");
+        const kind = type || (/saved|success|created/i.test(text) ? "success" : "error");
+        setToast({ message: text, type: kind });
+        clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => setToast(null), 4500);
+    };
+
+    useEffect(() => () => clearTimeout(toastTimerRef.current), []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(searchTerm), 250);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(SAVED_VIEW_KEY, JSON.stringify({
+                viewMode,
+                statusFilter,
+                customerTypeFilter,
+                sortOrder,
+                quotationSort
+            }));
+        } catch {
+            // Storage blocked: the view simply is not remembered.
+        }
+    }, [viewMode, statusFilter, customerTypeFilter, sortOrder, quotationSort]);
+
+    // Quotation No -> its WhatsApp log entries (newest first).
+    const whatsappLogByQuotation = useMemo(() => {
+        const map = {};
+        whatsappLog.forEach((item) => {
+            const key = String(item.quotation_no || "").trim();
+            if (!key) return;
+            if (!map[key]) map[key] = [];
+            map[key].push(item);
+        });
+        return map;
+    }, [whatsappLog]);
+
     useEffect(() => {
         try {
             localStorage.setItem(
@@ -146,25 +254,39 @@ const QuotationWise = () => {
         // Load immediately when page opens
         fetchSalesOrders();
         fetchLongTermClients();
+        fetchWhatsappLog();
+        fetchWhatsappTemplates();
     }, []);
 
 
+    // Latest rows for the background refresh, without restarting its timer.
+    const dataRef = useRef(data);
+    dataRef.current = data;
+
     useEffect(() => {
-        // Refresh ONLY quotation follow-up information every 1 minute
-        const interval = setInterval(() => {
-            if (data.length > 0) {
-                fetchFollowupPersons(data);
+        // Refresh ONLY quotation follow-up information every minute while the
+        // page is visible, and at once when the user comes back to the tab.
+        const refresh = () => {
+            if (document.visibilityState !== "visible") return;
+            if (dataRef.current.length > 0) {
+                fetchFollowupPersons(dataRef.current, { background: true });
             }
-        }, 60000);
+        };
+
+        const interval = setInterval(refresh, FOLLOWUP_REFRESH_MS);
+        document.addEventListener("visibilitychange", refresh);
 
         return () => {
             clearInterval(interval);
+            document.removeEventListener("visibilitychange", refresh);
         };
-    }, [data]);
+    }, []);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             if (!user) return;
+
+            setCurrentUserInfo({ uid: user.uid || "", email: user.email || "" });
 
             try {
 
@@ -233,19 +355,54 @@ const QuotationWise = () => {
         };
     }, []);
 
+    // The table fills exactly the screen space left below the filters, so on
+    // small desktops the Total row and scrollbar stay visible without
+    // scrolling the page.
+    const filterHeaderRef = useRef(null);
+    const tableContainerRef = useRef(null);
+    const [tableHeight, setTableHeight] = useState(400);
 
-    const normalizePartyKey = (value) =>
-        String(value || "")
-            .replace(/\\s+/g, " ")
-            .trim()
-            .toLowerCase();
+    // Large lists (e.g. "All Months") are drawn ROWS_PER_PAGE rows at a time;
+    // more rows are added as the user scrolls down. Drawing thousands of rows
+    // at once froze the page (dropdowns did not open).
+    const ROWS_PER_PAGE = 150;
+    const [visibleRowCount, setVisibleRowCount] = useState(ROWS_PER_PAGE);
 
-    const getPartyNameForLongTerm = (row) =>
-        String(
-            row?.party_name ||
-            row?.PartyLedgerName ||
-            ""
-        ).trim();
+    const showMoreRows = () => setVisibleRowCount((count) => count + ROWS_PER_PAGE);
+
+    const handleTableScroll = (event) => {
+        const el = event.currentTarget;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) {
+            setVisibleRowCount((count) => count + ROWS_PER_PAGE);
+        }
+    };
+
+    const fitTableHeight = () => {
+        const container = tableContainerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        // With CSS zoom (small desktops) the on-screen size differs from the
+        // CSS size; convert the free screen space back to CSS pixels.
+        const zoom = container.offsetHeight ? rect.height / container.offsetHeight : 1;
+        const freeSpace = window.innerHeight - rect.top - 12;
+        setTableHeight(Math.max(250, Math.floor(freeSpace / (zoom || 1))));
+    };
+
+
+    useEffect(() => {
+        window.addEventListener("resize", fitTableHeight);
+        const observer =
+            typeof ResizeObserver !== "undefined" && filterHeaderRef.current
+                ? new ResizeObserver(fitTableHeight)
+                : null;
+        if (observer) observer.observe(filterHeaderRef.current);
+
+        return () => {
+            window.removeEventListener("resize", fitTableHeight);
+            if (observer) observer.disconnect();
+        };
+    }, []);
+
 
     const fetchLongTermClients = async () => {
         try {
@@ -286,7 +443,7 @@ const QuotationWise = () => {
 
     const toggleLongTermClient = async (row) => {
         if (!isAdminUser) {
-            alert("Only Admin can edit Long-Term Client.");
+            showToast("Only Admin can edit Long-Term Client.");
             return;
         }
 
@@ -294,7 +451,7 @@ const QuotationWise = () => {
         const key = normalizePartyKey(partyName);
 
         if (!key) {
-            alert("Party/Ledger Name is empty.");
+            showToast("Party/Ledger Name is empty.");
             return;
         }
 
@@ -317,14 +474,14 @@ const QuotationWise = () => {
                 {
                     method: "POST",
                     headers: {
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        ...(await authHeaders())
                     },
+                    // Admin is checked on the server from the login token.
                     body: JSON.stringify({
                         action: "update",
                         party_ledger_name: partyName,
-                        is_long_term_client: nextValue ? 1 : 0,
-                        is_admin: isAdminUser,
-                        updated_by: telecallerName || "Admin"
+                        is_long_term_client: nextValue ? 1 : 0
                     })
                 }
             );
@@ -343,7 +500,7 @@ const QuotationWise = () => {
                 [key]: !nextValue
             }));
 
-            alert(error?.message || "Failed to save Long-Term Client.");
+            showToast(error?.message || "Failed to save Long-Term Client.");
         } finally {
             setLongTermClientSaving((previous) => {
                 const next = { ...previous };
@@ -409,31 +566,42 @@ const QuotationWise = () => {
     };
 
 
-    const getQuotationNo = (row) => String(row?.quotation_no || row?.voucher_no || row?.VoucherNumber || "").trim();
+    // Fallback for servers without batch mode: { quotationNo: history[] }.
+    const fetchFollowupsOneByOne = async (quotationNos, concurrency = 5) => {
+        const results = {};
+        let next = 0;
 
-    const getFollowupPerson = (record) => String(
-        record?.telecaller || record?.followup_by || record?.followup_person ||
-        record?.followupPerson || record?.user_name || record?.username || record?.name || ""
-    ).trim();
+        const worker = async () => {
+            while (next < quotationNos.length) {
+                const quotationNo = quotationNos[next++];
+                try {
+                    const response = await apiFetch(`${API}/get_quotation_followup.php`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ quotationNo })
+                    });
+                    const result = await response.json();
+                    results[quotationNo] = Array.isArray(result?.data)
+                        ? result.data
+                        : Array.isArray(result)
+                            ? result
+                            : [];
+                } catch (error) {
+                    console.error(`Follow-up fetch failed for ${quotationNo}:`, error);
+                    results[quotationNo] = [];
+                }
+            }
+        };
 
-    const getFollowupDateValue = (record) => {
-        const value = record?.call_date || record?.callDate || record?.followup_date || record?.followupDate || record?.created_at || "";
-        if (!value) return 0;
-        const time = new Date(value).getTime();
-        return Number.isNaN(time) ? 0 : time;
+        await Promise.all(
+            Array.from({ length: Math.min(concurrency, quotationNos.length) }, worker)
+        );
+        return results;
     };
 
-    const normalizeDate = (value) => {
-        if (!value) return "";
-        const text = String(value).trim();
-        const direct = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (direct) return `${direct[1]}-${direct[2]}-${direct[3]}`;
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return "";
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    };
-
-    const fetchFollowupPersons = async (rows) => {
+    // background: a timed refresh. It does not show "Loading..." and keeps
+    // the current follow-ups on screen if the request fails.
+    const fetchFollowupPersons = async (rows, { background = false } = {}) => {
         if (!Array.isArray(rows) || rows.length === 0) {
             setFollowupByQuotation({});
             setFollowupDateByQuotation({});
@@ -462,104 +630,86 @@ const QuotationWise = () => {
             return;
         }
 
-        setFollowupLoading(true);
+        if (!background) setFollowupLoading(true);
 
         try {
-            const results = await Promise.all(
-                quotationNos.map(async (quotationNo) => {
-                    try {
-                        const response = await apiFetch(
-                            `${API}/get_quotation_followup.php`,
-                            {
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json"
-                                },
-                                body: JSON.stringify({ quotationNo })
-                            }
-                        );
-
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
-                        }
-
-                        const result = await response.json();
-
-                        const history = Array.isArray(result?.data)
-                            ? result.data
-                            : Array.isArray(result)
-                                ? result
-                                : [];
-
-                        if (!history.length) {
-                            return {
-                                quotationNo,
-                                person: "",
-                                lastActive: "",
-                                followupDate: "",
-                                status: "",
-                                remarks: ""
-                            };
-                        }
-
-                        // Get latest follow-up
-                        const latest = [...history].sort((a, b) => {
-                            const aTime = new Date(a?.created_at || 0).getTime();
-                            const bTime = new Date(b?.created_at || 0).getTime();
-                            return bTime - aTime;
-                        })[0];
-
-                        const latestStatus = String(latest?.status || "").trim();
-
-                        return {
-                            quotationNo,
-
-                            person: getFollowupPerson(latest),
-
-                            // created_at is the actual time the telecaller made the follow-up.
-                            // This is used as the telecaller's Last Active time.
-                            lastActive: latest?.created_at || "",
-
-                            // Lost is a closed status: never expose a next follow-up
-                            // date for it, even if an older record accidentally contains one.
-                            followupDate:
-                                latestStatus.toLowerCase() === "lost"
-                                    ? ""
-                                    : (
-                                        latest?.followup_date ||
-                                        latest?.followupDate ||
-                                        ""
-                                    ),
-
-                            status: latestStatus,
-
-                            remarks:
-                                latest?.remarks ||
-                                "",
-                            history: [...history].sort((a, b) => {
-                                const aTime = new Date(a?.created_at || 0).getTime();
-                                const bTime = new Date(b?.created_at || 0).getTime();
-                                return bTime - aTime;
-                            })
-                        };
-
-                    } catch (error) {
-                        console.error(
-                            `Follow-up fetch failed for ${quotationNo}:`,
-                            error
-                        );
-
-                        return {
-                            quotationNo,
-                            person: "",
-                            followupDate: "",
-                            status: "",
-                            remarks: "",
-                            history: []
-                        };
-                    }
-                })
+            // ONE request for every quotation (batch mode of
+            // get_quotation_followup.php) instead of one request per quotation.
+            const response = await apiFetch(
+                `${API}/get_quotation_followup.php`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ quotationNos })
+                }
             );
+
+            let batch = await response.json();
+
+            // Older get_quotation_followup.php has no batch mode (it answers
+            // "Quotation number is empty"). Then load each quotation on its own,
+            // a few at a time so the server is not flooded.
+            if (!batch?.success || !batch.results || typeof batch.results !== "object") {
+                console.warn(
+                    "Follow-up batch mode not supported by the server; loading one by one.",
+                    batch?.message || ""
+                );
+                batch = { results: await fetchFollowupsOneByOne(quotationNos) };
+            }
+
+            const byCreatedDesc = (a, b) =>
+                getDateValue(String(b?.created_at || "").replace(" ", "T")) -
+                getDateValue(String(a?.created_at || "").replace(" ", "T"));
+
+            const results = quotationNos.map((quotationNo) => {
+                const history = Array.isArray(batch.results[quotationNo])
+                    ? [...batch.results[quotationNo]].sort(byCreatedDesc)
+                    : [];
+
+                if (!history.length) {
+                    return {
+                        quotationNo,
+                        person: "",
+                        lastActive: "",
+                        followupDate: "",
+                        status: "",
+                        remarks: "",
+                        history: []
+                    };
+                }
+
+                const latest = history[0];
+                const latestStatus = String(latest?.status || "").trim();
+
+                return {
+                    quotationNo,
+
+                    person: getFollowupPerson(latest),
+
+                    // created_at is the actual time the telecaller made the follow-up.
+                    // This is used as the telecaller's Last Active time.
+                    lastActive: latest?.created_at || "",
+
+                    // Lost is a closed status: never expose a next follow-up
+                    // date for it, even if an older record accidentally contains one.
+                    followupDate:
+                        latestStatus.toLowerCase() === "lost"
+                            ? ""
+                            : (
+                                latest?.followup_date ||
+                                latest?.followupDate ||
+                                ""
+                            ),
+
+                    status: latestStatus,
+
+                    remarks: latest?.remarks || "",
+
+                    history
+                };
+            });
 
             const personMap = {};
             const dateMap = {};
@@ -644,19 +794,13 @@ const QuotationWise = () => {
             setTodayCallCountByPerson(todayCallCountMap);
 
         } catch (error) {
+            // Keep the follow-ups already on screen; the next refresh retries.
             console.error(
                 "Follow-up persons fetch error:",
                 error
             );
-
-            setFollowupByQuotation({});
-            setFollowupDateByQuotation({});
-            setFollowupStatusByQuotation({});
-            setFollowupRemarksByQuotation({});
-            setLastSeenByPerson({});
-            setTodayCallCountByPerson({});
         } finally {
-            setFollowupLoading(false);
+            if (!background) setFollowupLoading(false);
         }
     };
 
@@ -688,20 +832,6 @@ const QuotationWise = () => {
         }
     };
 
-    const getFinancialMonth = (date) => {
-        if (!date) return "";
-
-        const d = new Date(date);
-        if (isNaN(d.getTime())) return "";
-
-        const months = [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-        ];
-
-        return months[d.getMonth()];
-    };
-
     const openNoteModal = (row, item, month) => {
 
         const quotationNo = item?.quotation_no || row?.quotation_no || row?.voucher_no || row?.VoucherNumber || "";
@@ -730,7 +860,7 @@ const QuotationWise = () => {
         loadFollowupHistory(quotationNo);
 
         setFollowup({
-            callDate: new Date().toISOString().split("T")[0],
+            callDate: todayLocal(),
             followupDate: "",
             telecaller: telecallerName,
             status: "",
@@ -741,146 +871,9 @@ const QuotationWise = () => {
     };
 
 
-    const formatDate = (date) => {
-        if (!date) return "";
-
-        const d = new Date(date);
-
-        if (isNaN(d.getTime())) {
-            return date;
-        }
-
-        const day = String(
-            d.getDate()
-        ).padStart(2, "0");
-
-        const month = d.toLocaleString(
-            "en-US",
-            {
-                month: "short"
-            }
-        );
-
-        const year = d.getFullYear();
-
-        return `${day}-${month}-${year}`;
-    };
-
-
     // Last Active is visible only to Admin users.
     const isAdminUser =
         String(userRole || "").trim().toLowerCase() === "admin";
-
-    // Format SQL created_at for display beside the telecaller's name.
-    const formatLastActive = (value) => {
-        if (!value) return "";
-
-        const d = new Date(value);
-
-        if (isNaN(d.getTime())) return "";
-
-        const now = new Date();
-        const sameDay =
-            d.getFullYear() === now.getFullYear() &&
-            d.getMonth() === now.getMonth() &&
-            d.getDate() === now.getDate();
-
-        if (sameDay) {
-            return d.toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: true
-            });
-        }
-
-        return d.toLocaleString("en-IN", {
-            day: "2-digit",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true
-        });
-    };
-
-
-    const getDateValue = (date) => {
-        if (!date) return 0;
-
-        const d = new Date(date);
-
-        if (isNaN(d.getTime())) {
-            return 0;
-        }
-
-        return d.getTime();
-    };
-
-
-    const formatAmount = (value) => {
-        if (
-            value === "" ||
-            value === null ||
-            value === undefined
-        ) {
-            return "";
-        }
-
-        const number = Number(value);
-
-        if (isNaN(number)) {
-            return "";
-        }
-
-        return number.toLocaleString(
-            "en-IN",
-            {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            }
-        );
-    };
-
-    const cleanBilledParty = (value) => {
-        if (!value) return "";
-
-        const text = String(value)
-            .replace(/\s+/g, " ")
-            .trim();
-
-        if (!text) return "";
-
-        const parts = text
-            .split(",")
-            .map((part) => part.trim())
-            .filter(Boolean);
-
-        if (parts.length >= 2) {
-            const company = parts[0];
-            const location = parts[1];
-
-            // Check whether the same pair is repeated
-            let repeated = true;
-
-            for (let i = 0; i < parts.length; i += 2) {
-                if (
-                    (parts[i] || "").toLowerCase() !==
-                    company.toLowerCase() ||
-                    (parts[i + 1] || "").toLowerCase() !==
-                    location.toLowerCase()
-                ) {
-                    repeated = false;
-                    break;
-                }
-            }
-
-            if (repeated) {
-                return `${company}, ${location}`;
-            }
-        }
-
-        return text;
-    };
-
 
     // Detect order numbers used by more than one different quotation.
     const duplicateOrderNumbers = useMemo(() => {
@@ -913,47 +906,6 @@ const QuotationWise = () => {
         return !!orderNo && duplicateOrderNumbers.has(orderNo.toLowerCase());
     };
 
-    const getCustomerType = (row) => {
-        const values = [
-            row?.customer_type,
-            row?.customerType,
-            row?.party_type,
-            row?.partyType,
-            row?.ledger_group,
-            row?._LedGroup,
-            row?.party_name,
-            row?.PartyLedgerName,
-            row?.billed_party
-        ]
-            .map((value) => String(value || "").trim().toLowerCase())
-            .filter(Boolean);
-
-        const text = values.join(" | ");
-
-        if (
-            text.includes("cash sales-b2b") ||
-            text.includes("cash-sales-b2b") ||
-            text.includes("cash b2b") ||
-            text.includes("cash-b2b")
-        ) {
-            return "b2b";
-        }
-
-        if (
-            text.includes("cash sales-b2c") ||
-            text.includes("cash-sales-b2c") ||
-            text.includes("cash b2c") ||
-            text.includes("cash-b2c")
-        ) {
-            return "b2c";
-        }
-
-        if (text.includes("b2b")) return "b2b";
-        if (text.includes("b2c")) return "b2c";
-        // Anything that is not B2B or B2C belongs to Others.
-        return "other";
-    };
-
     const getStatus = (row) => {
         const quotationNo = getQuotationNo(row);
         const followupStatus = String(
@@ -984,11 +936,37 @@ const QuotationWise = () => {
     };
 
 
+    // Is the quotation in the selected financial year and month?
+    // month: 1-12, or "all" for the whole financial year.
+    const isInSelectedPeriod = (row, month) => {
+        const d = new Date(String(row?.date || "").replace(" ", "T"));
+        if (isNaN(d.getTime())) return false;
+
+        if (month !== "all" && d.getMonth() + 1 !== month) return false;
+        if (selectedFinancialYear === "all") return true;
+        return getFinancialYear(d) === Number(selectedFinancialYear);
+    };
+
+    // Financial years found in the data, newest first (always includes this one).
+    const financialYearOptions = useMemo(() => {
+        const years = new Set([getFinancialYear()]);
+        data.forEach((row) => {
+            const year = getFinancialYear(row?.date || "");
+            if (year) years.add(year);
+        });
+        return [...years].sort((a, b) => b - a);
+    }, [data]);
+
+    // Counts behind the reminder badges. Each count matches exactly what its
+    // badge shows when clicked:
+    //   New   = selected-month quotations with no follow-up person and no date
+    //   Due   = next follow-up before today (any month), not Lost
+    //   Today = next follow-up today (any month)
+    // Due/Today are the user's own follow-ups (Admin: everyone's).
     const followupCounts = useMemo(() => {
+        const today = todayLocal();
         const now = new Date();
-        const currentMonth = now.getMonth() + 1;
-        const currentYear = now.getFullYear();
-        const today = normalizeDate(now);
+        const newMonth = Number(selectedMonth === "all" ? now.getMonth() + 1 : selectedMonth);
 
         let noFollowup = 0;
         let due = 0;
@@ -996,64 +974,44 @@ const QuotationWise = () => {
 
         const isAdmin =
             String(userRole || '').trim().toLowerCase() === 'admin';
+        const loggedInUser = String(telecallerName || '').trim().toLowerCase();
 
         data.forEach((row) => {
-            // Current-month quotation only.
-            const rowDate = normalizeDate(
-                row.date ||
-                row.enquiry_date ||
-                row.quotation_date ||
-                row.created_date ||
-                ''
-            );
-
-            if (!rowDate) return;
-
-            const parts = rowDate.split('-').map(Number);
-            if (parts.length !== 3) return;
-
-            const [year, month] = parts;
-            if (year !== currentYear || month !== currentMonth) return;
-
-            // Billed quotations are excluded from follow-up reminders.
+            // Billed quotations and Long-Term Clients are excluded from
+            // follow-up reminders (long-term clients need no follow-up).
             const rowStatus = getStatus(row);
             if (rowStatus === 'billed') return;
+            if (isLongTermClient(row)) return;
 
             const quotationNo = getQuotationNo(row);
             const followupPerson = String(
                 followupByQuotation[quotationNo] || ''
             ).trim().toLowerCase();
-
-            // Use exactly the same ownership rule as the quick filter.
-            if (!isAdmin) {
-                const loggedInUser = String(
-                    telecallerName || ''
-                ).trim().toLowerCase();
-
-                if (!loggedInUser || followupPerson !== loggedInUser) {
-                    return;
-                }
-            }
-
-            // ONLY Next Follow-up Date controls these three counts.
             const nextFollowupDate = normalizeDate(
                 followupDateByQuotation[quotationNo] || ''
             );
 
-            // No Next Follow-up Date = No Follow-up.
-            if (!nextFollowupDate) {
-                noFollowup++;
+            // New = nobody has followed it up yet. Counted for every user,
+            // like the "New Follow-ups" filter.
+            if (!nextFollowupDate && !followupPerson) {
+                if (isInSelectedPeriod(row, newMonth)) noFollowup++;
+                return;
+            }
+
+            if (!nextFollowupDate) return;
+
+            // Same ownership rule as the quick filter.
+            if (!isAdmin && (!loggedInUser || followupPerson !== loggedInUser)) {
                 return;
             }
 
             // Next Follow-up before today = Due. Lost is not counted as Due.
             if (nextFollowupDate < today) {
-                if (getStatus(row) === 'lost') return;
+                if (rowStatus === 'lost') return;
                 due++;
                 return;
             }
 
-            // Next Follow-up exactly today = Today's Follow-up.
             if (nextFollowupDate === today) {
                 todayCount++;
             }
@@ -1068,56 +1026,61 @@ const QuotationWise = () => {
         data,
         followupDateByQuotation,
         followupByQuotation,
+        followupStatusByQuotation,
         userRole,
-        telecallerName
+        telecallerName,
+        selectedMonth,
+        selectedFinancialYear,
+        longTermClients
+    ]);
+
+    // Lowercase text + digits of every row (API fields and follow-ups), built
+    // once per data change instead of on every key press.
+    const searchIndex = useMemo(() => {
+        const index = new Map();
+
+        data.forEach((row) => {
+            const quotationNo = getQuotationNo(row);
+            const followupRecord = {
+                person: followupByQuotation[quotationNo] || "",
+                date: followupDateByQuotation[quotationNo] || "",
+                status: followupStatusByQuotation[quotationNo] || "",
+                remarks: followupRemarksByQuotation[quotationNo] || "",
+                history: followupHistoryByQuotation[quotationNo] || []
+            };
+            const raw = JSON.stringify(row ?? {}) + JSON.stringify(followupRecord);
+
+            index.set(row, {
+                text: raw.toLowerCase(),
+                digits: raw.replace(/\D/g, "")
+            });
+        });
+
+        return index;
+    }, [
+        data,
+        followupByQuotation,
+        followupDateByQuotation,
+        followupStatusByQuotation,
+        followupRemarksByQuotation,
+        followupHistoryByQuotation
     ]);
 
     const filteredData = useMemo(() => {
-        const search = String(searchTerm || '').trim().toLowerCase();
+        const search = String(debouncedSearch || '').trim().toLowerCase();
         let result = [...data];
 
         if (search) {
-            // Search the COMPLETE quotation record, including nested items and
-            // every field returned by the API.
-            // (Fixed: regex was /\\D/ which matched a literal "\D"; now /\D/.)
+            // Search the COMPLETE quotation record, including nested items,
+            // every field returned by the API and the follow-up history.
+            // Mobile/number search ignores spaces, +91, hyphens, brackets, etc.
             const normalizedSearch = search.replace(/\D/g, "");
 
             result = result.filter((row) => {
-                const quotationNo = String(
-                    row?.quotation_no || row?.voucher_no || row?.VoucherNumber || ""
-                ).toLowerCase();
-
-                const quotationNoKey = getQuotationNo(row);
-
-                const followupRecord = {
-                    person: followupByQuotation[quotationNoKey] || "",
-                    date: followupDateByQuotation[quotationNoKey] || "",
-                    status: followupStatusByQuotation[quotationNoKey] || "",
-                    remarks: followupRemarksByQuotation[quotationNoKey] || "",
-                    history: followupHistoryByQuotation[quotationNoKey] || []
-                };
-
-                // Search every field in the complete API row and follow-up history.
-                const fullText = (
-                    JSON.stringify(row ?? {}) + JSON.stringify(followupRecord)
-                ).toLowerCase();
-
-                if (fullText.includes(search)) {
-                    return true;
-                }
-
-                // Mobile/number search: ignore spaces, +91, hyphens, brackets, etc.
-                if (normalizedSearch) {
-                    const allDigits = (
-                        JSON.stringify(row ?? {}) + JSON.stringify(followupRecord)
-                    ).replace(/\D/g, "");
-
-                    if (allDigits.includes(normalizedSearch)) {
-                        return true;
-                    }
-                }
-
-                return quotationNo.includes(search);
+                const entry = searchIndex.get(row);
+                if (!entry) return false;
+                if (entry.text.includes(search)) return true;
+                return !!normalizedSearch && entry.digits.includes(normalizedSearch);
             });
         }
 
@@ -1140,7 +1103,7 @@ const QuotationWise = () => {
                 ).trim();
 
                 if (followupFilter === 'none') {
-                    return person === '';
+                    return person === '' && !isLongTermClient(row);
                 }
 
                 return person.toLowerCase() ===
@@ -1165,7 +1128,7 @@ const QuotationWise = () => {
         // FOLLOW-UP QUICK FILTER
         // =====================================================
         if (followupQuickFilter !== "all") {
-            const today = normalizeDate(new Date());
+            const today = todayLocal();
             const normalizedRole = String(userRole || "").trim().toLowerCase();
             const isAdmin = normalizedRole === "admin";
             const loggedInUser = String(telecallerName || "").trim().toLowerCase();
@@ -1188,9 +1151,22 @@ const QuotationWise = () => {
                 const rowStatus = getStatus(row);
                 if (rowStatus === "billed") return false;
 
+                // Long-Term Clients need no follow-up, so they never appear in
+                // the New / Due / date follow-up lists (WhatsApp filters still apply).
+                const isFollowupList = !String(followupQuickFilter).startsWith("wa_");
+                if (isFollowupList && isLongTermClient(row)) return false;
+
                 // No Follow-ups = no follow-up person AND no next follow-up date.
                 if (followupQuickFilter === "none") {
                     return !followupDate && !followupPerson;
+                }
+
+                // WhatsApp sent / not sent, from the WhatsApp send log.
+                if (followupQuickFilter === "wa_not_sent") {
+                    return !(whatsappLogByQuotation[quotationNo] || []).length;
+                }
+                if (followupQuickFilter === "wa_sent") {
+                    return (whatsappLogByQuotation[quotationNo] || []).length > 0;
                 }
 
                 if (!followupDate) return false;
@@ -1233,22 +1209,13 @@ const QuotationWise = () => {
         // SELECTED QUOTATION MONTH
         // =====================================================
         if (
-            selectedMonth !== "all" &&
             !followupDateFilter &&
             !String(followupQuickFilter).startsWith("date:") &&
             followupQuickFilter !== "due"
         ) {
-            result = result.filter((row) => {
-                if (!row.date) return false;
-
-                const d = new Date(row.date);
-
-                if (isNaN(d.getTime())) return false;
-
-                return (
-                    d.getMonth() + 1 === Number(selectedMonth)
-                );
-            });
+            result = result.filter((row) =>
+                isInSelectedPeriod(row, selectedMonth === "all" ? "all" : Number(selectedMonth))
+            );
         }
 
         // =====================================================
@@ -1305,23 +1272,24 @@ const QuotationWise = () => {
         return result;
     }, [
         data,
-        searchTerm,
+        debouncedSearch,
+        searchIndex,
         statusFilter,
         customerTypeFilter,
         selectedMonth,
+        selectedFinancialYear,
         sortOrder,
         followupFilter,
         followupByQuotation,
         followupDateFilter,
         followupDateByQuotation,
         followupStatusByQuotation,
-        followupRemarksByQuotation,
-        followupHistoryByQuotation,
         quotationSort,
         followupQuickFilter,
         telecallerName,
         userRole,
-        todayCallCountByPerson
+        whatsappLogByQuotation,
+        longTermClients
     ]);
 
 
@@ -1414,6 +1382,8 @@ const QuotationWise = () => {
         });
 
         // Assign one background color to the complete active group.
+        // Kept in a separate map so the API rows are never modified.
+        const colors = new Map();
         let previousGroupKey = null;
         let groupColorIndex = 0;
 
@@ -1430,54 +1400,38 @@ const QuotationWise = () => {
                 previousGroupKey = groupKey;
             }
 
-            row.__partyGroupColor =
+            colors.set(
+                row,
                 groupColorIndex % 2 === 1
                     ? "#f7fbf8"
-                    : "#f4f7ff";
+                    : "#f4f7ff"
+            );
         });
 
-        return rows;
+        return { rows, colors };
     }, [filteredData, quotationSort, sortOrder, viewMode]);
 
-    const getItemGstTotal = (items) => {
-        if (!Array.isArray(items)) return 0;
+    // Re-fit the table height when the table appears or the screen size changes.
+    useLayoutEffect(fitTableHeight, [loading, filteredData.length > 0, screenWidth]);
 
-        return items.reduce((sum, item) => {
-            const value = Number(item?.value || 0);
-            const gstAmount = Number(item?.gst_amount || 0);
-            const gstRate = Number(item?.gst_rate || 0);
-
-            if (gstAmount !== 0) {
-                return sum + gstAmount;
-            }
-
-            return sum + (value * gstRate / 100);
-        }, 0);
-    };
-
-    const getQuotationTotalWithGst = (row) => {
-        const explicit = Number(row?.quotation_amount_with_gst);
-        if (Number.isFinite(explicit) && explicit !== 0) return explicit;
-
-        const taxable = Number(row?.quotation_amount || 0);
-        const gst = getItemGstTotal(row?.items);
-        return Math.round((taxable + gst) + Number.EPSILON);
-    };
-
-    const getBilledAmountWithGst = (row) => {
-        const explicit = Number(row?.billed_amount_with_gst);
-        if (Number.isFinite(explicit) && explicit !== 0) return explicit;
-
-        const taxable = Number(row?.billed_amount || 0);
-        const gst = Number(
-            row?.billed_gst_amount ??
-            row?.billed_tax_amount ??
-            row?.billed_gst ??
-            0
-        );
-
-        return taxable + (Number.isFinite(gst) ? gst : 0);
-    };
+    // A new filter/sort starts again from the first rows (the every-minute
+    // follow-up refresh does NOT reset the list, so scrolling is kept).
+    useEffect(() => {
+        setVisibleRowCount(ROWS_PER_PAGE);
+        if (tableContainerRef.current) tableContainerRef.current.scrollTop = 0;
+    }, [
+        debouncedSearch,
+        statusFilter,
+        customerTypeFilter,
+        selectedMonth,
+        selectedFinancialYear,
+        followupFilter,
+        followupDateFilter,
+        followupQuickFilter,
+        sortOrder,
+        quotationSort,
+        viewMode
+    ]);
 
     const totals = useMemo(() => {
         let quotationAmount = 0;
@@ -1491,9 +1445,8 @@ const QuotationWise = () => {
             quotationAmount += Number(
                 row.quotation_amount || 0
             );
-            quotationAmountWithGst += Number(
-                row.quotation_amount_with_gst ?? row.quotation_amount ?? 0
-            );
+            // Same with-GST amount the Quotation Amount column shows.
+            quotationAmountWithGst += getQuotationTotalWithGst(row);
 
             billedAmount += getBilledAmountWithGst(row);
 
@@ -1517,124 +1470,7 @@ const QuotationWise = () => {
             lostCount,
             totalCount: filteredData.length
         };
-    }, [filteredData]);
-
-
-    const exportToExcel = () => {
-        if (!filteredData.length) {
-            alert(
-                "No data available to export."
-            );
-            return;
-        }
-
-        const excelData = [];
-
-        filteredData.forEach(
-            (row, index) => {
-                excelData.push({
-                    "S.No": index + 1,
-
-                    Date: formatDate(
-                        row.date
-                    ),
-
-                    "Quotation No":
-                        row.quotation_no ||
-                        row.voucher_no ||
-                        "",
-
-                    "Sales Order No":
-                        row.order_no || "",
-                    "Party Name":
-                        row.party_name ||
-                        row.PartyLedgerName ||
-                        "",
-
-                    "Long-Term Client":
-                        isLongTermClient(row) ? "Yes" : "No",
-
-                    "Ledger Group":
-                        row.ledger_group ||
-                        row._LedGroup ||
-                        "",
-
-                    "Mobile":
-                        row.mobile || "",
-
-                    "Purchase Contact":
-                        row.purchase_contact ||
-                        "",
-
-                    "Invoice No":
-                        row.invoice_no || "",
-
-                    "Quotation Amount":
-                        Number(
-                            row.quotation_amount ||
-                            0
-                        ),
-
-                    "Billed Amount":
-                        Number(
-                            row.billed_amount ||
-                            0
-                        ),
-
-                    "Billed Party":
-                        row.billed_party ||
-                        "",
-
-                    "Follow-up By":
-                        followupByQuotation[getQuotationNo(row)] || "No Follow Up",
-
-                    Status:
-                        getStatusText(row),
-
-                    Description:
-                        row.description ||
-                        ""
-                });
-            }
-        );
-
-        const worksheet =
-            XLSX.utils.json_to_sheet(
-                excelData
-            );
-
-        const workbook =
-            XLSX.utils.book_new();
-
-        XLSX.utils.book_append_sheet(
-            workbook,
-            worksheet,
-            "Quotation List"
-        );
-
-        worksheet["!cols"] = [
-            { wch: 7 },
-            { wch: 15 },
-            { wch: 30 },
-            { wch: 30 },
-            { wch: 16 },
-            { wch: 35 },
-            { wch: 22 },
-            { wch: 18 },
-            { wch: 25 },
-            { wch: 25 },
-            { wch: 18 },
-            { wch: 18 },
-            { wch: 30 },
-            { wch: 25 },
-            { wch: 40 }
-        ];
-
-        XLSX.writeFile(
-            workbook,
-            "Quotation_SalesOrder_Wise.xlsx"
-        );
-    };
+    }, [filteredData, followupStatusByQuotation]);
 
 
     const clearFilters = () => {
@@ -1642,6 +1478,7 @@ const QuotationWise = () => {
         setStatusFilter("all");
         setCustomerTypeFilter("all");
         setSelectedMonth(getCurrentFinancialMonth());
+        setSelectedFinancialYear(String(getFinancialYear()));
         setSortOrder("newest");
         setFollowupFilter("all");
         setFollowupDateFilter("");
@@ -1649,6 +1486,26 @@ const QuotationWise = () => {
         setViewMode("party");
         setFollowupQuickFilter("all");
     };
+
+    // Refresh button: clear the filters AND reload everything from the server.
+    const refreshPage = () => {
+        clearFilters();
+        fetchSalesOrders();
+        fetchWhatsappLog();
+        fetchWhatsappTemplates();
+    };
+
+    // Filters currently narrowing the list, for the "nothing found" message.
+    const activeFilterLabels = [
+        debouncedSearch.trim() && `Search "${debouncedSearch.trim()}"`,
+        statusFilter !== "all" && `Status: ${statusFilter}`,
+        customerTypeFilter !== "all" && `Type: ${customerTypeFilter}`,
+        followupFilter !== "all" && `Follow-up by: ${followupFilter === "none" ? "Pending" : followupFilter}`,
+        followupDateFilter && `Follow-up date: ${formatDate(followupDateFilter)}`,
+        followupQuickFilter !== "all" && "Follow-up filter",
+        selectedMonth !== "all" && `Month: ${getFinancialMonth(new Date(2000, Number(selectedMonth) - 1, 1))}`,
+        selectedFinancialYear !== "all" && `FY ${formatFinancialYear(Number(selectedFinancialYear))}`
+    ].filter(Boolean);
 
 
     const toggleQuotation = (quotationNo) => {
@@ -1660,59 +1517,6 @@ const QuotationWise = () => {
         );
     };
 
-
-    const getItemTotal = (items) => {
-        if (!Array.isArray(items)) {
-            return 0;
-        }
-
-        return items.reduce(
-            (sum, item) =>
-                sum +
-                Number(
-                    item.value || 0
-                ),
-            0
-        );
-    };
-
-
-    // =====================================================
-    // WHATSAPP TEMPLATE HELPERS
-    // =====================================================
-    const getWhatsappRowKey = (row) => {
-        const quotationNo = getQuotationNo(row);
-        const party = String(row?.party_name || row?.PartyLedgerName || "").trim();
-        const mobile = String(row?.mobile || row?.purchase_contact || row?.phone || row?.contact_no || "").trim();
-        const date = String(row?.date || "").trim();
-        const orderNo = String(row?.order_no || row?.OrderNo || "").trim();
-        return [quotationNo, party, mobile, date, orderNo].join("||");
-    };
-
-    const getWhatsappMobile = (mobile) => {
-        const digits = String(mobile || "").replace(/\D/g, "");
-        if (!digits) return "";
-        if (digits.length === 10) return `91${digits}`;
-        if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
-        if (digits.length === 12 && digits.startsWith("91")) return digits;
-        return digits;
-    };
-
-    // WhatsApp greeting/customer name should use Tally Mailing Name.
-    const getWhatsappCustomerName = (row) =>
-        String(
-            row?.mailing_name ||
-            row?.EveInvMailingName ||
-            row?.billed_party ||
-            row?.party_name ||
-            row?.PartyLedgerName ||
-            row?.customer_name ||
-            "Customer"
-        ).trim();
-
-    // Same WhatsApp number as the existing WhatsApp icon (walkin_cust_no).
-    const getWhatsappRowMobile = (row) =>
-        String(row?.walkin_cust_no || "").trim();
 
     const getWhatsappMessage = (template, row) => {
         if (!template) return "";
@@ -1742,19 +1546,6 @@ const QuotationWise = () => {
         );
     };
 
-    // Save an already built PDF. Synchronous, so it still counts as part of
-    // the user's click.
-    const saveBlob = (blob, fileName) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-    };
-
     const handleDownloadQuotationPdf = async (row) => {
         const quotationNo = getQuotationNo(row);
         setPdfDownloading(quotationNo);
@@ -1762,7 +1553,7 @@ const QuotationWise = () => {
             await downloadQuotationPdf(row);
         } catch (error) {
             console.error("Quotation PDF error:", error);
-            alert("Unable to create the quotation PDF.");
+            showToast("Unable to create the quotation PDF.");
         } finally {
             setPdfDownloading("");
         }
@@ -1770,8 +1561,15 @@ const QuotationWise = () => {
 
     // Uses ALL loaded rows (not only the currently filtered ones), so a customer
     // ticked earlier is still included after the search/filters are changed.
-    const getSelectedWhatsappRows = () =>
-        data.filter((row) => selectedQuotationKeys.includes(getWhatsappRowKey(row)));
+    const selectedKeySet = useMemo(
+        () => new Set(selectedQuotationKeys),
+        [selectedQuotationKeys]
+    );
+
+    const selectedWhatsappRows = useMemo(
+        () => data.filter((row) => selectedKeySet.has(getWhatsappRowKey(row))),
+        [data, selectedKeySet]
+    );
 
     const toggleWhatsappSelection = (row) => {
         const key = getWhatsappRowKey(row);
@@ -1782,14 +1580,17 @@ const QuotationWise = () => {
         );
     };
 
+    const allVisibleSelected =
+        filteredData.length > 0 &&
+        filteredData.every((row) => selectedKeySet.has(getWhatsappRowKey(row)));
+
     const toggleSelectAllWhatsapp = () => {
-        const validRows = filteredData;
-        const validKeys = validRows.map(getWhatsappRowKey);
-        const allSelected = validKeys.length > 0 && validKeys.every((key) => selectedQuotationKeys.includes(key));
+        const validKeys = filteredData.map(getWhatsappRowKey);
+        const removeKeys = new Set(validKeys);
 
         setSelectedQuotationKeys((previous) => {
-            if (allSelected) {
-                return previous.filter((key) => !validKeys.includes(key));
+            if (allVisibleSelected) {
+                return previous.filter((key) => !removeKeys.has(key));
             }
             return [...new Set([...previous, ...validKeys])];
         });
@@ -1797,47 +1598,123 @@ const QuotationWise = () => {
 
     const clearWhatsappSelection = () => setSelectedQuotationKeys([]);
 
-    const createWhatsappTemplate = () => {
-        const newTemplate = {
-            id: `template-${Date.now()}`,
-            name: "New Template",
-            message: "Hello {{customer_name}},\n\nYour quotation {{quotation_no}} is ready.\n\nThank you,\nEverest Agencies"
-        };
-        setWhatsappTemplates((previous) => [...previous, newTemplate]);
-        setEditingWhatsappTemplate({ ...newTemplate });
+    // -----------------------------------------------------
+    // Shared templates (whatsapp_templates.php). Only Admin can change them.
+    // -----------------------------------------------------
+    const postTemplates = async (body) => {
+        const response = await apiFetch(`${API}/whatsapp_templates.php`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(await authHeaders())
+            },
+            body: JSON.stringify(body)
+        });
+        const result = await response.json();
+        if (!result?.success) {
+            throw new Error(result?.message || "WhatsApp template request failed.");
+        }
+        return result;
     };
 
-    const saveWhatsappTemplate = () => {
+    const fetchWhatsappTemplates = async () => {
+        try {
+            const result = await postTemplates({ action: "list" });
+            const list = Array.isArray(result.data) ? result.data : [];
+            setTemplatesFromServer(list);
+            if (list.length) {
+                setWhatsappTemplates(list);
+            }
+        } catch (error) {
+            console.error("WhatsApp template fetch error:", error);
+        }
+    };
+
+    // First time only: the server has no templates yet, so an Admin's
+    // templates (from this browser) are uploaded and become the shared set.
+    useEffect(() => {
+        if (!isAdminUser || !Array.isArray(templatesFromServer) || templatesFromServer.length) return;
+
+        const upload = async () => {
+            try {
+                for (const [index, template] of whatsappTemplates.entries()) {
+                    await postTemplates({ action: "save", ...template, sort_order: index });
+                }
+                fetchWhatsappTemplates();
+            } catch (error) {
+                console.error("WhatsApp template upload error:", error);
+            }
+        };
+
+        upload();
+    }, [isAdminUser, templatesFromServer]);
+
+    const createWhatsappTemplate = () => {
+        setEditingWhatsappTemplate({
+            id: `template-${Date.now()}`,
+            name: "New Template",
+            message: "Hello {{customer_name}},\n\nYour quotation {{quotation_no}} is ready.\n\nThank you,\nEverest Agencies",
+            isNew: true
+        });
+    };
+
+    const saveWhatsappTemplate = async () => {
         if (!editingWhatsappTemplate?.name?.trim()) {
-            alert("Please enter a template name.");
+            showToast("Please enter a template name.");
             return;
         }
         if (!editingWhatsappTemplate?.message?.trim()) {
-            alert("Please enter the WhatsApp message.");
+            showToast("Please enter the WhatsApp message.");
             return;
         }
 
-        setWhatsappTemplates((previous) => {
-            const exists = previous.some((item) => item.id === editingWhatsappTemplate.id);
-            return exists
-                ? previous.map((item) =>
-                    item.id === editingWhatsappTemplate.id
-                        ? { ...editingWhatsappTemplate, name: editingWhatsappTemplate.name.trim() }
-                        : item
-                )
-                : [...previous, { ...editingWhatsappTemplate, name: editingWhatsappTemplate.name.trim() }];
-        });
-        setEditingWhatsappTemplate(null);
+        const { isNew, ...template } = {
+            ...editingWhatsappTemplate,
+            name: editingWhatsappTemplate.name.trim()
+        };
+        const existingIndex = whatsappTemplates.findIndex((item) => item.id === template.id);
+
+        setTemplateSaving(true);
+        try {
+            await postTemplates({
+                action: "save",
+                ...template,
+                sort_order: existingIndex >= 0 ? existingIndex : whatsappTemplates.length
+            });
+
+            setWhatsappTemplates((previous) =>
+                previous.some((item) => item.id === template.id)
+                    ? previous.map((item) => (item.id === template.id ? template : item))
+                    : [...previous, template]
+            );
+            setEditingWhatsappTemplate(null);
+            showToast(isNew ? "Template created." : "Template saved.");
+        } catch (error) {
+            showToast(error?.message || "Failed to save the template.");
+        } finally {
+            setTemplateSaving(false);
+        }
     };
 
-    const deleteWhatsappTemplate = (templateId) => {
+    const deleteWhatsappTemplate = async (templateId) => {
         if (whatsappTemplates.length <= 1) {
-            alert("At least one WhatsApp template must remain.");
+            showToast("At least one WhatsApp template must remain.");
             return;
         }
         const template = whatsappTemplates.find((item) => item.id === templateId);
         if (!window.confirm(`Delete template "${template?.name || "this template"}"?`)) return;
+
+        try {
+            await postTemplates({ action: "delete", id: templateId });
+        } catch (error) {
+            showToast(error?.message || "Failed to delete the template.");
+            return;
+        }
+
         setWhatsappTemplates((previous) => previous.filter((item) => item.id !== templateId));
+        if (editingWhatsappTemplate?.id === templateId) {
+            setEditingWhatsappTemplate(null);
+        }
         if (selectedWhatsappTemplateId === templateId) {
             const next = whatsappTemplates.find((item) => item.id !== templateId);
             if (next) setSelectedWhatsappTemplateId(next.id);
@@ -1847,10 +1724,9 @@ const QuotationWise = () => {
     const openWhatsappForQuotation = (row, message) => {
         const number = getWhatsappMobile(getWhatsappRowMobile(row));
         if (!number) return false;
-        // Open the WhatsApp Desktop/App directly (same method as the WhatsApp icon),
-        // with the personalized message pre-filled.
-        window.location.href =
-            `whatsapp://send?phone=${number}&text=${encodeURIComponent(message || "")}`;
+        // Open WhatsApp (Desktop on computers, the app on phones) with the
+        // personalized message pre-filled, same as the WhatsApp icon.
+        openWhatsappChat(number, message || "");
         return true;
     };
 
@@ -1862,15 +1738,15 @@ const QuotationWise = () => {
     //    browsers never block it as a popup.
     // -----------------------------------------------------
     const startWhatsappQueue = () => {
-        const rows = getSelectedWhatsappRows();
+        const rows = selectedWhatsappRows;
         const template = whatsappTemplates.find((item) => item.id === selectedWhatsappTemplateId);
 
         if (!rows.length) {
-            alert("Please select at least one customer.");
+            showToast("Please select at least one customer.");
             return;
         }
         if (!template) {
-            alert("Please select a WhatsApp template.");
+            showToast("Please select a WhatsApp template.");
             return;
         }
 
@@ -1887,7 +1763,7 @@ const QuotationWise = () => {
         );
 
         if (!rowsWithWhatsapp.length) {
-            alert("None of the selected quotations have a valid mobile number.");
+            showToast("None of the selected quotations have a valid mobile number.");
             return;
         }
 
@@ -1928,6 +1804,89 @@ const QuotationWise = () => {
         };
     }, [showWhatsappModal, whatsappQueue, whatsappQueueIndex, whatsappPdfRetry]);
 
+    // =====================================================
+    // WHATSAPP SEND LOG
+    // WhatsApp does not tell us whether Send was pressed in the app, so a log
+    // entry means: this user opened this chat (with this message) at this time.
+    // =====================================================
+    const fetchWhatsappLog = async () => {
+        setWhatsappLogLoading(true);
+        try {
+            const response = await apiFetch(`${API}/whatsapp_send_log.php`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "list" })
+            });
+            const result = await response.json();
+            if (result?.success && Array.isArray(result.data)) {
+                setWhatsappLog(result.data);
+            }
+        } catch (error) {
+            console.error("WhatsApp log fetch error:", error);
+        } finally {
+            setWhatsappLogLoading(false);
+        }
+    };
+
+    // Fire-and-forget: never blocks opening WhatsApp. The entry is added to the
+    // screen immediately and replaced by the saved record when the server replies.
+    const logWhatsappSend = (row, { sendType, template, message, pdfAttached }) => {
+        const entry = {
+            quotation_no: getQuotationNo(row),
+            order_no: String(row?.order_no || row?.OrderNo || "").trim(),
+            party_name: String(row?.party_name || row?.PartyLedgerName || "").trim(),
+            customer_name: getWhatsappCustomerName(row),
+            mobile: getWhatsappMobile(getWhatsappRowMobile(row)),
+            quotation_amount: getQuotationTotalWithGst(row),
+            send_type: sendType,
+            template_id: template?.id || "",
+            template_name: template?.name || "",
+            message: message || "",
+            pdf_attached: pdfAttached ? 1 : 0
+        };
+
+        // Shown at once; the server records the verified name from the login.
+        const shownSender = {
+            sent_by: telecallerName || currentUserInfo.email || "Unknown",
+            sent_by_uid: currentUserInfo.uid,
+            sent_by_email: currentUserInfo.email
+        };
+
+        const now = new Date();
+        const localNow = `${normalizeDate(now)} ${now.toTimeString().slice(0, 8)}`;
+        const tempId = `pending-${Date.now()}-${Math.random()}`;
+        setWhatsappLog((previous) => [
+            { ...entry, ...shownSender, id: tempId, created_at: localNow, pending: true },
+            ...previous
+        ]);
+
+        authHeaders()
+            .then((headers) => apiFetch(`${API}/whatsapp_send_log.php`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...headers },
+                body: JSON.stringify({ action: "log", ...entry })
+            }))
+            .then((response) => response.json())
+            .then((result) => {
+                if (!result?.success) throw new Error(result?.message || "Save failed");
+                setWhatsappLog((previous) =>
+                    previous.map((item) =>
+                        item.id === tempId
+                            ? { ...item, id: result.id, sent_by: result.sent_by || item.sent_by, pending: false }
+                            : item
+                    )
+                );
+            })
+            .catch((error) => {
+                console.error("WhatsApp log save error:", error);
+                setWhatsappLog((previous) =>
+                    previous.map((item) =>
+                        item.id === tempId ? { ...item, pending: false, failed: true } : item
+                    )
+                );
+            });
+    };
+
     // Downloads the customer's quotation PDF (to attach in WhatsApp) and opens
     // the chat. withoutPdf: open the chat even though the PDF failed.
     const openNextWhatsapp = (withoutPdf = false) => {
@@ -1939,7 +1898,15 @@ const QuotationWise = () => {
         if (!pdfBlob && !withoutPdf) return;
 
         if (pdfBlob) saveBlob(pdfBlob, getQuotationPdfFileName(row));
-        openWhatsappForQuotation(row, getWhatsappMessage(template, row));
+        const message = getWhatsappMessage(template, row);
+        if (openWhatsappForQuotation(row, message)) {
+            logWhatsappSend(row, {
+                sendType: "bulk",
+                template,
+                message,
+                pdfAttached: !!pdfBlob
+            });
+        }
         setWhatsappQueueIndex((previous) => previous + 1);
     };
 
@@ -1953,30 +1920,35 @@ const QuotationWise = () => {
     };
 
     // Open WhatsApp Desktop/App for the customer's mobile number.
-    const openWhatsApp = (mobile) => {
-        const digits = String(mobile || "").replace(/\D/g, "");
-        if (!digits) return;
+    // row: the quotation it was opened from, so the chat is logged.
+    const openWhatsApp = (mobile, row) => {
+        const whatsappNumber = getWhatsappMobile(mobile);
+        if (!whatsappNumber) return;
 
-        let whatsappNumber = digits;
+        // WhatsApp Desktop on computers, the WhatsApp app on phones.
+        openWhatsappChat(whatsappNumber);
 
-        if (whatsappNumber.length === 10) {
-            whatsappNumber = `91${whatsappNumber}`;
-        } else if (
-            whatsappNumber.length === 11 &&
-            whatsappNumber.startsWith("0")
-        ) {
-            whatsappNumber = `91${whatsappNumber.slice(1)}`;
+        if (row) {
+            logWhatsappSend(row, {
+                sendType: "direct",
+                template: null,
+                message: "",
+                pdfAttached: false
+            });
         }
-
-        // Open WhatsApp Desktop/App
-        window.location.href = `whatsapp://send?phone=${whatsappNumber}`;
     };
 
     const renderBanner = () => <Banner />;
 
 
+    // Column widths as a share of the screen, so the whole table fits
+    // small desktops without sideways scrolling. Admins have one extra column.
+    const colWidth = isAdminUser
+        ? { sno: "4.5%", longTerm: "5%", date: "7%", reference: "11%", party: "13%", quotationAmount: "8%", billedAmount: "8%", invoice: "8.5%", billedParty: "10%", followup: "15%", status: "6%", notes: "4%" }
+        : { sno: "4.5%", date: "7%", reference: "12%", party: "14%", quotationAmount: "8%", billedAmount: "8%", invoice: "9%", billedParty: "11%", followup: "16%", status: "6.5%", notes: "4%" };
+
     const thStyle = {
-        padding: "8px 8px",
+        padding: screenWidth < 1450 ? "6px 4px" : "8px 8px",
         border: "1px solid #d9d9d9",
         background: "#05693a",
         color: "#fff",
@@ -1989,7 +1961,7 @@ const QuotationWise = () => {
     };
 
     const tdStyle = {
-        padding: screenWidth < 700 ? "4px" : screenWidth < 1100 ? "5px" : "7px 8px",
+        padding: screenWidth < 700 ? "4px" : screenWidth < 1100 ? "5px" : screenWidth < 1450 ? "5px 6px" : "7px 8px",
         border: "1px solid #ddd",
         verticalAlign: "middle",
         background: "var(--quotation-party-bg, #fff)"
@@ -2037,7 +2009,6 @@ const QuotationWise = () => {
                     0%, 100% { opacity: 1; transform: scale(1); }
                     50% { opacity: 0.35; transform: scale(0.98); }
                 }
-
                 @keyframes followupTicker {
                     from {
                         transform: translateX(0);
@@ -2049,14 +2020,20 @@ const QuotationWise = () => {
             `}</style>
             {renderBanner()}
 
+            {/* Same page width and zoom as the Telecaller Report: up to 1400px,
+                left-aligned, 14px side padding, shrunk to 88% on small desktops
+                (see .qw-page in QuotationWise.css). */}
             <div
+                className="qw-page"
                 style={{
                     padding:
                         screenWidth < 700
-                            ? "10px"
-                            : "20px",
+                            ? "8px 10px"
+                            : "10px 14px",
                     boxSizing: "border-box",
-                    width: "100%"
+                    width: "1400px",
+                    maxWidth: "100%",
+                    margin: 0
                 }}
             >
 
@@ -2113,6 +2090,7 @@ const QuotationWise = () => {
                 </div>
 
                 <div
+                    ref={filterHeaderRef}
                     style={{
                         position: "sticky",
                         top: "65px",
@@ -2185,6 +2163,12 @@ const QuotationWise = () => {
                                 })()
                                 : followupQuickFilter === "due"
                                     ? "All Due Follow-ups"
+                                    : followupQuickFilter === "week"
+                                    ? "Last 7 Days Follow-ups"
+                                    : followupQuickFilter === "wa_not_sent"
+                                    ? "WhatsApp Not Sent"
+                                    : followupQuickFilter === "wa_sent"
+                                    ? "WhatsApp Sent"
                                     : viewMode === "date"
                                         ? "Quotations In Date Wise"
                                         : "Quotations In Party Wise"}
@@ -2241,8 +2225,6 @@ const QuotationWise = () => {
                             </button>
                         </div>
 
-                        {/* The "Export Excel" button was commented out in the original.
-                            exportToExcel is kept above so it can be re-enabled. */}
                     </div>
 
                     {/* =================================================
@@ -2387,7 +2369,7 @@ const QuotationWise = () => {
                                 followupFilter === "all"
                                     ? "Follow-up By"
                                     : followupFilter === "none"
-                                        ? "Follow Up Pending"
+                                        ? "New Follow-ups"
                                         : followupFilter;
 
                             return (
@@ -2629,6 +2611,28 @@ const QuotationWise = () => {
                             </div>
                         </div>
 
+                        {/* FINANCIAL YEAR (April-March) */}
+
+                        <select
+                            value={selectedFinancialYear}
+                            onChange={(e) => setSelectedFinancialYear(e.target.value)}
+                            title="Financial year"
+                            style={{
+                                height: "36px",
+                                padding: "0 10px",
+                                border: "1px solid #ccc",
+                                borderRadius: "6px",
+                                fontSize: "13px"
+                            }}
+                        >
+                            <option value="all">All Years</option>
+                            {financialYearOptions.map((year) => (
+                                <option key={year} value={String(year)}>
+                                    FY {formatFinancialYear(year)}
+                                </option>
+                            ))}
+                        </select>
+
                         {/* MONTH */}
 
                         <select
@@ -2712,12 +2716,13 @@ const QuotationWise = () => {
                             <option value="lowest">Lowest → Highest</option>
                         </select>
 
-                        {/* CLEAR */}
+                        {/* REFRESH: clears filters and reloads from the server */}
 
                         <button
                             onClick={
-                                clearFilters
+                                refreshPage
                             }
+                            title="Clear filters and reload quotations, follow-ups and WhatsApp log"
                             style={{
                                 height: "36px",
                                 padding:
@@ -2736,11 +2741,12 @@ const QuotationWise = () => {
                                     "600"
                             }}
                         >
-                            Refresh
+                            {loading ? "Refreshing..." : "Refresh"}
                         </button>
 
 
-                        {/* WHATSAPP ACTIONS */}
+                        {/* WHATSAPP ACTIONS (templates are edited by Admin only) */}
+                        {isAdminUser && (
                         <button
                             type="button"
                             onClick={() => setShowTemplateManager(true)}
@@ -2758,27 +2764,28 @@ const QuotationWise = () => {
                         >
                             ⚙ WhatsApp Templates
                         </button>
+                        )}
 
                         <button
                             type="button"
                             onClick={() => setShowWhatsappModal(true)}
-                            disabled={getSelectedWhatsappRows().length === 0}
+                            disabled={selectedWhatsappRows.length === 0}
                             style={{
                                 height: "36px",
                                 padding: "0 14px",
                                 border: "none",
-                                background: getSelectedWhatsappRows().length === 0 ? "#aaa" : "#25D366",
+                                background: selectedWhatsappRows.length === 0 ? "#aaa" : "#25D366",
                                 color: "#fff",
                                 borderRadius: "6px",
-                                cursor: getSelectedWhatsappRows().length === 0 ? "not-allowed" : "pointer",
+                                cursor: selectedWhatsappRows.length === 0 ? "not-allowed" : "pointer",
                                 fontSize: "13px",
                                 fontWeight: "700"
                             }}
                         >
-                            📱 Send WhatsApp ({getSelectedWhatsappRows().length})
+                            📱 Send WhatsApp ({selectedWhatsappRows.length})
                         </button>
 
-                        {getSelectedWhatsappRows().length > 0 && (
+                        {selectedWhatsappRows.length > 0 && (
                             <button
                                 type="button"
                                 onClick={clearWhatsappSelection}
@@ -2797,6 +2804,28 @@ const QuotationWise = () => {
                                 Clear Selection
                             </button>
                         )}
+
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setWhatsappLogInitialSearch("");
+                                setShowWhatsappLog(true);
+                                fetchWhatsappLog();
+                            }}
+                            style={{
+                                height: "36px",
+                                padding: "0 12px",
+                                border: "1px solid #25D366",
+                                background: "#fff",
+                                color: "#128C7E",
+                                borderRadius: "6px",
+                                cursor: "pointer",
+                                fontSize: "13px",
+                                fontWeight: "700"
+                            }}
+                        >
+                            📋 WhatsApp Log
+                        </button>
 
                         <select
                             value={followupQuickFilter}
@@ -2821,6 +2850,9 @@ const QuotationWise = () => {
                             <option value="all">All Follow-ups</option>
                             <option value="none">New Follow-ups</option>
                             <option value="due">All Due Follow-ups</option>
+                            <option value="week">Last 7 Days Follow-ups</option>
+                            <option value="wa_not_sent">WhatsApp Not Sent</option>
+                            <option value="wa_sent">WhatsApp Sent</option>
                             {getCurrentWeekFollowupOptions().map((option) => (
                                 <option key={option.value} value={`date:${option.value}`}>
                                     {option.label}
@@ -2907,8 +2939,33 @@ const QuotationWise = () => {
                                     "14px"
                             }}
                         >
-                            No quotations / sales
-                            orders found.
+                            <div>No quotations / sales orders found.</div>
+
+                            {activeFilterLabels.length > 0 && (
+                                <>
+                                    <div style={{ marginTop: "8px", fontSize: "12px" }}>
+                                        Active filters: {activeFilterLabels.join(" · ")}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={clearFilters}
+                                        style={{
+                                            marginTop: "12px",
+                                            height: "34px",
+                                            padding: "0 14px",
+                                            border: "none",
+                                            background: "#05693a",
+                                            color: "#fff",
+                                            borderRadius: "6px",
+                                            cursor: "pointer",
+                                            fontSize: "13px",
+                                            fontWeight: "700"
+                                        }}
+                                    >
+                                        Clear Filters
+                                    </button>
+                                </>
+                            )}
                         </div>
                     )}
 
@@ -2921,15 +2978,17 @@ const QuotationWise = () => {
                     0 && (
                         <div
                             className="quotation-table-container"
+                            ref={tableContainerRef}
+                            onScroll={handleTableScroll}
                             style={{
                                 width: "100%",
                                 maxWidth: "100%",
                                 overflowX: "auto",
                                 overflowY: "auto",
                                 marginTop: "10px",
-                                height: "calc(100vh - 330px)",
-                                minHeight: "300px",
-                                maxHeight: "calc(100vh - 330px)",
+                                height: `${tableHeight}px`,
+                                minHeight: "250px",
+                                maxHeight: `${tableHeight}px`,
                                 boxSizing: "border-box",
                                 position: "relative"
                             }}
@@ -2943,26 +3002,24 @@ const QuotationWise = () => {
                                         "separate",
                                     borderSpacing:
                                         0,
+                                    // Smaller text on small desktops so every column fits.
                                     fontSize:
                                         screenWidth < 700
                                             ? "9px"
                                             : screenWidth < 1100
                                                 ? "10px"
-                                                : "12px",
+                                                : screenWidth < 1450
+                                                    ? "11px"
+                                                    : "12px",
                                 }}
                             >
                                 <thead>
                                     <tr>
-                                        <th style={{ ...thStyle, width: "50px" }}>
+                                        <th style={{ ...thStyle, width: colWidth.sno }}>
                                             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
                                                 <input
                                                     type="checkbox"
-                                                    checked={
-                                                        filteredData.length > 0 &&
-                                                        filteredData.every((row) =>
-                                                            selectedQuotationKeys.includes(getWhatsappRowKey(row))
-                                                        )
-                                                    }
+                                                    checked={allVisibleSelected}
                                                     onChange={toggleSelectAllWhatsapp}
                                                     title="Select all visible quotations"
                                                     style={{ cursor: "pointer", width: "15px", height: "15px" }}
@@ -2971,42 +3028,42 @@ const QuotationWise = () => {
                                             </div>
                                         </th>
 {isAdminUser && (
-                                            <th style={{ ...thStyle, width: "50px", minWidth: "50px", maxWidth: "50px", textAlign: "center" }}>
+                                            <th style={{ ...thStyle, width: colWidth.longTerm, textAlign: "center", whiteSpace: "normal" }}>
                                                 Long-Term Client
                                             </th>
                                         )}
 
-                                        <th style={{ ...thStyle, width: "90px" }}>Date</th>
+                                        <th style={{ ...thStyle, width: colWidth.date }}>Date</th>
 
-                                        <th style={{ ...thStyle, width: "150px", minWidth: "150px", textAlign: "center" }}>
+                                        <th style={{ ...thStyle, width: colWidth.reference, textAlign: "center", whiteSpace: "normal" }}>
                                             Reference Details
                                         </th>
 
-                                        <th style={{ ...thStyle, width: "200px", minWidth: "200px", textAlign: "center" }}>
+                                        <th style={{ ...thStyle, width: colWidth.party, textAlign: "center" }}>
                                             Party Name
                                         </th>
 
                                         
-                                        <th style={{ ...thStyle, width: "140px" }}>Quotation Amount</th>
+                                        <th style={{ ...thStyle, width: colWidth.quotationAmount, whiteSpace: "normal" }}>Quotation Amount</th>
 
-                                        <th style={{ ...thStyle, width: "140px" }}>Billed Amount</th>
+                                        <th style={{ ...thStyle, width: colWidth.billedAmount, whiteSpace: "normal" }}>Billed Amount</th>
 
-                                        <th style={{ ...thStyle, width: "150px" }}>Invoice No</th>
+                                        <th style={{ ...thStyle, width: colWidth.invoice }}>Invoice No</th>
 
-                                        <th style={{ ...thStyle, width: "200px" }}>Billed Party</th>
+                                        <th style={{ ...thStyle, width: colWidth.billedParty }}>Billed Party</th>
 
-                                        <th style={{ ...thStyle, width: "220px", minWidth: "220px", textAlign: "left" }}>
+                                        <th style={{ ...thStyle, width: colWidth.followup, textAlign: "left" }}>
                                             Sales & Follow-up
                                         </th>
 
-                                        <th style={{ ...thStyle, width: "120px" }}>Status</th>
+                                        <th style={{ ...thStyle, width: colWidth.status }}>Status</th>
 
-                                        <th style={{ ...thStyle, width: "55px" }}>Notes</th>
+                                        <th style={{ ...thStyle, width: colWidth.notes }}>Notes</th>
                                     </tr>
                                 </thead>
 
                                 <tbody>
-                                    {groupedDisplayData.map(
+                                    {groupedDisplayData.rows.slice(0, visibleRowCount).map(
                                         (
                                             row,
                                             index
@@ -3054,7 +3111,7 @@ const QuotationWise = () => {
                                                     <tr
                                                         style={{
                                                             "--quotation-party-bg":
-                                                                row.__partyGroupColor ||
+                                                                groupedDisplayData.colors.get(row) ||
                                                                 "#fff"
                                                         }}
                                                     >
@@ -3071,7 +3128,7 @@ const QuotationWise = () => {
                                                             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "5px" }}>
                                                                 <input
                                                                     type="checkbox"
-                                                                    checked={selectedQuotationKeys.includes(getWhatsappRowKey(row))}
+                                                                    checked={selectedKeySet.has(getWhatsappRowKey(row))}
                                                                     onChange={(e) => {
                                                                         e.stopPropagation();
                                                                         toggleWhatsappSelection(row);
@@ -3170,9 +3227,6 @@ const QuotationWise = () => {
                                                         <td
                                                             style={{
                                                                 ...tdStyle,
-                                                                width: "190px",
-                                                                minWidth: "190px",
-                                                                maxWidth: "190px",
                                                                 whiteSpace: "normal",
                                                                 wordBreak: "normal",
                                                                 overflowWrap: "break-word",
@@ -3425,6 +3479,25 @@ const QuotationWise = () => {
                                                                                 >
                                                                                     {ledgerName}
                                                                                 </div>
+
+                                                                                {isLongTermClient(row) && (
+                                                                                    <span
+                                                                                        title="Long-Term Client: no follow-up needed"
+                                                                                        style={{
+                                                                                            display: "inline-block",
+                                                                                            marginTop: "3px",
+                                                                                            padding: "1px 6px",
+                                                                                            borderRadius: "8px",
+                                                                                            background: "#e7f5ec",
+                                                                                            border: "1px solid #9fd3b4",
+                                                                                            color: "#05693a",
+                                                                                            fontSize: "10px",
+                                                                                            fontWeight: "700"
+                                                                                        }}
+                                                                                    >
+                                                                                        ★ Long-Term Client
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
 
                                                                         </div>
@@ -3522,7 +3595,7 @@ const QuotationWise = () => {
                                                                                                             aria-label={`Open WhatsApp for ${walkinMobile}`}
                                                                                                             onClick={(e) => {
                                                                                                                 e.stopPropagation();
-                                                                                                                openWhatsApp(walkinMobile);
+                                                                                                                openWhatsApp(walkinMobile, row);
                                                                                                             }}
                                                                                                             style={{
                                                                                                                 width: "24px",
@@ -3786,7 +3859,6 @@ const QuotationWise = () => {
                                                                 fontWeight: "600",
                                                                 whiteSpace: "normal",
                                                                 wordBreak: "break-word",
-                                                                minWidth: "220px",
                                                                 lineHeight: "1.55"
                                                             }}
                                                         >
@@ -3811,7 +3883,7 @@ const QuotationWise = () => {
                                                                                     style={{
                                                                                         color: "inherit",
                                                                                         fontWeight: "inherit",
-                                                                                        fontSize: "13px",
+                                                                                        fontSize: "1.05em",
                                                                                         flex: 1
                                                                                     }}
                                                                                 >
@@ -3854,7 +3926,8 @@ const QuotationWise = () => {
 
                                                                                         if (
                                                                                             !Number.isNaN(followupDate.getTime()) &&
-                                                                                            followupDate < today
+                                                                                            followupDate < today &&
+                                                                                            !isLongTermClient(row)
                                                                                         ) {
                                                                                             return (
                                                                                                 <div
@@ -3894,10 +3967,50 @@ const QuotationWise = () => {
                                                                     );
                                                                 })() : followupLoading ? (
                                                                     <span style={{ color: "#999", fontStyle: "italic" }}>Loading...</span>
+                                                                ) : isLongTermClient(row) ? (
+                                                                    <span style={{ color: "#05693a", fontStyle: "italic" }}>Long-Term Client: no follow-up needed</span>
                                                                 ) : (
                                                                     <span style={{ color: "#999", fontStyle: "italic" }}>No Follow Up</span>
                                                                 )}
                                                             </div>
+
+                                                            {/* WHATSAPP SENT INDICATOR */}
+                                                            {(whatsappLogByQuotation[quotationNo] || []).length > 0 && (() => {
+                                                                const sends = whatsappLogByQuotation[quotationNo];
+                                                                const last = sends[0];
+                                                                return (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setWhatsappLogInitialSearch(quotationNo);
+                                                                            setShowWhatsappLog(true);
+                                                                        }}
+                                                                        title="Show WhatsApp log for this quotation"
+                                                                        style={{
+                                                                            display: "block",
+                                                                            width: "100%",
+                                                                            marginTop: "6px",
+                                                                            padding: "4px 6px",
+                                                                            border: "1px solid #bfe4cc",
+                                                                            borderRadius: "4px",
+                                                                            background: "#edf8f1",
+                                                                            color: "#075e54",
+                                                                            textAlign: "left",
+                                                                            fontSize: "10px",
+                                                                            fontWeight: "600",
+                                                                            lineHeight: "1.4",
+                                                                            cursor: "pointer"
+                                                                        }}
+                                                                    >
+                                                                        <div style={{ fontWeight: "800" }}>
+                                                                            💬 WhatsApp sent {sends.length}×
+                                                                        </div>
+                                                                        <div>
+                                                                            Last: {formatDateTime(last.created_at)} by {last.sent_by}
+                                                                        </div>
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                         </td>
 
                                                         {/* STATUS */}
@@ -3929,7 +4042,9 @@ const QuotationWise = () => {
                                                                 borderBottom: "1px solid #eee"
                                                             }}
                                                         >
-                                                            {status === "quotation" ? (
+                                                            {/* Lost quotations can get a note too, so a
+                                                                returning customer can be followed up again. */}
+                                                            {status === "quotation" || status === "lost" ? (
                                                                 <button
                                                                     onClick={() =>
                                                                         openNoteModal(
@@ -3938,7 +4053,7 @@ const QuotationWise = () => {
                                                                                 quotation_no: quotationNo,
                                                                                 order_no: orderNo,
                                                                                 invoice_no: row.invoice_no || "",
-                                                                                status: "Quotation Only"
+                                                                                status: getStatusText(row)
                                                                             },
                                                                             getFinancialMonth(row.date)
                                                                         )
@@ -3969,7 +4084,7 @@ const QuotationWise = () => {
                                                             <tr>
                                                                 <td
                                                                     colSpan={
-                                                                        14
+                                                                        isAdminUser ? 12 : 11
                                                                     }
                                                                     style={{
                                                                         padding:
@@ -4222,6 +4337,31 @@ const QuotationWise = () => {
                                             );
                                         }
                                     )}
+
+                                    {groupedDisplayData.rows.length > visibleRowCount && (
+                                        <tr>
+                                            <td
+                                                colSpan={isAdminUser ? 12 : 11}
+                                                style={{
+                                                    padding: "10px",
+                                                    textAlign: "center",
+                                                    background: "#fafafa",
+                                                    borderBottom: "1px solid #ddd",
+                                                    fontSize: "12px",
+                                                    color: "#555"
+                                                }}
+                                            >
+                                                Showing {visibleRowCount} of {groupedDisplayData.rows.length} quotations. Scroll down for more, or{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={showMoreRows}
+                                                    style={{ border: "1px solid #05693a", background: "#fff", color: "#05693a", borderRadius: "4px", padding: "3px 10px", cursor: "pointer", fontWeight: "700", fontSize: "12px" }}
+                                                >
+                                                    Show {Math.min(ROWS_PER_PAGE, groupedDisplayData.rows.length - visibleRowCount)} more
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )}
                                 </tbody>
 
                                 {/* =====================================================
@@ -4239,8 +4379,10 @@ const QuotationWise = () => {
                                             boxShadow: "0 -2px 5px rgba(0,0,0,0.12)"
                                         }}
                                     >
+                                        {/* S.No, (Long-Term Client: Admin only), Date,
+                                            Reference Details, Party Name */}
                                         <td
-                                            colSpan={4}
+                                            colSpan={isAdminUser ? 5 : 4}
                                             style={{
                                                 padding: "8px",
                                                 textAlign: "right",
@@ -4263,8 +4405,8 @@ const QuotationWise = () => {
                                                 color: "#fd0d85"
                                             }}
                                         >
-                                            {Number(totals.quotationAmount) !== 0 && (
-                                                <>₹ {formatAmount(totals.quotationAmount)}</>
+                                            {Number(totals.quotationAmountWithGst) !== 0 && (
+                                                <>₹ {formatAmount(totals.quotationAmountWithGst)}</>
                                             )}
                                         </td>
 
@@ -4284,9 +4426,9 @@ const QuotationWise = () => {
                                             )}
                                         </td>
 
-                                        {/* Remaining columns */}
+                                        {/* Invoice No, Billed Party, Sales & Follow-up, Status, Notes */}
                                         <td
-                                            colSpan={7}
+                                            colSpan={5}
                                             style={{
                                                 border: "1px solid #ddd",
                                                 borderTop: "2px solid #555",
@@ -4401,7 +4543,7 @@ const QuotationWise = () => {
 
                                             <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "15px" }}>
                                                 <button type="button" onClick={() => setEditingWhatsappTemplate(null)} style={{ padding: "8px 15px", border: "1px solid #bbb", background: "#fff", borderRadius: "5px", cursor: "pointer" }}>Cancel</button>
-                                                <button type="button" onClick={saveWhatsappTemplate} style={{ padding: "8px 18px", border: "none", background: "#05693a", color: "#fff", borderRadius: "5px", cursor: "pointer", fontWeight: "700" }}>Save Template</button>
+                                                <button type="button" onClick={saveWhatsappTemplate} disabled={templateSaving} style={{ padding: "8px 18px", border: "none", background: "#05693a", color: "#fff", borderRadius: "5px", cursor: templateSaving ? "wait" : "pointer", fontWeight: "700" }}>{templateSaving ? "Saving..." : "Save Template"}</button>
                                             </div>
                                         </>
                                     ) : (
@@ -4425,7 +4567,7 @@ const QuotationWise = () => {
                     const queueFinished = queueActive && whatsappQueueIndex >= whatsappQueue.length;
                     const nextRow = queueActive && !queueFinished ? whatsappQueue[whatsappQueueIndex] : null;
                     const selectedTemplate = whatsappTemplates.find((item) => item.id === selectedWhatsappTemplateId);
-                    const selectedRows = getSelectedWhatsappRows();
+                    const selectedRows = selectedWhatsappRows;
                     const previewRow = nextRow || selectedRows[0] || data[0] || {};
                     const nextKey = nextRow ? getWhatsappRowKey(nextRow) : "";
                     const nextPdfReady = !!(nextKey && whatsappPdfBlobs[nextKey]);
@@ -4460,6 +4602,7 @@ const QuotationWise = () => {
                                         >
                                             {whatsappTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
                                         </select>
+                                        {isAdminUser && (
                                         <button
                                             type="button"
                                             disabled={queueActive}
@@ -4468,6 +4611,7 @@ const QuotationWise = () => {
                                         >
                                             Edit Templates
                                         </button>
+                                        )}
                                     </div>
 
                                     {/* QUEUE PROGRESS */}
@@ -4588,6 +4732,20 @@ const QuotationWise = () => {
                     );
                 })()}
 
+                {/* =====================================================
+                    WHATSAPP SEND LOG
+                ====================================================== */}
+                {showWhatsappLog && (
+                    <WhatsappLogModal
+                        log={whatsappLog}
+                        loading={whatsappLogLoading}
+                        initialSearch={whatsappLogInitialSearch}
+                        screenWidth={screenWidth}
+                        onReload={fetchWhatsappLog}
+                        onClose={() => setShowWhatsappLog(false)}
+                    />
+                )}
+
                 {showNoteModal && (
                     <div
                         style={{
@@ -4696,10 +4854,11 @@ const QuotationWise = () => {
                                 <div style={formRowStyle}>
                                     <label style={formLabelStyle}>Follow-up Date</label>
 
+                                    <div>
                                     <input
                                         type="date"
                                         value={followup.status.trim().toLowerCase() === "lost" ? "" : followup.followupDate}
-                                        min={new Date().toISOString().split("T")[0]}
+                                        min={todayLocal()}
                                         disabled={followup.status.trim().toLowerCase() === "lost"}
                                         onChange={(e) =>
                                             setFollowup(prev => ({
@@ -4719,6 +4878,46 @@ const QuotationWise = () => {
                                                     : "pointer"
                                         }}
                                     />
+
+                                    {/* Quick picks for the next follow-up date */}
+                                    {followup.status.trim().toLowerCase() !== "lost" && (
+                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                                            {[
+                                                { label: "Tomorrow", days: 1 },
+                                                { label: "+3 days", days: 3 },
+                                                { label: "Next week", days: 7 },
+                                                { label: "+2 weeks", days: 14 }
+                                            ].map((option) => {
+                                                const value = addDaysLocal(option.days);
+                                                const active = followup.followupDate === value;
+                                                return (
+                                                    <button
+                                                        key={option.label}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setFollowup(prev => ({
+                                                                ...prev,
+                                                                followupDate: value
+                                                            }))
+                                                        }
+                                                        style={{
+                                                            padding: "4px 10px",
+                                                            border: `1px solid ${active ? "#05693a" : "#ccc"}`,
+                                                            borderRadius: "12px",
+                                                            background: active ? "#eaf6ef" : "#fff",
+                                                            color: active ? "#05693a" : "#333",
+                                                            fontSize: "12px",
+                                                            fontWeight: "600",
+                                                            cursor: "pointer"
+                                                        }}
+                                                    >
+                                                        {option.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    </div>
                                 </div>
 
 
@@ -4922,12 +5121,12 @@ const QuotationWise = () => {
                                     onClick={async () => {
 
                                         if (!followup.callDate) {
-                                            alert("Please select Call Date");
+                                            showToast("Please select Call Date");
                                             return;
                                         }
 
                                         if (!followup.status) {
-                                            alert("Please select Status");
+                                            showToast("Please select Status");
                                             return;
                                         }
 
@@ -4937,12 +5136,12 @@ const QuotationWise = () => {
                                             followup.status.trim().toLowerCase() !== "lost" &&
                                             !followup.followupDate
                                         ) {
-                                            alert("Please select Follow-up Date");
+                                            showToast("Please select Follow-up Date");
                                             return;
                                         }
 
                                         if (!followup.remarks.trim()) {
-                                            alert("Please enter Remarks");
+                                            showToast("Please enter Remarks");
                                             return;
                                         }
 
@@ -5006,11 +5205,11 @@ const QuotationWise = () => {
                                                         .toLowerCase() === "negotiation";
 
                                                 if (isNegotiation) {
-                                                    alert(
+                                                    showToast(
                                                         "Negotiation follow-up saved. Alter Quotation Alert has been created and sent to the quotation team."
                                                     );
                                                 } else {
-                                                    alert("Follow-up saved successfully");
+                                                    showToast("Follow-up saved successfully");
                                                 }
 
                                                 setFollowupByQuotation(prev => ({
@@ -5020,9 +5219,13 @@ const QuotationWise = () => {
 
                                                 setShowNoteModal(false);
 
+                                                // Reload follow-ups so status (e.g. Lost), next date
+                                                // and history update on the row straight away.
+                                                fetchFollowupPersons(data, { background: true });
+
                                                 // Clear form
                                                 setFollowup({
-                                                    callDate: new Date().toISOString().split("T")[0],
+                                                    callDate: todayLocal(),
                                                     followupDate: "",
                                                     telecaller: telecallerName || "",
                                                     status: "",
@@ -5031,7 +5234,7 @@ const QuotationWise = () => {
 
                                             } else {
 
-                                                alert(
+                                                showToast(
                                                     result.message ||
                                                     "Failed to save follow-up"
                                                 );
@@ -5042,7 +5245,7 @@ const QuotationWise = () => {
 
                                             console.error("Save follow-up error:", error);
 
-                                            alert(
+                                            showToast(
                                                 "Unable to save follow-up. Please try again."
                                             );
 
@@ -5068,6 +5271,32 @@ const QuotationWise = () => {
                     </div>
                 )}
             </div>
+
+            {/* TOAST MESSAGE */}
+            {toast && (
+                <div
+                    role="status"
+                    onClick={() => setToast(null)}
+                    style={{
+                        position: "fixed",
+                        left: "50%",
+                        bottom: "24px",
+                        transform: "translateX(-50%)",
+                        zIndex: 200000,
+                        maxWidth: "calc(100vw - 32px)",
+                        padding: "10px 18px",
+                        borderRadius: "8px",
+                        background: toast.type === "success" ? "#05693a" : "#b42318",
+                        color: "#fff",
+                        fontSize: "14px",
+                        fontWeight: "600",
+                        boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+                        cursor: "pointer"
+                    }}
+                >
+                    {toast.message}
+                </div>
+            )}
         </>
     );
 };
