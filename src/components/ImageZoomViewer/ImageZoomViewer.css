@@ -1,0 +1,107 @@
+.izv-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(0, 0, 0, 0.92);
+    display: flex;
+    flex-direction: column;
+}
+
+.izv-stage {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: zoom-in;
+}
+
+.izv-stage.izv-zoomed {
+    cursor: grab;
+}
+
+.izv-stage.izv-zoomed:active {
+    cursor: grabbing;
+}
+
+.izv-content {
+    width: 100%;
+    height: 100%;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
+.izv-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+}
+
+.izv-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 50%;
+    background: #fff;
+    color: #000;
+    font-size: 22px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.izv-close:hover {
+    background: #ef4444;
+    color: #fff;
+}
+
+.izv-toolbar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px 4px;
+}
+
+.izv-toolbar button {
+    min-width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 22px;
+    background: #fff;
+    color: #111;
+    font-size: 22px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.izv-toolbar button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.izv-toolbar .izv-reset {
+    font-size: 15px;
+    padding: 0 16px;
+}
+
+.izv-level {
+    min-width: 56px;
+    text-align: center;
+    color: #fff;
+    font-weight: bold;
+}
+
+.izv-hint {
+    color: #cbd5e1;
+    font-size: 12px;
+    text-align: center;
+    padding: 4px 16px 14px;
+}

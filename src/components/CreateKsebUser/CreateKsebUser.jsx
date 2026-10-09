@@ -1,11 +1,13 @@
 import Banner from "../Banner/Banner.jsx";
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../firebase";
 import { setDoc, doc } from "firebase/firestore";
 import { toast } from "react-toastify";
 import "./CreateKsebUser.css";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { Camera, Trash2, UserRound } from "lucide-react";
+import { resizeImage, MAX_UPLOAD_BYTES } from "../MyProfile/profilePhoto";
 function CreateKsebUser() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -13,6 +15,9 @@ function CreateKsebUser() {
   const [lname, setLname] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [photo, setPhoto] = useState("");
+  const fileInputRef = useRef(null);
   const [designation, setDesignation] = useState("");
   const [distribution, setDistribution] = useState("");
 
@@ -25,8 +30,39 @@ function CreateKsebUser() {
     }
   };
 
+  const handlePhotoSelect = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error("Image must be smaller than 10 MB");
+      return;
+    }
+
+    try {
+      setPhoto(await resizeImage(file));
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message);
+    }
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
+
+    const trimmedPhone = phone.trim();
+    if (trimmedPhone && !/^[+\d][\d\s-]{6,}$/.test(trimmedPhone)) {
+      toast.error("Enter a valid phone number");
+      return;
+    }
+
     setLoading(true); // ✅ start loading
 
     try {
@@ -38,6 +74,8 @@ function CreateKsebUser() {
           email: user.email,
           firstName: fname,
           lastName: lname,
+          phone: trimmedPhone,
+          photo,
           role: "KsebUser",
           designation: designation,
           distribution: distribution,
@@ -53,6 +91,8 @@ function CreateKsebUser() {
       setPassword("");
       setFname("");
       setLname("");
+      setPhone("");
+      setPhoto("");
 
     } catch (error) {
       toast.error(error.message, {
@@ -79,6 +119,54 @@ function CreateKsebUser() {
           </h2>
 
           <form onSubmit={handleRegister} className="space-y-4">
+            <div className="flex flex-col items-center gap-3 mb-4">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="relative group w-24 h-24 rounded-full overflow-hidden border-4 border-[#dbe7f3] bg-[#0f4c81] text-white flex items-center justify-center"
+                title={photo ? "Change photo" : "Add photo"}
+              >
+                {photo ? (
+                  <img src={photo} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <UserRound size={44} />
+                )}
+
+                <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                  <Camera size={26} />
+                </span>
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handlePhotoSelect}
+              />
+
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  <Camera size={14} />
+                  {photo ? "Change photo" : "Add photo"}
+                </button>
+
+                {photo && (
+                  <button
+                    type="button"
+                    onClick={() => setPhoto("")}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-full border border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
 
             <input
               type="text"
@@ -121,6 +209,14 @@ function CreateKsebUser() {
               className="w-full border border-[#d6d3d1] bg-white p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#0f4c81] transition"
               onChange={(e) => setEmail(e.target.value)}
               required
+            />
+
+            <input
+              type="tel"
+              placeholder="Phone Number"
+              className="w-full border border-[#d6d3d1] bg-white p-3 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#0f4c81] transition"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
             />
 
             <div className="relative">

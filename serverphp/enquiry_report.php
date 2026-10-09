@@ -544,6 +544,138 @@ function attachQuotationEnteredBy($pdo, &$data)
 
 
 /* =========================================================
+   NEGOTIATION → QUOTATION REWORK REQUEST
+
+   Choosing the "Negotiation" remark creates a Pending row in
+   quotation_alteration_requests (the same table used by the
+   Quotation Follow-up page). GlobalAlterationAlert shows that
+   row to the quotation team (Sion and Rahida). When they mark
+   it "Rework Completed" the row becomes "Revised" and the
+   enquiry remark changes to "Negotiation Rework Completed".
+========================================================= */
+
+define("NEGOTIATION_REMARK", "Negotiation");
+
+function ensureNegotiationColumns($pdo)
+{
+    $columns = [
+        "enquiry_id" => "ADD COLUMN enquiry_id INT NULL",
+        "revised_by" => "ADD COLUMN revised_by VARCHAR(150) NULL",
+        "revised_at" => "ADD COLUMN revised_at DATETIME NULL"
+    ];
+
+    foreach ($columns as $name => $definition) {
+        try {
+            $check = $pdo->query("SHOW COLUMNS FROM quotation_alteration_requests LIKE " . $pdo->quote($name));
+            if (!$check->fetch()) {
+                $pdo->exec("ALTER TABLE quotation_alteration_requests " . $definition);
+            }
+        } catch (Throwable $e) {
+            error_log("NEGOTIATION COLUMN CHECK ERROR ($name): " . $e->getMessage());
+        }
+    }
+}
+
+/*
+ * Creates a Pending rework request for the enquiry.
+ * If a Pending request already exists for this enquiry or this
+ * quotation (e.g. raised from the follow-up page), it is reused
+ * and linked to the enquiry instead of creating a duplicate alert.
+ * Returns true when a new request was created.
+ */
+function createNegotiationRequest($pdo, $enquiryId, $quotationNo, $party, $requestedBy, $details)
+{
+    ensureNegotiationColumns($pdo);
+
+    $stmt = $pdo->prepare("
+        SELECT id
+        FROM quotation_alteration_requests
+        WHERE request_status = 'Pending'
+          AND (enquiry_id = :enquiry_id OR (:quotation_no <> '' AND quotation_no = :quotation_no2))
+        LIMIT 1
+    ");
+    $stmt->execute([
+        ":enquiry_id" => $enquiryId,
+        ":quotation_no" => $quotationNo,
+        ":quotation_no2" => $quotationNo
+    ]);
+    $existing = $stmt->fetch();
+
+    if ($existing) {
+        $pdo->prepare("
+            UPDATE quotation_alteration_requests
+            SET enquiry_id = :enquiry_id, updated_at = NOW()
+            WHERE id = :id AND enquiry_id IS NULL
+        ")->execute([":enquiry_id" => $enquiryId, ":id" => $existing["id"]]);
+
+        return false;
+    }
+
+    $pdo->prepare("
+        INSERT INTO quotation_alteration_requests
+            (quotation_no, party, order_no, invoice_no, requested_by, remarks, request_status, enquiry_id)
+        VALUES
+            (:quotation_no, :party, '', '', :requested_by, :remarks, 'Pending', :enquiry_id)
+    ")->execute([
+        ":quotation_no" => $quotationNo,
+        ":party" => $party,
+        ":requested_by" => $requestedBy,
+        ":remarks" => $details,
+        ":enquiry_id" => $enquiryId
+    ]);
+
+    return true;
+}
+
+/*
+ * Adds negotiation_status ("Pending" / "Revised" / ""),
+ * negotiation_revised_by and negotiation_revised_at to each row,
+ * using the latest request linked by enquiry id, or else by
+ * quotation number.
+ */
+function attachNegotiationStatus($pdo, &$data)
+{
+    if (!is_array($data) || empty($data)) return;
+
+    $byEnquiry = [];
+    $byQuotation = [];
+
+    try {
+        ensureNegotiationColumns($pdo);
+
+        $rows = $pdo->query("
+            SELECT id, enquiry_id, quotation_no, request_status, revised_by, revised_at
+            FROM quotation_alteration_requests
+            ORDER BY created_at ASC, id ASC
+        ")->fetchAll();
+
+        /* Later rows overwrite earlier ones, so the latest request wins. */
+        foreach ($rows as $request) {
+            if (!empty($request["enquiry_id"])) {
+                $byEnquiry[(string)$request["enquiry_id"]] = $request;
+            }
+            $quotationNo = trim((string)($request["quotation_no"] ?? ""));
+            if ($quotationNo !== "") {
+                $byQuotation[$quotationNo] = $request;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log("NEGOTIATION STATUS LOAD ERROR: " . $e->getMessage());
+    }
+
+    foreach ($data as &$row) {
+        $quotationNo = trim((string)($row["sales_order_no"] ?? ""));
+        $request = $byEnquiry[(string)$row["id"]] ?? ($quotationNo !== "" ? ($byQuotation[$quotationNo] ?? null) : null);
+
+        $row["negotiation_status"] = $request ? (string)$request["request_status"] : "";
+        $row["negotiation_revised_by"] = $request ? (string)($request["revised_by"] ?? "") : "";
+        $row["negotiation_revised_at"] = $request ? (string)($request["revised_at"] ?? "") : "";
+    }
+    unset($row);
+}
+
+
+/* =========================================================
    LOAD ONE ENQUIRY (used after insert / update)
 ========================================================= */
 
@@ -564,6 +696,7 @@ function loadEnquiryById($pdo, $id)
 
     $recordData = [$record];
     attachQuotationEnteredBy($pdo, $recordData);
+    attachNegotiationStatus($pdo, $recordData);
     $record = $recordData[0];
 
     $record["attachments"] = parseAttachments($record["attachments"]);
@@ -923,6 +1056,7 @@ if ($method === "GET") {
         $data = $stmt->fetchAll();
 
         attachQuotationEnteredBy($pdo, $data);
+        attachNegotiationStatus($pdo, $data);
 
         foreach ($data as &$row) {
             $row["attachments"] = parseAttachments($row["attachments"]);
@@ -975,6 +1109,11 @@ if ($method === "POST") {
         $broughtBy = trim($_POST["brought_by"] ?? "");
         $salesOrderNo = trim($_POST["sales_order_no"] ?? "");
         $remarks = trim($_POST["remarks"] ?? "");
+        $negotiationDetails = trim($_POST["negotiation_details"] ?? "");
+        $requestedBy = trim($_POST["requested_by"] ?? "");
+        if ($requestedBy === "") {
+            $requestedBy = $addedBy;
+        }
 
         /* ===============================================
            TALLY QUOTATION LOOKUP
@@ -1018,6 +1157,11 @@ if ($method === "POST") {
             responseJson(false, "Valid enquiry source is required.");
         }
 
+        if ($remarks === NEGOTIATION_REMARK && $salesOrderNo === "") {
+            http_response_code(400);
+            responseJson(false, "Enter the quotation number before choosing Negotiation.");
+        }
+
         /* ===============================================
            UPDATE
         =============================================== */
@@ -1025,7 +1169,7 @@ if ($method === "POST") {
         if ($isEdit) {
 
             $stmt = $pdo->prepare("
-                SELECT id, enquiry_no, attachments
+                SELECT id, enquiry_no, attachments, remarks
                 FROM enquiry_report
                 WHERE id = :id
                 LIMIT 1
@@ -1121,10 +1265,30 @@ if ($method === "POST") {
                 ":id" => $id
             ]);
 
+            /* Notify the quotation team only when the remark
+               changes to Negotiation, not on every later edit. */
+            $negotiationRequested = false;
+            $negotiationError = "";
+            $previousRemarks = trim((string)($existing["remarks"] ?? ""));
+
+            if ($remarks === NEGOTIATION_REMARK && $previousRemarks !== NEGOTIATION_REMARK) {
+                try {
+                    $negotiationRequested = createNegotiationRequest(
+                        $pdo, $id, $salesOrderNo, $customerName, $requestedBy, $negotiationDetails
+                    );
+                } catch (Throwable $e) {
+                    /* The enquiry is already saved; report the failed alert separately. */
+                    error_log("NEGOTIATION REQUEST ERROR: " . $e->getMessage());
+                    $negotiationError = "Enquiry saved, but the quotation team could not be notified.";
+                }
+            }
+
             $updated = loadEnquiryById($pdo, $id);
 
             responseJson(true, "Enquiry updated successfully.", $updated, [
-                "next_enquiry_no" => getNextEnquiryNumber($pdo)
+                "next_enquiry_no" => getNextEnquiryNumber($pdo),
+                "negotiation_requested" => $negotiationRequested,
+                "negotiation_error" => $negotiationError
             ]);
         }
 
@@ -1217,11 +1381,28 @@ if ($method === "POST") {
             throw $e;
         }
 
+        $negotiationRequested = false;
+        $negotiationError = "";
+
+        if ($remarks === NEGOTIATION_REMARK) {
+            try {
+                $negotiationRequested = createNegotiationRequest(
+                    $pdo, (int)$newId, $salesOrderNo, $customerName, $requestedBy, $negotiationDetails
+                );
+            } catch (Throwable $e) {
+                /* The enquiry is already saved; report the failed alert separately. */
+                error_log("NEGOTIATION REQUEST ERROR: " . $e->getMessage());
+                $negotiationError = "Enquiry saved, but the quotation team could not be notified.";
+            }
+        }
+
         $newRecord = loadEnquiryById($pdo, $newId);
 
         responseJson(true, "Enquiry added successfully.", $newRecord, [
             "enquiry_no" => $enquiryNo,
-            "next_enquiry_no" => getNextEnquiryNumber($pdo)
+            "next_enquiry_no" => getNextEnquiryNumber($pdo),
+            "negotiation_requested" => $negotiationRequested,
+            "negotiation_error" => $negotiationError
         ]);
 
     } catch (Throwable $e) {

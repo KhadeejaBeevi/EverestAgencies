@@ -135,40 +135,40 @@ try {
     $sql = "
         SELECT
 
-            `Ledger.$_EveLedMstID` AS MSID,
+            `Ledger.\$_EveLedMstID` AS MSID,
 
             `PartyLedgerName`,
 
-            `Ledger.$LedgerContact` AS LedgerContact,
-            `Ledger.$LedgerMobile` AS LedgerMobile,
-            `Ledger.$LedgerPhone` AS LedgerPhone,
-            `Ledger.$EMail` AS EMail,
+            `Ledger.\$LedgerContact` AS LedgerContact,
+            `Ledger.\$LedgerMobile` AS LedgerMobile,
+            `Ledger.\$LedgerPhone` AS LedgerPhone,
+            `Ledger.\$EMail` AS EMail,
 
-            `Ledger.$_Address1` AS Address1,
-            `Ledger.$_Address2` AS Address2,
-            `Ledger.$_Address3` AS Address3,
-            `Ledger.$_Address4` AS Address4,
-            `Ledger.$_Address5` AS Address5,
+            `Ledger.\$_Address1` AS Address1,
+            `Ledger.\$_Address2` AS Address2,
+            `Ledger.\$_Address3` AS Address3,
+            `Ledger.\$_Address4` AS Address4,
+            `Ledger.\$_Address5` AS Address5,
 
-            `Ledger.$_PrimaryGroup` AS PrimaryGroup,
-            `Ledger.$_LedgerFax` AS LedgerFax,
+            `Ledger.\$_PrimaryGroup` AS PrimaryGroup,
+            `Ledger.\$_LedgerFax` AS LedgerFax,
 
-            `Ledger.$_Led_Main_ContactNo_Form` AS MainContactNo,
+            `Ledger.\$_Led_Main_ContactNo_Form` AS MainContactNo,
 
-            `Ledger.$_Led_OwnerName_Form` AS OwnerName,
-            `Ledger.$_Led_OwnerPhone_Form` AS OwnerPhone,
+            `Ledger.\$_Led_OwnerName_Form` AS OwnerName,
+            `Ledger.\$_Led_OwnerPhone_Form` AS OwnerPhone,
 
-            `Ledger.$_Led_Payment_Contact_P_Form` AS PaymentContact,
-            `Ledger.$_Led_Payment_Contact_PHone_Form` AS PaymentContactPhone,
+            `Ledger.\$_Led_Payment_Contact_P_Form` AS PaymentContact,
+            `Ledger.\$_Led_Payment_Contact_PHone_Form` AS PaymentContactPhone,
 
-            `Ledger.$_Led_Purchase_Contact_P_Form` AS PurchaseContact,
-            `Ledger.$_Led_Purchase_Contact_PHone_Form` AS PurchaseContactPhone,
+            `Ledger.\$_Led_Purchase_Contact_P_Form` AS PurchaseContact,
+            `Ledger.\$_Led_Purchase_Contact_PHone_Form` AS PurchaseContactPhone,
 
-            `Ledger.$_LedGroup` AS LedGroup,
+            `Ledger.\$_LedGroup` AS LedGroup,
 
-            `Ledger.$_GSTRegistrationType` AS GSTRegistrationType,
+            `Ledger.\$_GSTRegistrationType` AS GSTRegistrationType,
 
-            `Ledger.$_PartyGSTIN` AS PartyGSTIN,
+            `Ledger.\$_PartyGSTIN` AS PartyGSTIN,
 
             `designation`,
             `designator_name`

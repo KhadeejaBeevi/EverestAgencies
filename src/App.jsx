@@ -88,7 +88,7 @@ function App() {
   return (
     <Router>
       <UserSessionManager />
-       <IdleLogout/>
+       
        <GlobalAlterationAlert/>
       <Routes>
          <Route path="/" element={<Home />} /> {/* ✅ Home is now the first page */}

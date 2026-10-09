@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { auth, db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { Bell, X, AlertTriangle } from "lucide-react";
+import { Bell, X, AlertTriangle, CheckCircle } from "lucide-react";
+import { apiFetch } from "../api/apiClient";
 
 const API = "/serverphp";
 
@@ -14,6 +15,8 @@ const GlobalAlterationAlert = () => {
   const [isQuotationTeam, setIsQuotationTeam] = useState(false);
   const [requests, setRequests] = useState([]);
   const [showAlert, setShowAlert] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [completingId, setCompletingId] = useState(null);
 
   const knownRequestIds = useRef(new Set());
   const firstLoad = useRef(true);
@@ -78,6 +81,10 @@ const GlobalAlterationAlert = () => {
 
         console.log("IS QUOTATION TEAM:", allowed);
 
+        const userData = userSnap.exists() ? userSnap.data() : {};
+        const fullName = `${String(userData?.firstName || "").trim()} ${String(userData?.lastName || "").trim()}`.trim();
+        setUserName(fullName || firebaseEmail);
+
         setIsQuotationTeam(allowed);
         knownRequestIds.current = new Set();
         firstLoad.current = true;
@@ -94,14 +101,10 @@ const GlobalAlterationAlert = () => {
     if (!isQuotationTeam) return;
 
     try {
-      const response = await fetch(
+      // apiFetch adds the X-API-Key header that api_auth.php requires.
+      const response = await apiFetch(
         `${API}/get_quotation_alteration_requests.php`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
+        { method: "GET" }
       );
 
       if (!response.ok) {
@@ -171,6 +174,43 @@ const GlobalAlterationAlert = () => {
 
   const closeAlert = () => {
     setShowAlert(false);
+  };
+
+  // Marks the negotiation rework as done. The request becomes "Revised"
+  // and a linked enquiry's remark becomes "Negotiation Rework Completed".
+  const markReworkCompleted = async (request) => {
+    if (completingId) return;
+
+    try {
+      setCompletingId(request.id);
+
+      const response = await apiFetch(
+        `${API}/update_quotation_alteration_status.php`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            id: request.id,
+            status: "Revised",
+            revised_by: userName
+          })
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to update request");
+      }
+
+      setRequests((prev) =>
+        prev.filter((item) => String(item.id) !== String(request.id))
+      );
+    } catch (error) {
+      console.error("Mark rework completed error:", error);
+      alert(error.message || "Failed to mark rework completed");
+    } finally {
+      setCompletingId(null);
+    }
   };
 
   if (!isQuotationTeam || !showAlert || requests.length === 0) {
@@ -251,6 +291,12 @@ const GlobalAlterationAlert = () => {
                   >
                     🏢 {request.party}
                   </div>
+
+                  {request.enquiry_no && (
+                    <div className="mt-1 text-sm text-gray-600">
+                      From Enquiry: <b>{request.enquiry_no}</b>
+                    </div>
+                  )}
                 </div>
 
                 <Bell
@@ -306,6 +352,23 @@ const GlobalAlterationAlert = () => {
                 >
                   {request.remarks || "No remarks provided"}
                 </div>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => markReworkCompleted(request)}
+                  disabled={Boolean(completingId)}
+                  className="
+                    flex items-center gap-2 bg-green-700 hover:bg-green-800
+                    disabled:opacity-60 text-white px-5 py-2
+                    rounded-xl font-bold transition
+                  "
+                >
+                  <CheckCircle size={18} />
+                  {String(completingId) === String(request.id)
+                    ? "Saving..."
+                    : "Rework Completed"}
+                </button>
               </div>
             </div>
           ))}

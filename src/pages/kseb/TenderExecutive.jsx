@@ -1,5 +1,7 @@
 import Banner from "../../components/Banner/Banner.jsx";
 
+import ImageZoomViewer from "../../components/ImageZoomViewer/ImageZoomViewer.jsx";
+
 import React, { useEffect, useState } from "react";
 
 import "./TenderExecutive.css";
@@ -19,6 +21,24 @@ import { FaBars } from "react-icons/fa";
 import { apiFetch } from "../../api/apiClient";
 
 const API = "/serverphp";
+
+// Photo URLs may be full links, Google Drive links, or paths relative to the API
+const getFileUrl = (path) => {
+    if (!path) return "";
+
+    // get_tenders.php hardcodes the XAMPP address; serve it from this site instead
+    // so it works on phones and the live server too
+    const local = path.match(/^https?:\/\/localhost(?::\d+)?\/everest\/serverphp(\/.*)$/i);
+    if (local) return `${API}${local[1]}`;
+
+    // Drive "view" links are web pages, not images; use Drive's image thumbnail
+    const drive = path.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]+)/i);
+    if (drive) return `https://drive.google.com/thumbnail?id=${drive[1]}&sz=w2000`;
+
+    if (/^https?:\/\//i.test(path)) return path;
+    if (path.startsWith(API)) return path;
+    return `${API}${path.startsWith("/") ? "" : "/"}${path}`;
+};
 
 const TenderExecutive = () => {
 
@@ -890,7 +910,7 @@ const TenderExecutive = () => {
 
                                                                 <img
 
-                                                                    src={`/serverphp${item.tender_photo_url}`}
+                                                                    src={getFileUrl(item.tender_photo_url)}
 
                                                                     alt="Tender"
 
@@ -985,7 +1005,7 @@ const TenderExecutive = () => {
                                                                 {item.comparison && (
                                                                     <div className="comparison-preview-wrapper">
                                                                         <img
-                                                                            src={`/serverphp${item.comparison}`}
+                                                                            src={getFileUrl(item.comparison)}
                                                                             alt="Comparison"
                                                                             className="comparison-preview-image"
                                                                             onClick={() => setPreviewImage(item.comparison)}
@@ -1339,7 +1359,7 @@ const TenderExecutive = () => {
 
                                                                 className="tender-mobile-image"
 
-                                                                src={`/serverphp${item.tender_photo_url}`}
+                                                                src={getFileUrl(item.tender_photo_url)}
 
                                                                 alt="Tender"
 
@@ -1366,7 +1386,7 @@ const TenderExecutive = () => {
                                                             {item.comparison && (
                                                                 <img
                                                                     className="tender-mobile-image"
-                                                                    src={`/serverphp${item.comparison}`}
+                                                                    src={getFileUrl(item.comparison)}
                                                                     alt="Comparison"
                                                                     onClick={() => setPreviewImage(item.comparison)}
                                                                 />
@@ -1530,47 +1550,15 @@ const TenderExecutive = () => {
 
             {previewImage && (
 
-                <div
+                <ImageZoomViewer
 
-                    className="image-preview-overlay"
+                    src={getFileUrl(previewImage)}
 
-                    onClick={() => setPreviewImage(null)}
+                    alt="Preview"
 
-                >
+                    onClose={() => setPreviewImage(null)}
 
-                    <div
-
-                        className="image-preview-box"
-
-                        onClick={(e) => e.stopPropagation()}
-
-                    >
-
-                        <button
-
-                            className="image-preview-close"
-
-                            onClick={() => setPreviewImage(null)}
-
-                        >
-
-                            ✕
-
-                        </button>
-
-                        <img
-
-                            src={previewImage}
-
-                            alt="Preview"
-
-                            className="image-preview-img"
-
-                        />
-
-                    </div>
-
-                </div>
+                />
 
             )}
 

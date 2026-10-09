@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/api_auth.php';
+require_once __DIR__ . '/ledger_mirror_tally.php';
 
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
@@ -129,67 +130,67 @@ $fieldMap = [
         "`PartyLedgerName`",
 
     "LedgerContact" =>
-        "`Ledger.$LedgerContact`",
+        "`Ledger.\$LedgerContact`",
 
     "LedgerMobile" =>
-        "`Ledger.$LedgerMobile`",
+        "`Ledger.\$LedgerMobile`",
 
     "LedgerPhone" =>
-        "`Ledger.$LedgerPhone`",
+        "`Ledger.\$LedgerPhone`",
 
     "EMail" =>
-        "`Ledger.$EMail`",
+        "`Ledger.\$EMail`",
 
     "Address1" =>
-        "`Ledger.$_Address1`",
+        "`Ledger.\$_Address1`",
 
     "Address2" =>
-        "`Ledger.$_Address2`",
+        "`Ledger.\$_Address2`",
 
     "Address3" =>
-        "`Ledger.$_Address3`",
+        "`Ledger.\$_Address3`",
 
     "Address4" =>
-        "`Ledger.$_Address4`",
+        "`Ledger.\$_Address4`",
 
     "Address5" =>
-        "`Ledger.$_Address5`",
+        "`Ledger.\$_Address5`",
 
     "PrimaryGroup" =>
-        "`Ledger.$_PrimaryGroup`",
+        "`Ledger.\$_PrimaryGroup`",
 
     "LedgerFax" =>
-        "`Ledger.$_LedgerFax`",
+        "`Ledger.\$_LedgerFax`",
 
     "MainContactNo" =>
-        "`Ledger.$_Led_Main_ContactNo_Form`",
+        "`Ledger.\$_Led_Main_ContactNo_Form`",
 
     "OwnerName" =>
-        "`Ledger.$_Led_OwnerName_Form`",
+        "`Ledger.\$_Led_OwnerName_Form`",
 
     "OwnerPhone" =>
-        "`Ledger.$_Led_OwnerPhone_Form`",
+        "`Ledger.\$_Led_OwnerPhone_Form`",
 
     "PaymentContact" =>
-        "`Ledger.$_Led_Payment_Contact_P_Form`",
+        "`Ledger.\$_Led_Payment_Contact_P_Form`",
 
     "PaymentContactPhone" =>
-        "`Ledger.$_Led_Payment_Contact_PHone_Form`",
+        "`Ledger.\$_Led_Payment_Contact_PHone_Form`",
 
     "PurchaseContact" =>
-        "`Ledger.$_Led_Purchase_Contact_P_Form`",
+        "`Ledger.\$_Led_Purchase_Contact_P_Form`",
 
     "PurchaseContactPhone" =>
-        "`Ledger.$_Led_Purchase_Contact_PHone_Form`",
+        "`Ledger.\$_Led_Purchase_Contact_PHone_Form`",
 
     "LedGroup" =>
-        "`Ledger.$_LedGroup`",
+        "`Ledger.\$_LedGroup`",
 
     "GSTRegistrationType" =>
-        "`Ledger.$_GSTRegistrationType`",
+        "`Ledger.\$_GSTRegistrationType`",
 
     "PartyGSTIN" =>
-        "`Ledger.$_PartyGSTIN`",
+        "`Ledger.\$_PartyGSTIN`",
 
     "designation" =>
         "`designation`",
@@ -236,7 +237,7 @@ $sourceSQL = "
 
     FROM `salesdatalatest33`
 
-    WHERE `Ledger.$_EveLedMstID` = ?
+    WHERE `Ledger.\$_EveLedMstID` = ?
 
     LIMIT 1
 ";
@@ -891,6 +892,36 @@ if (!$stmt->execute()) {
     $conn->close();
 
     exit;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Flag the ledger as "pending" for Tally
+|--------------------------------------------------------------------------
+|
+| Shown on the Ledger Changes page until someone marks it as
+| updated in Tally. A failure here must not undo the saved edit.
+|
+|--------------------------------------------------------------------------
+*/
+
+try {
+
+    ensureLedgerMirrorTallyColumns($conn);
+
+    $pendingStmt = $conn->prepare("
+        UPDATE `ledger_mirror`
+        SET `tally_pending` = 1
+        WHERE `MSID` = ?
+    ");
+
+    $pendingStmt->bind_param("s", $MSID);
+    $pendingStmt->execute();
+    $pendingStmt->close();
+
+} catch (Throwable $e) {
+    // ignore
 }
 
 

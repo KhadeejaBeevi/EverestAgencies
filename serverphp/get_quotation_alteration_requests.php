@@ -27,21 +27,30 @@ if ($conn->connect_error) {
     exit;
 }
 
+/* Link to the enquiry that raised the request (added once if missing). */
+$check = $conn->query("SHOW COLUMNS FROM quotation_alteration_requests LIKE 'enquiry_id'");
+if ($check && $check->num_rows === 0) {
+    $conn->query("ALTER TABLE quotation_alteration_requests ADD COLUMN enquiry_id INT NULL");
+}
+
 $sql = "
     SELECT
-        id,
-        quotation_no,
-        party,
-        order_no,
-        invoice_no,
-        requested_by,
-        remarks,
-        request_status,
-        created_at,
-        updated_at
-    FROM quotation_alteration_requests
-    WHERE request_status = 'Pending'
-    ORDER BY created_at DESC
+        r.id,
+        r.quotation_no,
+        r.party,
+        r.order_no,
+        r.invoice_no,
+        r.requested_by,
+        r.remarks,
+        r.request_status,
+        r.created_at,
+        r.updated_at,
+        r.enquiry_id,
+        e.enquiry_no
+    FROM quotation_alteration_requests r
+    LEFT JOIN enquiry_report e ON e.id = r.enquiry_id
+    WHERE r.request_status = 'Pending'
+    ORDER BY r.created_at DESC
 ";
 
 $result = $conn->query($sql);

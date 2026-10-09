@@ -26,7 +26,8 @@ const emptyForm = {
     assigned_to: "",
     brought_by: "",
     sales_order_no: "",
-    remarks: "Pending Quotation"
+    remarks: "Pending Quotation",
+    negotiation_details: ""
 };
 
 /* =========================================================
@@ -37,13 +38,52 @@ const REMARK_OPTIONS = [
     "Pending Quotation",
     "Completed",
     "Item Not Available",
+     "Negotiation",
+    "Negotiation Rework Completed",
     "Customer Cancelled",
     "Customer Not Responding",
     "Price Issue",
     "Requirement Not Clear",
     "Duplicate Enquiry",
     "Not Required"
+   
 ];
+
+/* =========================================================
+   NEGOTIATION
+   Choosing "Negotiation" alerts the quotation team (Sion and
+   Rahida) through GlobalAlterationAlert. When they mark the
+   rework completed, the remark becomes
+   "Negotiation Rework Completed".
+========================================================= */
+
+const NEGOTIATION_REMARK = "Negotiation";
+
+function getNegotiationBadge(item) {
+    const status = String(item?.negotiation_status || "").trim();
+    const remarks = String(item?.remarks || "").trim();
+
+    if (status === "Pending" && remarks === NEGOTIATION_REMARK) {
+        return {
+            label: "⏳ Rework pending",
+            title: "Waiting for the quotation team to rework the quotation",
+            style: { backgroundColor: "#fff3cd", border: "1px solid #ffb300", color: "#8a4b00" }
+        };
+    }
+
+    if (status === "Revised") {
+        const by = item.negotiation_revised_by ? ` by ${item.negotiation_revised_by}` : "";
+        const at = item.negotiation_revised_at ? ` on ${formatDate(item.negotiation_revised_at)}` : "";
+
+        return {
+            label: "✅ Rework done",
+            title: `Quotation reworked${by}${at}`,
+            style: { backgroundColor: "#e8f5e9", border: "1px solid #81c784", color: "#1b5e20" }
+        };
+    }
+
+    return null;
+}
 
 /* =========================================================
    REMARKS HELPER
@@ -300,6 +340,7 @@ export default function EnquiryReport() {
     /* SEARCH + FILTER */
     const [searchTerm, setSearchTerm] = useState("");
     const [showPendingOnly, setShowPendingOnly] = useState(false);
+    const [showNegotiationOnly, setShowNegotiationOnly] = useState(false);
 
     /* MESSAGES */
     const [errorMessage, setErrorMessage] = useState("");
@@ -576,6 +617,13 @@ export default function EnquiryReport() {
             });
         }
 
+        if (showNegotiationOnly) {
+            list = list.filter(item =>
+                String(item.remarks || "").trim() === NEGOTIATION_REMARK &&
+                String(item.negotiation_status || "").trim() !== "Revised"
+            );
+        }
+
         if (!search) return list;
 
         return list.filter(item =>
@@ -598,7 +646,7 @@ export default function EnquiryReport() {
                 .filter(Boolean)
                 .some(value => String(value).toLowerCase().includes(search))
         );
-    }, [enquiries, searchTerm, showPendingOnly]);
+    }, [enquiries, searchTerm, showPendingOnly, showNegotiationOnly]);
 
     /* =====================================================
        ADD ENQUIRY
@@ -659,7 +707,8 @@ export default function EnquiryReport() {
             assigned_to: item.assigned_to || "",
             brought_by: item.brought_by || "",
             sales_order_no: item.sales_order_no || "",
-            remarks: existingRemarks || "Pending Quotation"
+            remarks: existingRemarks || "Pending Quotation",
+            negotiation_details: ""
         });
 
         setShowModal(true);
@@ -772,6 +821,11 @@ export default function EnquiryReport() {
             return;
         }
 
+        if (form.remarks === NEGOTIATION_REMARK && !form.sales_order_no.trim()) {
+            setErrorMessage("Enter the quotation number before choosing Negotiation.");
+            return;
+        }
+
         try {
             setSaving(true);
 
@@ -793,6 +847,8 @@ export default function EnquiryReport() {
             formData.append("brought_by", form.brought_by.trim());
             formData.append("sales_order_no", form.sales_order_no.trim());
             formData.append("remarks", finalRemarks);
+            formData.append("negotiation_details", String(form.negotiation_details || "").trim());
+            formData.append("requested_by", (await getCurrentUserName()) || form.added_by.trim());
 
             if (isEdit) {
                 formData.append("id", form.id);
@@ -870,10 +926,18 @@ export default function EnquiryReport() {
                 }
             }
 
+            const baseMessage = isEdit
+                ? "Enquiry updated successfully."
+                : `Enquiry ${result.data?.enquiry_no || ""} added successfully.`;
+
+            if (result.negotiation_error) {
+                setErrorMessage(result.negotiation_error);
+            }
+
             setSuccessMessage(
-                isEdit
-                    ? "Enquiry updated successfully."
-                    : `Enquiry ${result.data?.enquiry_no || ""} added successfully.`
+                result.negotiation_requested
+                    ? `${baseMessage} Quotation team notified for negotiation rework.`
+                    : baseMessage
             );
 
             setTimeout(() => {
@@ -963,6 +1027,15 @@ export default function EnquiryReport() {
                             Pending quotation only
                         </label>
 
+                        <label className="pending-filter">
+                            <input
+                                type="checkbox"
+                                checked={showNegotiationOnly}
+                                onChange={e => setShowNegotiationOnly(e.target.checked)}
+                            />
+                            Negotiation rework pending
+                        </label>
+
                         <div className="enquiry-count">
                             {loading
                                 ? "Loading..."
@@ -1037,6 +1110,8 @@ export default function EnquiryReport() {
                                     const itemAttachments = parseAttachmentList(item.attachments);
 
                                     const displayRemarks = resolveRemarks(item.remarks, item.sales_order_no);
+
+                                    const negotiationBadge = getNegotiationBadge(item);
 
                                     return (
                                         <tr
@@ -1126,6 +1201,24 @@ export default function EnquiryReport() {
                                                     </div>
                                                 ) : (
                                                     <span className="no-remarks">No Remarks</span>
+                                                )}
+
+                                                {negotiationBadge && (
+                                                    <span
+                                                        title={negotiationBadge.title}
+                                                        style={{
+                                                            display: "inline-block",
+                                                            marginTop: "4px",
+                                                            padding: "2px 8px",
+                                                            borderRadius: "6px",
+                                                            fontSize: "12px",
+                                                            fontWeight: 700,
+                                                            whiteSpace: "nowrap",
+                                                            ...negotiationBadge.style
+                                                        }}
+                                                    >
+                                                        {negotiationBadge.label}
+                                                    </span>
                                                 )}
                                             </td>
 
@@ -1430,6 +1523,23 @@ export default function EnquiryReport() {
                                                     style={{ marginTop: "8px" }}
                                                 />
                                                 <small>Enter your custom remark when Other is selected.</small>
+                                            </>
+                                        )}
+
+                                        {remarksMode === NEGOTIATION_REMARK && (
+                                            <>
+                                                <textarea
+                                                    name="negotiation_details"
+                                                    value={form.negotiation_details}
+                                                    onChange={handleChange}
+                                                    placeholder="Negotiation details for the quotation team (e.g. customer asks 5% discount)..."
+                                                    rows="3"
+                                                    style={{ marginTop: "8px" }}
+                                                />
+                                                <small>
+                                                    Changing the remark to Negotiation and saving sends a rework alert to the quotation team (Sion and Rahida).
+                                                    Quotation No. is required.
+                                                </small>
                                             </>
                                         )}
                                     </div>
