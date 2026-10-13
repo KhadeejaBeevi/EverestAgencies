@@ -14,147 +14,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-// Database connection
+/*
+|--------------------------------------------------------------------------
+| CRM party update (used by src/pages/CRM/EditPartyPopup.jsx)
+|
+| salesdatalatest33 is the original Tally data and is never updated.
+| Edits are saved to ledger_mirror through update_ledger_mirror.php,
+| which also flags them for the Ledger Changes (Tally) page.
+|
+| Column names contain "$", so they MUST stay in single quotes.
+|--------------------------------------------------------------------------
+*/
+
 $conn = new mysqli("localhost", "root", "", "salescollection");
 
 if ($conn->connect_error) {
     echo json_encode([
         "success" => false,
-        "message" => "Database connection failed: " . $conn->connect_error
+        "error" => "Database connection failed: " . $conn->connect_error
     ]);
     exit;
 }
 
-// Get JSON
 $data = json_decode(file_get_contents("php://input"), true);
 
-if (!$data) {
+if (!$data || empty($data["PartyLedgerName"])) {
     echo json_encode([
         "success" => false,
-        "message" => "Invalid JSON input"
+        "error" => "No PartyLedgerName provided"
     ]);
     exit;
 }
 
-// ID is required
-$id = isset($data["id"]) ? (int)$data["id"] : 0;
+// CRM popup key => [salesdatalatest33 column, ledger_mirror field]
+$fieldMap = [
+    'designation' => ['designation', 'designation'],
+    'designator_name' => ['designator_name', 'designator_name'],
+    'Ledger.$LedgerMobile' => ['Ledger.$LedgerMobile', 'LedgerMobile'],
+    'Ledger.$EMail' => ['Ledger.$EMail', 'EMail'],
+    'Ledger.$_LedgerPhone' => ['Ledger.$_LedgerPhone', 'LedgerPhone'],
+    'Ledger.$_Led_OwnerName_Form' => ['Ledger.$_Led_OwnerName_Form', 'OwnerName'],
+    'Ledger.$_Led_OwnerPhone_Form' => ['Ledger.$_Led_OwnerPhone_Form', 'OwnerPhone'],
+    'Ledger.$_Led_Payment_Contact_P_Form' => ['Ledger.$_Led_Payment_Contact_P_Form', 'PaymentContact'],
+    'Ledger.$_Led_Payment_Contact_PHone_Form' => ['Ledger.$_Led_Payment_Contact_PHone_Form', 'PaymentContactPhone'],
+    'Ledger.$_Led_Purchase_Contact_P_Form' => ['Ledger.$_Led_Purchase_Contact_P_Form', 'PurchaseContact'],
+    'Ledger.$_Led_Purchase_Contact_PHone_Form' => ['Ledger.$_Led_Purchase_Contact_PHone_Form', 'PurchaseContactPhone'],
+    'Ledger.$_LedGroup' => ['Ledger.$_LedGroup', 'LedGroup'],
+    'Ledger.$_Address1' => ['Ledger.$_Address1', 'Address1'],
+    'Ledger.$_Address2' => ['Ledger.$_Address2', 'Address2'],
+    'Ledger.$_Address3' => ['Ledger.$_Address3', 'Address3'],
+    'Ledger.$_Address4' => ['Ledger.$_Address4', 'Address4'],
+    'Ledger.$_Address5' => ['Ledger.$_Address5', 'Address5'],
+];
 
-if ($id <= 0) {
+// Original row
+$stmt = $conn->prepare("
+    SELECT * FROM salesdatalatest33
+    WHERE `PartyLedgerName` = ?
+    LIMIT 1
+");
+$stmt->bind_param("s", $data["PartyLedgerName"]);
+$stmt->execute();
+$original = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+
+if (!$original) {
     echo json_encode([
         "success" => false,
-        "message" => "Invalid party ID"
+        "error" => "Party not found"
     ]);
     exit;
 }
 
+$msid = trim((string)($original['Ledger.$_EveLedMstID'] ?? ""));
+
+if ($msid === "") {
+    echo json_encode([
+        "success" => false,
+        "error" => "This party has no Tally ID (MSID), so it cannot be edited"
+    ]);
+    exit;
+}
+
+// Values already saved in ledger_mirror (what the popup currently shows)
+$mirror = [];
+$mStmt = $conn->prepare("SELECT * FROM ledger_mirror WHERE `MSID` = ? LIMIT 1");
+if ($mStmt) {
+    $mStmt->bind_param("s", $msid);
+    $mStmt->execute();
+    $mirror = $mStmt->get_result()->fetch_assoc() ?: [];
+    $mStmt->close();
+}
 
 /*
-|--------------------------------------------------------------------------
-| Get fields
-|--------------------------------------------------------------------------
+| Only send fields the user actually changed in the popup, so untouched
+| fields are never recorded as edits.
 */
+$mirrorInput = ["MSID" => $msid];
 
-$party_ledger_name = $data["party_ledger_name"] ?? "";
-$group_name = $data["group_name"] ?? "";
-$gst_registration_type = $data["gst_registration_type"] ?? "";
-$gstin = $data["gstin"] ?? "";
-$mobile = $data["mobile"] ?? "";
-$address = $data["address"] ?? "";
-$email = $data["email"] ?? "";
-$ledger_phone = $data["ledger_phone"] ?? "";
-$owner_name = $data["owner_name"] ?? "";
-$owner_phone = $data["owner_phone"] ?? "";
-$payment_contact_person = $data["payment_contact_person"] ?? "";
-$payment_contact_phone = $data["payment_contact_phone"] ?? "";
-$purchase_contact_person = $data["purchase_contact_person"] ?? "";
-$purchase_contact_phone = $data["purchase_contact_phone"] ?? "";
-$field_executive = $data["field_executive"] ?? "";
-$requirement_type = $data["requirement_type"] ?? "";
-$decision_maker = $data["decision_maker"] ?? "";
-$referred_by = $data["referred_by"] ?? "";
+foreach ($fieldMap as $key => [$column, $mirrorField]) {
+    if (!array_key_exists($key, $data)) {
+        continue;
+    }
 
+    $shown = isset($mirror[$mirrorField])
+        ? $mirror[$mirrorField]
+        : ($original[$column] ?? "");
 
-/*
-|--------------------------------------------------------------------------
-| Update party
-|
-| IMPORTANT:
-| added_by is NOT updated here.
-| The original creator remains recorded.
-|--------------------------------------------------------------------------
-*/
+    $new = trim((string)($data[$key] ?? ""));
 
-$sql = "UPDATE newpartyledgerdetails SET
-    party_ledger_name = ?,
-    group_name = ?,
-    gst_registration_type = ?,
-    gstin = ?,
-    mobile = ?,
-    address = ?,
-    email = ?,
-    ledger_phone = ?,
-    owner_name = ?,
-    owner_phone = ?,
-    payment_contact_person = ?,
-    payment_contact_phone = ?,
-    purchase_contact_person = ?,
-    purchase_contact_phone = ?,
-    field_executive = ?,
-    requirement_type = ?,
-    decision_maker = ?,
-    referred_by = ?
-    WHERE id = ?";
-
-$stmt = $conn->prepare($sql);
-
-if (!$stmt) {
-    echo json_encode([
-        "success" => false,
-        "message" => "SQL prepare failed: " . $conn->error
-    ]);
-    exit;
+    if ($new !== trim((string)$shown)) {
+        $mirrorInput[$mirrorField] = $new;
+    }
 }
 
-$stmt->bind_param(
-    "ssssssssssssssssssi",
-    $party_ledger_name,
-    $group_name,
-    $gst_registration_type,
-    $gstin,
-    $mobile,
-    $address,
-    $email,
-    $ledger_phone,
-    $owner_name,
-    $owner_phone,
-    $payment_contact_person,
-    $payment_contact_phone,
-    $purchase_contact_person,
-    $purchase_contact_phone,
-    $field_executive,
-    $requirement_type,
-    $decision_maker,
-    $referred_by,
-    $id
-);
+$conn->close();
 
-if ($stmt->execute()) {
-
+if (count($mirrorInput) === 1) {
     echo json_encode([
         "success" => true,
-        "message" => "Party updated successfully",
-        "id" => $id
+        "changed" => false,
+        "message" => "No fields were changed"
     ]);
-
-} else {
-
-    echo json_encode([
-        "success" => false,
-        "message" => "Update failed",
-        "error" => $stmt->error
-    ]);
+    exit;
 }
 
-$stmt->close();
-$conn->close();
-?>
+$mirrorInput["edited_by"] = trim((string)($data["edited_by"] ?? "")) ?: "CRM";
+
+// Hand over to the shared ledger_mirror save (prints the JSON response)
+$LEDGER_MIRROR_INPUT = $mirrorInput;
+require __DIR__ . '/update_ledger_mirror.php';

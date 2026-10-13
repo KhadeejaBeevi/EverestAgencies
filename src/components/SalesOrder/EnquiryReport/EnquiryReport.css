@@ -1339,3 +1339,90 @@
     font: inherit;
     text-align: left;
 }
+
+
+/* =========================================================
+   QUOTATION NUMBER (EV/SO/<number>/<FY>)
+========================================================= */
+
+.quotation-format-toggle {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.quotation-format-toggle label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.form-group .quotation-format-toggle input {
+    width: auto;
+    margin: 0;
+}
+
+.quotation-ev-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ".form-group" scoped so other pages' ".form-group select { width: 100% }"
+   (all CSS is global in the build) cannot squeeze the number box to zero. */
+.form-group .quotation-ev-input input {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 90px;
+}
+
+.form-group .quotation-ev-input select {
+    flex: 0 0 auto;
+    width: auto;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    padding: 9px 8px;
+    font-size: 13px;
+    background: #fff;
+}
+
+.quotation-affix {
+    color: #495057;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.form-group small.quotation-preview {
+    color: #198754;
+}
+
+.quotation-entry {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    background: #fbfcfd;
+}
+
+.quotation-remove-btn {
+    margin-left: auto;
+}
+
+.quotation-add-btn {
+    border: 1px dashed #198754;
+    border-radius: 6px;
+    background: #fff;
+    color: #198754;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+.quotation-add-btn:hover {
+    background: #e8f5ee;
+}

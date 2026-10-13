@@ -62,6 +62,7 @@ import QuotationFollowup from "./pages/QuotationFollowup/QuotationFollowup";
 import EnquiryReport from "./components/SalesOrder/EnquiryReport/EnquiryReport";
 import QuotationWise from "./components/SalesOrder/QuotationWise/QuotationWise";
 import GlobalAlterationAlert from "./components/GlobalAlterationAlert";
+import QuotationReadyAlert from "./components/QuotationReadyAlert";
 import TelecallerReport from "./components/SalesOrder/TelecallerReport/TelecallerReport";
 import KSEBPayment from "./pages/kseb/KSEBPayment";
 import KsebOverallSales from "./pages/kseb/KSEBOverallSales";
@@ -90,6 +91,7 @@ function App() {
       <UserSessionManager />
        
        <GlobalAlterationAlert/>
+       <QuotationReadyAlert/>
       <Routes>
          <Route path="/" element={<Home />} /> {/* ✅ Home is now the first page */}
 

@@ -19,6 +19,8 @@ SELECT
     npld.id,
     COALESCE(
         (
+
+    
             SELECT note 
             FROM notes 
             WHERE notes.partyLedger = npld.party_ledger_name 

@@ -268,7 +268,19 @@ export default function LedgerPieChart() {
       body: JSON.stringify({ PartyLedgerName: name }),
     })
       .then((res) => res.json())
-      .then((data) => setPartyDetails(data))
+      .then((data) => {
+        setPartyDetails(data);
+
+        // Red = changed in the CRM but not yet updated in Tally (from the server)
+        if (Array.isArray(data.editedFields)) {
+          setHighlightedFieldsPerParty((prev) => ({ ...prev, [name]: data.editedFields }));
+
+          apiFetch(`${API}/fetch_edited_fields.php`, {
+            method: "POST",
+            body: JSON.stringify({ partyName: name, editedFields: data.editedFields }),
+          }).catch((err) => console.error("Error syncing highlighted fields:", err));
+        }
+      })
       .catch((err) => console.error(err));
   };
 
@@ -1337,6 +1349,10 @@ axisLeft={{
               : "2000px",
             height: "1px",
           }}
+
+
+
+          
         />
       </div>
     </>

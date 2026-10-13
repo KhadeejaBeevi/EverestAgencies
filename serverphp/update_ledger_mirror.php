@@ -56,7 +56,8 @@ $conn->set_charset("utf8mb4");
 |--------------------------------------------------------------------------
 */
 
-$input = json_decode(
+// update_party.php (CRM popup) passes its input in directly.
+$input = $LEDGER_MIRROR_INPUT ?? json_decode(
     file_get_contents("php://input"),
     true
 );

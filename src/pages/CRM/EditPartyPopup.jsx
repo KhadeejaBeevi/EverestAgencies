@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiFetch } from "../../api/apiClient";
+import { auth } from "../../components/firebase";
 
 export default function EditPartyModal({ partyDetails, onClose, onSave }) {
   const [mobile, setMobile] = useState("");
@@ -47,8 +48,8 @@ useEffect(() => {
     setPurchaseContactPerson(partyDetails["Ledger.$_Led_Purchase_Contact_P_Form"] || "");
     setPurchaseContactPhone(partyDetails["Ledger.$_Led_Purchase_Contact_PHone_Form"] || "");
     setLedgerGroup(partyDetails["Ledger.$_LedGroup"] || "");
-    setDesignation(partyDetails["Ledger.$_Designation"] || "");
-    setDesignatorName(partyDetails["Ledger.$_DesignatorName"] || "");
+    setDesignation(partyDetails.designation || "");
+    setDesignatorName(partyDetails.designator_name || "");
 
    
     if (partyDetails.fullyUpdated === true || partyDetails.fullyUpdated === "true" || partyDetails.fullyUpdated === 1 || partyDetails.fullyUpdated === "1") {
@@ -84,6 +85,7 @@ useEffect(() => {
       fullyUpdated,
       designation,
       designator_name: designatorName,
+      edited_by: auth.currentUser?.email || "",
       "Ledger.$LedgerMobile": mobile,
       "Ledger.$EMail": email,
       "Ledger.$_LedgerPhone": ledgerPhone,

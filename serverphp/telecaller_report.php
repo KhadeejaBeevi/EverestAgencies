@@ -581,6 +581,7 @@ try {
       A quotation brought by and assigned to the same person is counted once.
     */
     $ownership=[];
+    $assignedAndBilledPeriod=[];
 
     foreach($quotes as $id=>$q){
 
@@ -602,6 +603,7 @@ try {
                     "name"=>$broughtOwner,
                     "brought_ids"=>[],
                     "assigned_ids"=>[],
+                    "assigned_billed"=>[],
                     "responsible_ids"=>[]
                 ];
             }
@@ -617,12 +619,31 @@ try {
                     "name"=>$assignedOwner,
                     "brought_ids"=>[],
                     "assigned_ids"=>[],
+                    "assigned_billed"=>[],
                     "responsible_ids"=>[]
                 ];
             }
 
             $ownership[$assignedKey]["assigned_ids"][$id]=true;
             $ownership[$assignedKey]["responsible_ids"][$id]=true;
+
+            /* ASSIGNED & BILLED: quotation assigned to this coordinator that has an invoice. */
+            if($q["is_billed"] && ($q["invoice_date"]??"")!==""){
+                $amount=(float)$q["billed_amount_with_gst"];
+                $ownership[$assignedKey]["assigned_billed"][$id]=$amount;
+
+                $assignedAndBilledPeriod[]=[
+                    "quotation_no"=>$id,
+                    "party_name"=>$q["party_name"],
+                    "quotation_date"=>$qd,
+                    "invoice_date"=>$q["invoice_date"],
+                    "invoice_no"=>$q["invoice_no"],
+                    "billed_amount"=>$amount,
+                    "assigned_to"=>$assignedOwner,
+                    "brought_by"=>$q["brought_by"],
+                    "attribution"=>$state[$id]["attribution"]??""
+                ];
+            }
         }
     }
 
@@ -683,6 +704,8 @@ try {
             "telecaller"=>$p,
             "brought_quotations"=>0,
             "assigned_quotations"=>0,
+            "assigned_billed_quotations"=>0,
+            "assigned_billed_value"=>0,
             "responsible_quotations"=>0,
             "calls"=>0,
             "unique_quotations"=>0,
@@ -836,6 +859,8 @@ try {
             "telecaller"=>$displayName,
             "brought_quotations"=>0,
             "assigned_quotations"=>0,
+            "assigned_billed_quotations"=>0,
+            "assigned_billed_value"=>0,
             "responsible_quotations"=>0,
             "calls"=>0,
             "unique_quotations"=>0,
@@ -880,6 +905,8 @@ try {
         $ownershipByKey[$okey]=[
             "brought"=>count($broughtIds),
             "assigned"=>count($assignedIds),
+            "assigned_billed"=>count($o["assigned_billed"]??[]),
+            "assigned_billed_value"=>array_sum($o["assigned_billed"]??[]),
             "responsible"=>count($responsibleIds)
         ];
     }
@@ -888,6 +915,8 @@ try {
         if(isset($ownershipByKey[$okey])){
             $personRow["brought_quotations"]=$ownershipByKey[$okey]["brought"];
             $personRow["assigned_quotations"]=$ownershipByKey[$okey]["assigned"];
+            $personRow["assigned_billed_quotations"]=$ownershipByKey[$okey]["assigned_billed"];
+            $personRow["assigned_billed_value"]=round((float)$ownershipByKey[$okey]["assigned_billed_value"],2);
             $personRow["responsible_quotations"]=$ownershipByKey[$okey]["responsible"];
         }
     }
@@ -1008,6 +1037,8 @@ try {
         "unique_quotations"=>0,
         "total_brought_quotations"=>0,
         "total_assigned_quotations"=>0,
+        "assigned_billed_quotations"=>0,
+        "assigned_billed_value"=>0,
         "total_responsible_quotations"=>0,
         "billed_quotations"=>0,
         "billed_value"=>0,
@@ -1138,6 +1169,17 @@ try {
         2
     );
     $summary["total_billed_value"] = round((float)$summary["total_billed_value"], 2);
+
+    /* Assigned & Billed totals cover every assigned coordinator (active or not). */
+    usort($assignedAndBilledPeriod,function($a,$b){
+        return strcmp((string)$a["assigned_to"],(string)$b["assigned_to"])
+            ?: strcmp((string)$a["invoice_date"],(string)$b["invoice_date"]);
+    });
+    foreach($assignedAndBilledPeriod as $x){
+        $summary["assigned_billed_quotations"]++;
+        $summary["assigned_billed_value"] += (float)$x["billed_amount"];
+    }
+    $summary["assigned_billed_value"] = round((float)$summary["assigned_billed_value"], 2);
 
     /* Return only detail rows belonging to the selected report period. */
     $withoutCreditPeriod=[];
@@ -1314,6 +1356,7 @@ try {
         "persons"=>$persons,
         "without_credit_bills"=>$withoutCreditPeriod,
         "brought_and_billed"=>$broughtAndBilledPeriod,
+        "assigned_and_billed"=>$assignedAndBilledPeriod,
         "long_term_clients"=>$longTermDetails,
         "long_term_party_summary"=>$longTermParties,
         "notes_billed"=>$notesBilled,

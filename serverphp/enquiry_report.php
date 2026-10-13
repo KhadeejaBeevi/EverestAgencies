@@ -714,6 +714,125 @@ $method = $_SERVER["REQUEST_METHOD"];
 
 
 /* =========================================================
+   QUOTATION READY NOTIFICATION
+
+   GET  ?quotation_ready=1&user=NAME   -> enquiries added by NAME
+                                          whose quotation is ready
+                                          and not yet seen
+   POST quotation_ready_ack=1&enquiry_id=ID&quotation_no=NO
+                                       -> mark that quotation as seen
+
+   quotation_ready_seen stores the quotation number(s) the person
+   who added the enquiry has already seen, so a new or changed
+   quotation number notifies them again. The quotation number can
+   come from the enquiry form or from salesdata (quotation page).
+========================================================= */
+
+define("QUOTATION_READY_LOOKBACK_DAYS", 60);
+
+function ensureQuotationReadyColumn($pdo)
+{
+    $check = $pdo->query("SHOW COLUMNS FROM enquiry_report LIKE 'quotation_ready_seen'");
+    if ($check->fetch()) return;
+
+    $pdo->exec("ALTER TABLE enquiry_report ADD COLUMN quotation_ready_seen TEXT NULL");
+
+    /* First run: mark every existing quotation as already seen so
+       old enquiries do not flood everyone with notifications. */
+    $rows = $pdo->query("SELECT " . ENQUIRY_COLUMNS . " FROM enquiry_report")->fetchAll();
+    attachQuotationEnteredBy($pdo, $rows);
+
+    $update = $pdo->prepare("UPDATE enquiry_report SET quotation_ready_seen = :seen WHERE id = :id");
+    foreach ($rows as $row) {
+        $quotationNo = trim((string)($row["sales_order_no"] ?? ""));
+        if ($quotationNo !== "") {
+            $update->execute([":seen" => $quotationNo, ":id" => $row["id"]]);
+        }
+    }
+}
+
+if (
+    $method === "GET" &&
+    isset($_GET["quotation_ready"])
+) {
+    try {
+        $user = trim((string)($_GET["user"] ?? ""));
+
+        if ($user === "") {
+            responseJson(true, "No user.", []);
+        }
+
+        ensureQuotationReadyColumn($pdo);
+
+        $stmt = $pdo->prepare("
+            SELECT " . ENQUIRY_COLUMNS . ", quotation_ready_seen
+            FROM enquiry_report
+            WHERE LOWER(TRIM(COALESCE(added_by, ''))) = LOWER(:user)
+              AND created_at >= DATE_SUB(NOW(), INTERVAL " . QUOTATION_READY_LOOKBACK_DAYS . " DAY)
+            ORDER BY id DESC
+        ");
+        $stmt->execute([":user" => $user]);
+        $rows = $stmt->fetchAll();
+
+        attachQuotationEnteredBy($pdo, $rows);
+
+        $ready = [];
+        foreach ($rows as $row) {
+            $quotationNo = trim((string)($row["sales_order_no"] ?? ""));
+            $seen = trim((string)($row["quotation_ready_seen"] ?? ""));
+
+            if ($quotationNo === "" || $quotationNo === $seen) continue;
+
+            $ready[] = [
+                "id" => $row["id"],
+                "enquiry_no" => $row["enquiry_no"],
+                "enquiry_date" => $row["enquiry_date"],
+                "customer_name" => $row["customer_name"],
+                "phone_number" => $row["phone_number"],
+                "quotation_no" => $quotationNo,
+                "entered_by" => $row["entered_by"] ?? ""
+            ];
+        }
+
+        responseJson(true, "Quotation ready list loaded.", $ready);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        responseJson(false, "Failed to load quotation ready list.", null, [
+            "error" => $e->getMessage()
+        ]);
+    }
+}
+
+if (
+    $method === "POST" &&
+    isset($_POST["quotation_ready_ack"])
+) {
+    try {
+        $enquiryId = (int)($_POST["enquiry_id"] ?? 0);
+        $quotationNo = trim((string)($_POST["quotation_no"] ?? ""));
+
+        if ($enquiryId <= 0) {
+            http_response_code(400);
+            responseJson(false, "Invalid enquiry.");
+        }
+
+        ensureQuotationReadyColumn($pdo);
+
+        $pdo->prepare("UPDATE enquiry_report SET quotation_ready_seen = :seen WHERE id = :id")
+            ->execute([":seen" => $quotationNo, ":id" => $enquiryId]);
+
+        responseJson(true, "Quotation marked as seen.");
+    } catch (Throwable $e) {
+        http_response_code(500);
+        responseJson(false, "Failed to update quotation notification.", null, [
+            "error" => $e->getMessage()
+        ]);
+    }
+}
+
+
+
+/* =========================================================
    SHARED QUOTATION TIMER QUEUE
 
    GET  ?timer=1                        -> current queue

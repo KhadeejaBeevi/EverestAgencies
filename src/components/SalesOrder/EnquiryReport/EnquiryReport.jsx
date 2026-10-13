@@ -10,6 +10,60 @@ import { apiFetch } from "../../../api/apiClient";
 const API_BASE = "/serverphp";
 
 /* =========================================================
+   QUOTATION NUMBER FORMAT
+   Standard format: <company>/SO/<number>/<financial year>
+   e.g. EV/SO/1234/2026-27 or TR/SO/1033/2026-27 (EV and TR are the
+   two sister companies). The user picks the company and types only
+   the number; "Other" mode keeps free text for anything else. One
+   enquiry can have several quotation numbers, saved as one
+   comma-separated value.
+========================================================= */
+
+const QUOTATION_COMPANIES = ["EV", "TR"];
+const QUOTATION_PATTERN = /^(EV|TR)\/SO\/(\d+)\/(\d{4}-\d{2})$/i;
+
+/* Financial year runs April to March: Oct 2026 -> "2026-27". */
+function getFinancialYear(date = new Date()) {
+    const startYear = date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1;
+    return `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
+}
+
+function getFinancialYearOptions(selected) {
+    const current = getFinancialYear();
+    const startYear = Number(current.slice(0, 4));
+    const options = [current, `${startYear - 1}-${String(startYear % 100).padStart(2, "0")}`];
+
+    if (selected && !options.includes(selected)) options.push(selected);
+    return options;
+}
+
+/* Splits one saved quotation number into the parts shown in the form. */
+function parseQuotationNo(value) {
+    const text = String(value || "").trim();
+    const match = text.match(QUOTATION_PATTERN);
+
+    if (!text) return { mode: "EV", number: "", year: getFinancialYear(), other: "" };
+    if (match) return { mode: match[1].toUpperCase(), number: match[2], year: match[3], other: "" };
+    return { mode: "Other", number: "", year: getFinancialYear(), other: text };
+}
+
+function buildQuotationNo({ mode, number, year, other }) {
+    if (mode === "Other") return String(other || "").trim();
+    const digits = String(number || "").trim();
+    return digits ? `${mode}/SO/${digits}/${year}` : "";
+}
+
+/* "EV/SO/1/2026-27, TR/SO/2/2026-27" -> one form entry per number. */
+function parseQuotationList(value) {
+    const numbers = String(value || "").split(",").map(item => item.trim()).filter(Boolean);
+    return numbers.length ? numbers.map(parseQuotationNo) : [parseQuotationNo("")];
+}
+
+function buildQuotationList(entries) {
+    return entries.map(buildQuotationNo).filter(Boolean).join(", ");
+}
+
+/* =========================================================
    EMPTY FORM
 ========================================================= */
 
@@ -336,6 +390,7 @@ export default function EnquiryReport() {
     /* FORM */
     const [form, setForm] = useState(emptyForm);
     const [remarksMode, setRemarksMode] = useState("Pending Quotation");
+    const [quotationEntries, setQuotationEntries] = useState(() => parseQuotationList(""));
 
     /* SEARCH + FILTER */
     const [searchTerm, setSearchTerm] = useState("");
@@ -655,6 +710,7 @@ export default function EnquiryReport() {
     async function handleAddEnquiry() {
         setEditing(false);
         setRemarksMode("Pending Quotation");
+        setQuotationEntries(parseQuotationList(""));
         setErrorMessage("");
         setSuccessMessage("");
         setAttachments([]);
@@ -688,6 +744,8 @@ export default function EnquiryReport() {
                 ? (existingRemarks || "Pending Quotation")
                 : "Other"
         );
+
+        setQuotationEntries(parseQuotationList(item.sales_order_no));
 
         setErrorMessage("");
         setSuccessMessage("");
@@ -760,30 +818,56 @@ export default function EnquiryReport() {
         const { name, value } = event.target;
 
         if (name === "sales_order_no") {
-            const hasQuotation = value.trim().length > 0;
-
-            setForm(prev => {
-                let remarks = prev.remarks;
-
-                if (hasQuotation && (!remarks || remarks === "Pending Quotation")) {
-                    remarks = "Completed";
-                } else if (!hasQuotation && remarks === "Completed") {
-                    remarks = "Pending Quotation";
-                }
-
-                return { ...prev, sales_order_no: value, remarks };
-            });
-
-            setRemarksMode(prevMode => {
-                if (hasQuotation && prevMode === "Pending Quotation") return "Completed";
-                if (!hasQuotation && prevMode === "Completed") return "Pending Quotation";
-                return prevMode;
-            });
-
+            applyQuotationNo(value);
             return;
         }
 
         setForm(prev => ({ ...prev, [name]: value }));
+    }
+
+    /* Updates one part (mode, number, financial year or free text)
+       of one quotation entry and rebuilds the saved value. */
+    function handleQuotationPartChange(index, part, value) {
+        const nextValue = part === "number" ? value.replace(/\D/g, "") : value;
+        updateQuotationEntries(quotationEntries.map((entry, i) =>
+            i === index ? { ...entry, [part]: nextValue } : entry
+        ));
+    }
+
+    function addQuotationEntry() {
+        updateQuotationEntries([...quotationEntries, parseQuotationNo("")]);
+    }
+
+    function removeQuotationEntry(index) {
+        const next = quotationEntries.filter((_, i) => i !== index);
+        updateQuotationEntries(next.length ? next : [parseQuotationNo("")]);
+    }
+
+    function updateQuotationEntries(entries) {
+        setQuotationEntries(entries);
+        applyQuotationNo(buildQuotationList(entries));
+    }
+
+    function applyQuotationNo(value) {
+        const hasQuotation = value.trim().length > 0;
+
+        setForm(prev => {
+            let remarks = prev.remarks;
+
+            if (hasQuotation && (!remarks || remarks === "Pending Quotation")) {
+                remarks = "Completed";
+            } else if (!hasQuotation && remarks === "Completed") {
+                remarks = "Pending Quotation";
+            }
+
+            return { ...prev, sales_order_no: value, remarks };
+        });
+
+        setRemarksMode(prevMode => {
+            if (hasQuotation && prevMode === "Pending Quotation") return "Completed";
+            if (!hasQuotation && prevMode === "Completed") return "Pending Quotation";
+            return prevMode;
+        });
     }
 
     /* =====================================================
@@ -882,6 +966,26 @@ export default function EnquiryReport() {
             const shouldCompleteTimer =
                 Boolean(quotationNumber) ||
                 (Boolean(remarkValue) && remarkValue !== "Pending Quotation");
+
+            /* The person who added the enquiry entered the quotation
+               themselves -> no "Quotation Ready" notification needed. */
+            const savedQuotationNo = String(result.data?.sales_order_no || quotationNumber).trim();
+            if (savedId && savedQuotationNo) {
+                getCurrentUserName().then(currentUser => {
+                    const addedBy = String(result.data?.added_by || form.added_by || "").trim().toLowerCase();
+                    if (!currentUser || currentUser.trim().toLowerCase() !== addedBy) return;
+
+                    return apiFetch(`${API_BASE}/enquiry_report.php`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: new URLSearchParams({
+                            quotation_ready_ack: "1",
+                            enquiry_id: String(savedId),
+                            quotation_no: savedQuotationNo
+                        }).toString()
+                    });
+                }).catch(error => console.error("QUOTATION READY ACK ERROR:", error));
+            }
 
             if (isEdit) {
                 setEnquiries(prev =>
@@ -1619,13 +1723,77 @@ export default function EnquiryReport() {
                                     {/* QUOTATION NO. - kept at the bottom */}
                                     <div className="form-group quotation-number-bottom">
                                         <label>Quotation No.</label>
-                                        <input
-                                            type="text"
-                                            name="sales_order_no"
-                                            value={form.sales_order_no}
-                                            onChange={handleChange}
-                                            placeholder="Enter quotation number when available"
-                                        />
+
+                                        {quotationEntries.map((entry, index) => (
+                                            <div className="quotation-entry" key={index}>
+                                                <div className="quotation-format-toggle">
+                                                    {[...QUOTATION_COMPANIES, "Other"].map(mode => (
+                                                        <label key={mode}>
+                                                            <input
+                                                                type="radio"
+                                                                name={`quotation_format_${index}`}
+                                                                checked={entry.mode === mode}
+                                                                onChange={() => handleQuotationPartChange(index, "mode", mode)}
+                                                            />
+                                                            {mode === "Other" ? "Other format" : `${mode}/SO`}
+                                                        </label>
+                                                    ))}
+                                                    {quotationEntries.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            className="remove-attachment-btn quotation-remove-btn"
+                                                            onClick={() => removeQuotationEntry(index)}
+                                                            title="Remove this quotation number"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {entry.mode !== "Other" ? (
+                                                    <div className="quotation-ev-input">
+                                                        <span className="quotation-affix">{entry.mode}/SO/</span>
+                                                        <input
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            value={entry.number}
+                                                            onChange={event => handleQuotationPartChange(index, "number", event.target.value)}
+                                                            placeholder="Number e.g. 1234"
+                                                        />
+                                                        <span className="quotation-affix">/</span>
+                                                        <select
+                                                            value={entry.year}
+                                                            onChange={event => handleQuotationPartChange(index, "year", event.target.value)}
+                                                        >
+                                                            {getFinancialYearOptions(entry.year).map(year => (
+                                                                <option key={year} value={year}>{year}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        value={entry.other}
+                                                        onChange={event => handleQuotationPartChange(index, "other", event.target.value.replace(/,/g, ""))}
+                                                        placeholder="Enter the full quotation number"
+                                                    />
+                                                )}
+                                            </div>
+                                        ))}
+
+                                        <button
+                                            type="button"
+                                            className="quotation-add-btn"
+                                            onClick={addQuotationEntry}
+                                        >
+                                            + Add another quotation
+                                        </button>
+
+                                        {form.sales_order_no && (
+                                            <small className="quotation-preview">
+                                                Will be saved as: <strong>{form.sales_order_no}</strong>
+                                            </small>
+                                        )}
                                         <small>Entering a quotation number sets the remark to Completed.</small>
                                     </div>
 

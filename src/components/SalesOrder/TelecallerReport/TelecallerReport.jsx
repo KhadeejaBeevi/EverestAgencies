@@ -247,6 +247,7 @@ export default function TelecallerReport() {
   const people = report?.persons || [];
   const without = report?.without_credit_bills || [];
   const broughtAndBilled = report?.brought_and_billed || [];
+  const assignedAndBilled = report?.assigned_and_billed || [];
 
   // Month-wise conversion data is built from the conversion records already
   // returned by the existing API. No PHP/API change is required.
@@ -439,6 +440,7 @@ export default function TelecallerReport() {
         <Card label="Total Billed Value" value={displayAmt(s.total_billed_value)} />
         <Card label="Coordinator Sales" value={displayAmt(s.coordinator_sales_value)} />
         <Card label="Brought & Billed" value={displayAmt(s.brought_and_billed_value)} />
+        <Card label="Assigned & Billed" value={displayAmt(s.assigned_billed_value)} small={num(s.assigned_billed_quotations) ? `${s.assigned_billed_quotations} quotations` : ""} />
         <Card label="Without Coordinator Credit" value={displayAmt(s.without_coordinator_credit_value)} />
         <Card label="Billed Quotations" value={num(s.total_billed_quotations)} />
         <Card label="Coordinator Conversions" value={num(s.billed_quotations)} />
@@ -557,6 +559,8 @@ export default function TelecallerReport() {
                 <th>Sales Coordinator</th>
                 <th>Brought</th>
                 <th>Assigned</th>
+                <th>Assigned & Billed</th>
+                <th>Assigned & Billed Value</th>
                 <th>Responsibility</th>
                 <th>Calls</th>
                 <th>Followed</th>
@@ -575,6 +579,8 @@ export default function TelecallerReport() {
                     <td><b>{p.telecaller}</b></td>
                     <td>{num(p.brought_quotations)}</td>
                     <td>{num(p.assigned_quotations)}</td>
+                    <td>{num(p.assigned_billed_quotations)}</td>
+                    <td>{displayAmt(p.assigned_billed_value)}</td>
                     <td>{num(p.responsible_quotations)}</td>
                     <td>{num(p.calls)}</td>
                     <td>{num(p.unique_quotations)}</td>
@@ -610,6 +616,8 @@ export default function TelecallerReport() {
           <div className="tc-kpis person-kpis">
             <Card label="Brought" value={num(p.brought_quotations)} />
             <Card label="Assigned" value={num(p.assigned_quotations)} />
+            <Card label="Assigned & Billed" value={num(p.assigned_billed_quotations)} />
+            <Card label="Assigned & Billed Value" value={displayAmt(p.assigned_billed_value)} />
             <Card label="Responsibility" value={num(p.responsible_quotations)} />
             <Card label="Follow-up Calls" value={num(p.calls)} />
             <Card label="Unique Followed" value={num(p.unique_quotations)} />
@@ -640,6 +648,28 @@ export default function TelecallerReport() {
         </section>
       ))}
       </div>
+
+      <section className="tc-panel">
+        <h2>Assigned & Billed</h2>
+        <p className="tc-note">Quotations in this period that were assigned to a coordinator and have been billed.</p>
+        <div className="tc-scroll tc-final-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Quotation</th><th>Party</th><th>Invoice Date</th><th>Invoice</th><th>Value</th><th>Assigned To</th><th>Brought By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assignedAndBilled.map((x, i) => (
+                <tr key={i}>
+                  <td>{x.quotation_no}</td><td>{x.party_name}</td><td>{fd(x.invoice_date)}</td><td>{x.invoice_no}</td>
+                  <td>{displayAmt(x.billed_amount)}</td><td>{x.assigned_to || "-"}</td><td>{x.brought_by || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="tc-panel">
         <h2>Brought & Billed</h2>
