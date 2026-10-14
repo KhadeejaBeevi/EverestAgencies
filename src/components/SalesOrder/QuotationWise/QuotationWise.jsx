@@ -26,10 +26,10 @@ import {
     getFinancialMonth,
     getFinancialYear,
     getFollowupPerson,
-    getItemGstTotal,
-    getItemTotal,
+    isLocalElectricalShop,
     getPartyNameForLongTerm,
     getQuotationNo,
+    getQuotationTaxSummary,
     getQuotationTotalWithGst,
     getWhatsappCustomerName,
     getWhatsappMobile,
@@ -3498,6 +3498,26 @@ const QuotationWise = () => {
                                                                                         ★ Long-Term Client
                                                                                     </span>
                                                                                 )}
+
+                                                                                {isLocalElectricalShop(row) && (
+                                                                                    <span
+                                                                                        title={`Ledger group: ${row.ledger_group}`}
+                                                                                        style={{
+                                                                                            display: "inline-block",
+                                                                                            marginTop: "3px",
+                                                                                            marginLeft: isLongTermClient(row) ? "4px" : 0,
+                                                                                            padding: "1px 6px",
+                                                                                            borderRadius: "8px",
+                                                                                            background: "#fff4e5",
+                                                                                            border: "1px solid #f5c27a",
+                                                                                            color: "#9a5b00",
+                                                                                            fontSize: "10px",
+                                                                                            fontWeight: "700"
+                                                                                        }}
+                                                                                    >
+                                                                                        🏪 Local Electrical Shop
+                                                                                    </span>
+                                                                                )}
                                                                             </div>
 
                                                                         </div>
@@ -4296,33 +4316,47 @@ const QuotationWise = () => {
                                                                                         )
                                                                                     )}
 
-                                                                                    {/* TALLY-STYLE TAX SUMMARY */}
-                                                                                    <tr style={{ background: "#f8f9fa", fontWeight: "700" }}>
-                                                                                        <td colSpan={4} style={{ padding: "7px 8px", textAlign: "right", borderTop: "2px solid #555" }}>
-                                                                                            Taxable Amount
-                                                                                        </td>
-                                                                                        <td style={{ padding: "7px 8px", textAlign: "right", borderTop: "2px solid #555" }}>
-                                                                                            {formatAmount(getItemTotal(items))}
-                                                                                        </td>
-                                                                                    </tr>
+                                                                                    {/* TALLY-STYLE TAX SUMMARY: Tally's Handling Charges, CGST,
+                                                                                        SGST, IGST and Round Off when imported. */}
+                                                                                    {(() => {
+                                                                                        const tax = getQuotationTaxSummary(row);
+                                                                                        const summaryRows = [
+                                                                                            ["Taxable Amount", tax.taxable],
+                                                                                            tax.handling ? ["Handling Charges", tax.handling] : null,
+                                                                                            ...(tax.fromTally
+                                                                                                ? [
+                                                                                                    tax.cgst ? ["CGST", tax.cgst] : null,
+                                                                                                    tax.sgst ? ["SGST", tax.sgst] : null,
+                                                                                                    tax.igst ? ["IGST", tax.igst] : null
+                                                                                                ]
+                                                                                                : [["GST", tax.gst]]),
+                                                                                            Math.abs(tax.roundOff) >= 0.005 ? ["Round Off", tax.roundOff] : null
+                                                                                        ].filter(Boolean);
 
-                                                                                    <tr style={{ background: "#f8f9fa", fontWeight: "700" }}>
-                                                                                        <td colSpan={4} style={{ padding: "7px 8px", textAlign: "right" }}>
-                                                                                            GST
-                                                                                        </td>
-                                                                                        <td style={{ padding: "7px 8px", textAlign: "right" }}>
-                                                                                            {formatAmount(getItemGstTotal(items))}
-                                                                                        </td>
-                                                                                    </tr>
+                                                                                        return (
+                                                                                            <>
+                                                                                                {summaryRows.map(([label, amount], summaryIndex) => (
+                                                                                                    <tr key={label} style={{ background: "#f8f9fa", fontWeight: "700" }}>
+                                                                                                        <td colSpan={4} style={{ padding: "7px 8px", textAlign: "right", borderTop: summaryIndex === 0 ? "2px solid #555" : undefined }}>
+                                                                                                            {label}
+                                                                                                        </td>
+                                                                                                        <td style={{ padding: "7px 8px", textAlign: "right", borderTop: summaryIndex === 0 ? "2px solid #555" : undefined }}>
+                                                                                                            {formatAmount(amount)}
+                                                                                                        </td>
+                                                                                                    </tr>
+                                                                                                ))}
 
-                                                                                    <tr style={{ background: "#eef6ff", fontWeight: "800", fontSize: "12px" }}>
-                                                                                        <td colSpan={4} style={{ padding: "8px", textAlign: "right", borderTop: "1px solid #777" }}>
-                                                                                            Total Amount
-                                                                                        </td>
-                                                                                        <td style={{ padding: "8px", textAlign: "right", borderTop: "1px solid #777" }}>
-                                                                                            {formatAmount(getQuotationTotalWithGst(row))}
-                                                                                        </td>
-                                                                                    </tr>
+                                                                                                <tr style={{ background: "#eef6ff", fontWeight: "800", fontSize: "12px" }}>
+                                                                                                    <td colSpan={4} style={{ padding: "8px", textAlign: "right", borderTop: "1px solid #777" }}>
+                                                                                                        Total Amount
+                                                                                                    </td>
+                                                                                                    <td style={{ padding: "8px", textAlign: "right", borderTop: "1px solid #777" }}>
+                                                                                                        {formatAmount(tax.total)}
+                                                                                                    </td>
+                                                                                                </tr>
+                                                                                            </>
+                                                                                        );
+                                                                                    })()}
 
                                                                                 </tbody>
                                                                             </table>

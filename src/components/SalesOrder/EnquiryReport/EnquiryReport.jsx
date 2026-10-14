@@ -1,5 +1,5 @@
 import Banner from "../../Banner/Banner.jsx";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { auth, db } from "../../firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -159,6 +159,9 @@ function resolveRemarks(remarks, quotationNo) {
    CURRENT USER NAME
 ========================================================= */
 
+/* Cached per user so saving doesn't wait on a Firestore read every time. */
+const userNameCache = { uid: "", name: "" };
+
 async function getCurrentUserName() {
     try {
         const user = auth.currentUser;
@@ -168,6 +171,8 @@ async function getCurrentUserName() {
             return "";
         }
 
+        if (userNameCache.uid === user.uid && userNameCache.name) return userNameCache.name;
+
         const userSnap = await getDoc(doc(db, "Users", user.uid));
 
         if (userSnap.exists()) {
@@ -175,7 +180,11 @@ async function getCurrentUserName() {
             const fullName =
                 `${String(userData.firstName || "").trim()} ${String(userData.lastName || "").trim()}`.trim();
 
-            if (fullName) return fullName;
+            if (fullName) {
+                userNameCache.uid = user.uid;
+                userNameCache.name = fullName;
+                return fullName;
+            }
         }
 
         /* LOCAL STORAGE FALLBACK */
@@ -375,10 +384,206 @@ function getTimerTitle(state, quotationMade) {
    MAIN COMPONENT
 ========================================================= */
 
+/* =========================================================
+   TABLE ROW
+   Memoized so the timer tick and polling only re-render the
+   rows whose data or timer label actually changed.
+========================================================= */
+
+const EnquiryRow = memo(function EnquiryRow({ item, slNo, timerState, timerLabel, onEdit }) {
+    const timer = { state: timerState, label: timerLabel };
+
+    const quotationMade =
+        String(item.sales_order_no || "").trim().length > 0;
+
+    const timerExpiredWithoutQuotation =
+        timer.state === "timeout" && !quotationMade;
+
+    const rowCellStyle = timerExpiredWithoutQuotation
+        ? {
+            backgroundColor: "#fff1f2",
+            color: "#7f1d1d",
+            borderBottom: "1px solid #fecaca"
+        }
+        : undefined;
+
+    const itemAttachments = parseAttachmentList(item.attachments);
+
+    const displayRemarks = resolveRemarks(item.remarks, item.sales_order_no);
+
+    const negotiationBadge = getNegotiationBadge(item);
+
+    return (
+        <tr
+            className="enquiry-row"
+            onDoubleClick={() => onEdit(item)}
+            title="Double-click to edit"
+        >
+
+            {/* SL NO */}
+            <td style={rowCellStyle} className="slno-cell">
+                {slNo}
+            </td>
+
+            {/* TIMER */}
+            <td style={rowCellStyle} className="timer-cell">
+                <span
+                    style={getTimerBadgeStyle(timer.state, quotationMade)}
+                    title={getTimerTitle(timer.state, quotationMade)}
+                >
+                    {timer.state === "waiting" ? "WAITING" : timer.label}
+                </span>
+            </td>
+
+            {/* ENQUIRY NO */}
+            <td style={rowCellStyle}>
+                <span className="enquiry-number">{item.enquiry_no}</span>
+            </td>
+
+            {/* ADDED BY */}
+            <td style={rowCellStyle}>{formatText(item.added_by)}</td>
+
+            {/* SOURCE */}
+            <td style={rowCellStyle}>{formatText(item.enquiry_source)}</td>
+
+            {/* ENTERED BY */}
+            <td style={rowCellStyle}>{formatText(item.entered_by)}</td>
+
+            {/* ASSIGNED TO */}
+            <td style={rowCellStyle}>{formatText(item.assigned_to)}</td>
+
+            {/* BROUGHT BY */}
+            <td style={rowCellStyle}>{formatText(item.brought_by)}</td>
+
+            {/* DATE */}
+            <td style={rowCellStyle} className="nowrap-cell">
+                {formatDate(item.enquiry_date)}
+            </td>
+
+            {/* CUSTOMER */}
+            <td style={rowCellStyle}>
+                <strong>{formatText(item.customer_name)}</strong>
+            </td>
+
+            {/* ADDRESS */}
+            <td style={rowCellStyle} className="address-cell">
+                <div className="clamp-2" title={item.address || ""}>
+                    {formatText(item.address)}
+                </div>
+            </td>
+
+            {/* PHONE */}
+            <td style={rowCellStyle} className="nowrap-cell">
+                {formatText(item.phone_number)}
+            </td>
+
+            {/* DESCRIPTION */}
+            <td style={rowCellStyle} className="description-cell">
+                <div className="clamp-2" title={item.description || ""}>
+                    {formatText(item.description)}
+                </div>
+            </td>
+
+            {/* REMARKS */}
+            <td style={rowCellStyle} className="remarks-cell">
+                {displayRemarks ? (
+                    <div
+                        className="clamp-2"
+                        title={displayRemarks}
+                        style={
+                            displayRemarks === "Completed"
+                                ? { color: "#1b5e20", fontWeight: 700 }
+                                : undefined
+                        }
+                    >
+                        {displayRemarks}
+                    </div>
+                ) : (
+                    <span className="no-remarks">No Remarks</span>
+                )}
+
+                {negotiationBadge && (
+                    <span
+                        title={negotiationBadge.title}
+                        style={{
+                            display: "inline-block",
+                            marginTop: "4px",
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
+                            ...negotiationBadge.style
+                        }}
+                    >
+                        {negotiationBadge.label}
+                    </span>
+                )}
+            </td>
+
+            {/* ATTACHMENTS */}
+            <td style={rowCellStyle} className="attachments-cell">
+                {itemAttachments.length > 0 ? (
+                    <div className="attachment-list">
+                        {itemAttachments.map((file, attachmentIndex) => (
+                            <button
+                                type="button"
+                                key={file.id || `${file.file_url}-${attachmentIndex}`}
+                                className="attachment-file attachment-link-btn"
+                                title={`Download ${file.original_name || "Attachment"}`}
+                                onClick={() => downloadAttachment(file)}
+                            >
+                                <span className="attachment-icon">
+                                    {getAttachmentIcon(file)}
+                                </span>
+                                <span className="attachment-name">
+                                    {file.original_name || "Attachment"}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                ) : (
+                    <span className="no-attachment">No Files</span>
+                )}
+            </td>
+
+            {/* QUOTATION NO (sticky right) */}
+            <td style={rowCellStyle} className="sticky-quotation">
+                {item.sales_order_no ? (
+                    <span
+                        className="sales-order-badge"
+                        title="Quotation number linked with this enquiry"
+                    >
+                        {item.sales_order_no}
+                    </span>
+                ) : (
+                    <span className="not-attached">Not Attached</span>
+                )}
+            </td>
+
+            {/* ACTION (sticky right) */}
+            <td style={rowCellStyle} className="sticky-action">
+                <button
+                    type="button"
+                    className="edit-btn"
+                    onClick={() => onEdit(item)}
+                >
+                    ✏️ Edit
+                </button>
+            </td>
+
+        </tr>
+    );
+});
+
 export default function EnquiryReport() {
 
     /* DATA STATES */
     const [enquiries, setEnquiries] = useState([]);
+    const enquiriesById = useMemo(
+        () => new Map(enquiries.map(row => [String(row.id), row])),
+        [enquiries]
+    );
     const [loading, setLoading] = useState(false);
     const [lastRefreshed, setLastRefreshed] = useState(null);
     const [saving, setSaving] = useState(false);
@@ -427,8 +632,21 @@ export default function EnquiryReport() {
         return `${safeMinutes} min`;
     }
 
+    /* id -> timer entry, so each row is a lookup instead of a scan. */
+    const timerById = useMemo(() => {
+        const map = new Map();
+        timerQueue.forEach(item => map.set(String(item.id), item));
+        return map;
+    }, [timerQueue]);
+
     function getTimerEntry(enquiryId) {
-        return timerQueue.find(item => String(item.id) === String(enquiryId));
+        return timerById.get(String(enquiryId));
+    }
+
+    /* Polling returns the same data most of the time; keep the old
+       array then so React skips re-rendering the table. */
+    function setTimerQueueIfChanged(next) {
+        setTimerQueue(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
     }
 
     function getTimerStatus(enquiryId, quotationNumber = "", remarks = "") {
@@ -479,7 +697,7 @@ export default function EnquiryReport() {
                 throw new Error(result.message || "Failed to load shared timer");
             }
 
-            setTimerQueue(Array.isArray(result.data) ? result.data : []);
+            setTimerQueueIfChanged(Array.isArray(result.data) ? result.data : []);
         } catch (error) {
             console.error("SHARED TIMER LOAD ERROR:", error);
         }
@@ -492,7 +710,8 @@ export default function EnquiryReport() {
     }, []);
 
     useEffect(() => {
-        const interval = setInterval(() => setTimerNow(Date.now()), 1000);
+        /* The timer shows whole minutes, so a 5-second tick is plenty. */
+        const interval = setInterval(() => setTimerNow(Date.now()), 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -511,7 +730,7 @@ export default function EnquiryReport() {
                 throw new Error(result.message || `Timer ${action} failed`);
             }
 
-            setTimerQueue(Array.isArray(result.data) ? result.data : []);
+            setTimerQueueIfChanged(Array.isArray(result.data) ? result.data : []);
         } catch (error) {
             console.error(`TIMER ${action.toUpperCase()} ERROR:`, error);
         }
@@ -524,7 +743,7 @@ export default function EnquiryReport() {
         const activeEntry = timerQueue.find(item => {
             if (item.status !== "active" || !item.startedAt) return false;
 
-            const enquiry = enquiries.find(row => String(row.id) === String(item.id));
+            const enquiry = enquiriesById.get(String(item.id));
             const quotationMade = String(enquiry?.sales_order_no || "").trim().length > 0;
             const remarks = String(enquiry?.remarks || "").trim();
             const quotationNotPending = remarks && remarks !== "Pending Quotation";
@@ -540,7 +759,7 @@ export default function EnquiryReport() {
         if (remainingMinutes <= 0) {
             timerAction("timeout", activeEntry.id);
         }
-    }, [timerNow, timerQueue]);
+    }, [timerNow, timerQueue, enquiriesById]);
 
     /* =====================================================
        LOGGED-IN USER NAME + ROLE
@@ -626,8 +845,6 @@ export default function EnquiryReport() {
             const response = await apiFetch(`${API_BASE}/enquiry_report.php`, { method: "GET" });
             const result = await response.json();
 
-            console.log("ENQUIRY RESPONSE:", result);
-
             if (!response.ok || !result.success) {
                 throw new Error(result.message || "Failed to load enquiries");
             }
@@ -644,7 +861,7 @@ export default function EnquiryReport() {
                 return (Number(b.id) || 0) - (Number(a.id) || 0);
             });
 
-            setEnquiries(enquiryData);
+            setEnquiries(prev => (JSON.stringify(prev) === JSON.stringify(enquiryData) ? prev : enquiryData));
             setLastRefreshed(new Date());
             setNextEnquiryNo(result.next_enquiry_no || "");
         } catch (error) {
@@ -659,8 +876,11 @@ export default function EnquiryReport() {
        SEARCH + PENDING FILTER
     ===================================================== */
 
+    /* Typing stays responsive; the table filters just behind it. */
+    const deferredSearchTerm = useDeferredValue(searchTerm);
+
     const filteredEnquiries = useMemo(() => {
-        const search = searchTerm.trim().toLowerCase();
+        const search = deferredSearchTerm.trim().toLowerCase();
 
         let list = enquiries;
 
@@ -701,7 +921,7 @@ export default function EnquiryReport() {
                 .filter(Boolean)
                 .some(value => String(value).toLowerCase().includes(search))
         );
-    }, [enquiries, searchTerm, showPendingOnly, showNegotiationOnly]);
+    }, [enquiries, deferredSearchTerm, showPendingOnly, showNegotiationOnly]);
 
     /* =====================================================
        ADD ENQUIRY
@@ -771,6 +991,11 @@ export default function EnquiryReport() {
 
         setShowModal(true);
     }
+
+    /* Stable reference so memoized rows don't re-render. */
+    const handleEditRef = useRef(handleEdit);
+    handleEditRef.current = handleEdit;
+    const editEnquiry = useCallback(item => handleEditRef.current(item), []);
 
     /* =====================================================
        ATTACHMENT HANDLERS
@@ -943,16 +1168,12 @@ export default function EnquiryReport() {
                 formData.append("attachments[]", file, file.name);
             });
 
-            console.log("UPLOADING FILES:", attachments);
-
             const response = await apiFetch(`${API_BASE}/enquiry_report.php`, {
                 method: "POST",
                 body: formData
             });
 
             const result = await response.json();
-
-            console.log("SAVE RESPONSE:", result);
 
             if (!response.ok || !result.success) {
                 throw new Error(result.message || "Failed to save enquiry");
@@ -1194,190 +1415,17 @@ export default function EnquiryReport() {
 
                             <tbody>
                                 {filteredEnquiries.map((item, index) => {
-
                                     const timer = getTimerStatus(item.id, item.sales_order_no, item.remarks);
 
-                                    const quotationMade =
-                                        String(item.sales_order_no || "").trim().length > 0;
-
-                                    const timerExpiredWithoutQuotation =
-                                        timer.state === "timeout" && !quotationMade;
-
-                                    const rowCellStyle = timerExpiredWithoutQuotation
-                                        ? {
-                                            backgroundColor: "#fff1f2",
-                                            color: "#7f1d1d",
-                                            borderBottom: "1px solid #fecaca"
-                                        }
-                                        : undefined;
-
-                                    const itemAttachments = parseAttachmentList(item.attachments);
-
-                                    const displayRemarks = resolveRemarks(item.remarks, item.sales_order_no);
-
-                                    const negotiationBadge = getNegotiationBadge(item);
-
                                     return (
-                                        <tr
+                                        <EnquiryRow
                                             key={item.id}
-                                            className="enquiry-row"
-                                            onDoubleClick={() => handleEdit(item)}
-                                            title="Double-click to edit"
-                                        >
-
-                                            {/* SL NO */}
-                                            <td style={rowCellStyle} className="slno-cell">
-                                                {filteredEnquiries.length - index}
-                                            </td>
-
-                                            {/* TIMER */}
-                                            <td style={rowCellStyle} className="timer-cell">
-                                                <span
-                                                    style={getTimerBadgeStyle(timer.state, quotationMade)}
-                                                    title={getTimerTitle(timer.state, quotationMade)}
-                                                >
-                                                    {timer.state === "waiting" ? "WAITING" : timer.label}
-                                                </span>
-                                            </td>
-
-                                            {/* ENQUIRY NO */}
-                                            <td style={rowCellStyle}>
-                                                <span className="enquiry-number">{item.enquiry_no}</span>
-                                            </td>
-
-                                            {/* ADDED BY */}
-                                            <td style={rowCellStyle}>{formatText(item.added_by)}</td>
-
-                                            {/* SOURCE */}
-                                            <td style={rowCellStyle}>{formatText(item.enquiry_source)}</td>
-
-                                            {/* ENTERED BY */}
-                                            <td style={rowCellStyle}>{formatText(item.entered_by)}</td>
-
-                                            {/* ASSIGNED TO */}
-                                            <td style={rowCellStyle}>{formatText(item.assigned_to)}</td>
-
-                                            {/* BROUGHT BY */}
-                                            <td style={rowCellStyle}>{formatText(item.brought_by)}</td>
-
-                                            {/* DATE */}
-                                            <td style={rowCellStyle} className="nowrap-cell">
-                                                {formatDate(item.enquiry_date)}
-                                            </td>
-
-                                            {/* CUSTOMER */}
-                                            <td style={rowCellStyle}>
-                                                <strong>{formatText(item.customer_name)}</strong>
-                                            </td>
-
-                                            {/* ADDRESS */}
-                                            <td style={rowCellStyle} className="address-cell">
-                                                <div className="clamp-2" title={item.address || ""}>
-                                                    {formatText(item.address)}
-                                                </div>
-                                            </td>
-
-                                            {/* PHONE */}
-                                            <td style={rowCellStyle} className="nowrap-cell">
-                                                {formatText(item.phone_number)}
-                                            </td>
-
-                                            {/* DESCRIPTION */}
-                                            <td style={rowCellStyle} className="description-cell">
-                                                <div className="clamp-2" title={item.description || ""}>
-                                                    {formatText(item.description)}
-                                                </div>
-                                            </td>
-
-                                            {/* REMARKS */}
-                                            <td style={rowCellStyle} className="remarks-cell">
-                                                {displayRemarks ? (
-                                                    <div
-                                                        className="clamp-2"
-                                                        title={displayRemarks}
-                                                        style={
-                                                            displayRemarks === "Completed"
-                                                                ? { color: "#1b5e20", fontWeight: 700 }
-                                                                : undefined
-                                                        }
-                                                    >
-                                                        {displayRemarks}
-                                                    </div>
-                                                ) : (
-                                                    <span className="no-remarks">No Remarks</span>
-                                                )}
-
-                                                {negotiationBadge && (
-                                                    <span
-                                                        title={negotiationBadge.title}
-                                                        style={{
-                                                            display: "inline-block",
-                                                            marginTop: "4px",
-                                                            padding: "2px 8px",
-                                                            borderRadius: "6px",
-                                                            fontSize: "12px",
-                                                            fontWeight: 700,
-                                                            whiteSpace: "nowrap",
-                                                            ...negotiationBadge.style
-                                                        }}
-                                                    >
-                                                        {negotiationBadge.label}
-                                                    </span>
-                                                )}
-                                            </td>
-
-                                            {/* ATTACHMENTS */}
-                                            <td style={rowCellStyle} className="attachments-cell">
-                                                {itemAttachments.length > 0 ? (
-                                                    <div className="attachment-list">
-                                                        {itemAttachments.map((file, attachmentIndex) => (
-                                                            <button
-                                                                type="button"
-                                                                key={file.id || `${file.file_url}-${attachmentIndex}`}
-                                                                className="attachment-file attachment-link-btn"
-                                                                title={`Download ${file.original_name || "Attachment"}`}
-                                                                onClick={() => downloadAttachment(file)}
-                                                            >
-                                                                <span className="attachment-icon">
-                                                                    {getAttachmentIcon(file)}
-                                                                </span>
-                                                                <span className="attachment-name">
-                                                                    {file.original_name || "Attachment"}
-                                                                </span>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <span className="no-attachment">No Files</span>
-                                                )}
-                                            </td>
-
-                                            {/* QUOTATION NO (sticky right) */}
-                                            <td style={rowCellStyle} className="sticky-quotation">
-                                                {item.sales_order_no ? (
-                                                    <span
-                                                        className="sales-order-badge"
-                                                        title="Quotation number linked with this enquiry"
-                                                    >
-                                                        {item.sales_order_no}
-                                                    </span>
-                                                ) : (
-                                                    <span className="not-attached">Not Attached</span>
-                                                )}
-                                            </td>
-
-                                            {/* ACTION (sticky right) */}
-                                            <td style={rowCellStyle} className="sticky-action">
-                                                <button
-                                                    type="button"
-                                                    className="edit-btn"
-                                                    onClick={() => handleEdit(item)}
-                                                >
-                                                    ✏️ Edit
-                                                </button>
-                                            </td>
-
-                                        </tr>
+                                            item={item}
+                                            slNo={filteredEnquiries.length - index}
+                                            timerState={timer.state}
+                                            timerLabel={timer.label}
+                                            onEdit={editEnquiry}
+                                        />
                                     );
                                 })}
                             </tbody>

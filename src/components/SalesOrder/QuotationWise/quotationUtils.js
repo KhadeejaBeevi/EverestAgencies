@@ -215,6 +215,13 @@ export const cleanBilledParty = (value) => {
     return text;
 };
 
+// Party group (EveSolarCust_Shop in salesdata) is LOCAL ELECTRICAL SHOP.
+export const isLocalElectricalShop = (row) =>
+    String(row?.ledger_group || row?._LedGroup || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase() === "local electrical shop";
+
 export const getCustomerType = (row) => {
     const values = [
         row?.customer_type,
@@ -309,6 +316,76 @@ export const getItemTotal = (items) => {
             ),
         0
     );
+};
+
+const toAmountOrNull = (value) => {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const number = Number(String(value).replace(/,/g, ""));
+    return Number.isFinite(number) ? number : null;
+};
+
+const roundMoney = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+// Taxable value, Handling Charges, CGST / SGST / IGST, Round Off and Total
+// of one quotation, for the PDF and the item details.
+// Tally's own values (imported from the Excel) are used when present; their
+// GST already includes the GST on handling charges. Older rows without them
+// fall back to the app's calculation: item GST split in half, rounded total.
+export const getQuotationTaxSummary = (row) => {
+    const items = Array.isArray(row?.items) ? row.items : [];
+    const taxable = items.length ? getItemTotal(items) : Number(row?.quotation_amount || 0);
+
+    const tally = {
+        cgst: toAmountOrNull(row?.cgst_amount),
+        sgst: toAmountOrNull(row?.sgst_amount),
+        igst: toAmountOrNull(row?.igst_amount),
+        roundOff: toAmountOrNull(row?.round_off_amount),
+        handling: toAmountOrNull(row?.handling_charges)
+    };
+    const handling = tally.handling || 0;
+
+    if (Object.values(tally).some((value) => value !== null)) {
+        const cgst = tally.cgst || 0;
+        const sgst = tally.sgst || 0;
+        const igst = tally.igst || 0;
+        const roundOff = tally.roundOff || 0;
+        return {
+            fromTally: true,
+            taxable,
+            handling,
+            cgst,
+            sgst,
+            igst,
+            gst: cgst + sgst + igst,
+            roundOff,
+            total: roundMoney(taxable + handling + cgst + sgst + igst + roundOff)
+        };
+    }
+
+    const gst = getItemGstTotal(items);
+    const itemTotal = taxable + gst;
+    // Use the API total only when it is just rounding away from the item
+    // sum, so the printed rows always add up to the Total.
+    const explicitTotal = Number(row?.quotation_amount_with_gst);
+    const total =
+        Number.isFinite(explicitTotal) &&
+        explicitTotal !== 0 &&
+        Math.abs(explicitTotal - itemTotal) <= 1
+            ? explicitTotal
+            : Math.round(itemTotal);
+    const cgst = gst / 2;
+
+    return {
+        fromTally: false,
+        taxable,
+        handling: 0,
+        cgst,
+        sgst: gst - cgst,
+        igst: 0,
+        gst,
+        roundOff: total - itemTotal,
+        total
+    };
 };
 
 // =====================================================

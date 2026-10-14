@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { getQuotationTaxSummary } from "./quotationUtils.js";
 // Letterhead: quotation_header.jpg next to this file if present (bundled by
 // Vite), otherwise public/quotation_header.jpg. A missing file never breaks
 // the build - the PDF is then made without the letterhead.
@@ -170,12 +171,6 @@ const formatTallyDate = (value) => {
 const formatRoundOff = (value) => {
     if (Math.abs(value) < 0.005) return "";
     return value < 0 ? `(-)${money(Math.abs(value))}` : money(value);
-};
-
-const getItemGst = (item) => {
-    const gstAmount = Number(item?.gst_amount || 0);
-    if (gstAmount !== 0) return gstAmount;
-    return Number(item?.value || 0) * Number(item?.gst_rate || 0) / 100;
 };
 
 // Temporary items ("TEMPRORY ITEM", "TEMPORARY ITEM MTR", "TEMP ITEM", ...)
@@ -418,13 +413,8 @@ export const buildQuotationPdf = async (row) => {
     const godownWidth = COLUMN_RIGHT(godownIndex) - COLUMNS[godownIndex].x - COLUMN_PADDING * 2;
     setFont(doc, "normal", 8.5);
 
-    let taxableTotal = 0;
-    let gstTotal = 0;
-
     const lines = items.map((item, index) => {
         const value = Number(item?.value || 0);
-        taxableTotal += value;
-        gstTotal += getItemGst(item);
 
         const descriptionLines = doc.splitTextToSize(getItemName(item), descriptionWidth);
 
@@ -464,25 +454,17 @@ export const buildQuotationPdf = async (row) => {
         };
     });
 
-    // ---------------- TAX + ROUND OFF ----------------
-    // Use the Tally total only when it is just rounding away from the item
-    // sum, so the printed rows always add up to the Total.
-    const itemTotal = taxableTotal + gstTotal;
-    const explicitTotal = Number(row?.quotation_amount_with_gst);
-    const grandTotal =
-        Number.isFinite(explicitTotal) &&
-        explicitTotal !== 0 &&
-        Math.abs(explicitTotal - itemTotal) <= 1
-            ? explicitTotal
-            : Math.round(itemTotal);
-    const roundOff = grandTotal - itemTotal;
-
-    const cgst = gstTotal / 2;
-    const sgst = gstTotal - cgst;
+    // ---------------- HANDLING + TAX + ROUND OFF ----------------
+    // Tally's Handling Charges, CGST, SGST, IGST and Round Off when imported
+    // (older rows: GST from the items, split into CGST and SGST).
+    const tax = getQuotationTaxSummary(row);
+    const grandTotal = tax.total;
     const summaryLines = [
-        cgst ? ["CGST", money(cgst)] : null,
-        sgst ? ["SGST", money(sgst)] : null,
-        formatRoundOff(roundOff) ? ["Round Off", formatRoundOff(roundOff)] : null
+        tax.handling ? ["Handling Charges", money(tax.handling)] : null,
+        tax.cgst ? ["CGST", money(tax.cgst)] : null,
+        tax.sgst ? ["SGST", money(tax.sgst)] : null,
+        tax.igst ? ["IGST", money(tax.igst)] : null,
+        formatRoundOff(tax.roundOff) ? ["Round Off", formatRoundOff(tax.roundOff)] : null
     ]
         .filter(Boolean)
         .map(([label, amount]) => ({ type: "summary", height: ROW_HEIGHT, label, amount }));

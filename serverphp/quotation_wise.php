@@ -60,6 +60,50 @@ try {
 
     /* =========================================================
 
+       0. TALLY VOUCHER TAX COLUMNS (optional)
+
+       CGST / SGST / IGST / Round Off / Handling Charges come from
+       Tally (same value on every item row of a voucher). Columns
+       not yet added to salesdata are read as NULL, so the page
+       keeps working before the ALTER TABLE is run.
+
+    ========================================================= */
+
+
+
+    $taxColumns = [
+        "igst_amount" => "EveEveiGSTTaxAmt",
+        "sgst_amount" => "EveEveSGSTTaxAmt",
+        "cgst_amount" => "EveEveCGSTTaxAmt",
+        "round_off_amount" => "EveEveRoundOffAmt",
+        "handling_charges" => "EveEveHandChrgsAmt"
+    ];
+
+    $salesdataColumns = [];
+
+    $columnsResult = $conn->query("SHOW COLUMNS FROM `salesdata`");
+
+    if ($columnsResult) {
+        while ($column = $columnsResult->fetch_assoc()) {
+            $salesdataColumns[$column["Field"]] = true;
+        }
+        $columnsResult->free();
+    }
+
+    $taxSelect = [];
+
+    foreach ($taxColumns as $dbColumn) {
+        $taxSelect[] = isset($salesdataColumns[$dbColumn])
+            ? "s.`" . $dbColumn . "`"
+            : "NULL AS `" . $dbColumn . "`";
+    }
+
+    $taxSelectSql = implode(",\n            ", $taxSelect);
+
+
+
+    /* =========================================================
+
        1. GET ALL SALES ORDER ROWS
 
        IMPORTANT:
@@ -135,7 +179,10 @@ try {
             s.EvePartyGSTIN,
             s.EveExecutive,
             s.EveBasicOrderRef,
-            s.EveBasicDueDateOfPymt
+            s.EveBasicDueDateOfPymt,
+            s.EveSolarCust_Shop,
+
+            $taxSelectSql
 
         FROM salesdata s
 
@@ -373,6 +420,9 @@ try {
 
         $creditDays = $creditDaysMap[$ledgerKey] ?? "";
 
+        // Party group from Tally (e.g. LOCAL ELECTRICAL SHOP), shown as a badge.
+        $ledgerGroup = trim((string)($row["EveSolarCust_Shop"] ?? ""));
+
 
 
         $walkinCustNo = trim(
@@ -458,6 +508,14 @@ try {
             "order_ref" => trim((string)($row["EveBasicOrderRef"] ?? "")),
             "payment_due_date" => trim((string)($row["EveBasicDueDateOfPymt"] ?? ""))
         ];
+        // Tally's voucher tax totals; null when not in the import.
+        $taxFields = [];
+        foreach ($taxColumns as $field => $dbColumn) {
+            $taxValue = $row[$dbColumn] ?? null;
+            $taxFields[$field] = ($taxValue === null || trim((string)$taxValue) === "")
+                ? null
+                : (float)$taxValue;
+        }
 
         $amountWithGst = $amount + $gstAmount;
 
@@ -537,7 +595,7 @@ try {
 
 
 
-                "ledger_group" => "",
+                "ledger_group" => $ledgerGroup,
 
                 "mobile" => "",
 
@@ -581,7 +639,7 @@ try {
 
                 "items" => []
 
-            ] + $headerFields;
+            ] + $headerFields + $taxFields;
 
         }
 
@@ -656,6 +714,13 @@ try {
 
 
         if (
+            $orders[$orderKey]["ledger_group"] === ""
+            && $ledgerGroup !== ""
+        ) {
+            $orders[$orderKey]["ledger_group"] = $ledgerGroup;
+        }
+
+        if (
             $orders[$orderKey]["payment_terms"] === ""
             && $paymentTerms !== ""
         ) {
@@ -670,6 +735,11 @@ try {
         }
         foreach ($headerFields as $field => $value) {
             if ($orders[$orderKey][$field] === "" && $value !== "") {
+                $orders[$orderKey][$field] = $value;
+            }
+        }
+        foreach ($taxFields as $field => $value) {
+            if ($orders[$orderKey][$field] === null && $value !== null) {
                 $orders[$orderKey][$field] = $value;
             }
         }
@@ -1371,6 +1441,62 @@ try {
             2
 
         );
+
+
+
+        /*
+
+         * When Tally's tax totals are imported, use them as given:
+
+         * Taxable + Handling Charges + CGST + SGST + IGST + Round Off.
+
+         * (Tally's GST includes the GST on handling charges.)
+
+         */
+
+        $hasTallyTax = false;
+
+        foreach (array_keys($taxColumns) as $field) {
+
+            if ($order[$field] !== null) {
+
+                $hasTallyTax = true;
+
+            }
+
+        }
+
+
+
+        if ($hasTallyTax) {
+
+            $tallyGst = (float)$order["cgst_amount"]
+
+                + (float)$order["sgst_amount"]
+
+                + (float)$order["igst_amount"];
+
+
+
+            $order["quotation_gst_amount"] = round($tallyGst, 2);
+
+
+
+            $order["quotation_amount_with_gst"] = round(
+
+                (float)$order["quotation_amount"]
+
+                    + (float)$order["handling_charges"]
+
+                    + $tallyGst
+
+                    + (float)$order["round_off_amount"],
+
+                2
+
+            );
+
+        }
 
 
 

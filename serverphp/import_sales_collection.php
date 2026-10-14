@@ -360,7 +360,7 @@ class XlsxStreamReader
 /* =========================================================
    COLUMN MAPPING  (database column => Excel header)
 
-   The Excel export currently has 60 columns (A..BH).
+   The Excel export currently has 65 columns (A..BM).
    Columns are located by their header text in row 1, so
    inserting / reordering columns in the Excel export will
    not break the import.
@@ -425,7 +425,15 @@ $columnMap = [
     ["db" => "EveBasicDueDateOfPymt", "excel" => '$EveBasicDueDateOfPymt',                "type" => "s", "optional" => true],
     ["db" => "EveBasicOrderRef",      "excel" => '$EveBasicOrderRef',                     "type" => "s", "optional" => true],
     ["db" => "EveExecutive",          "excel" => '$EveExecutive',                         "type" => "s", "optional" => true],
-    ["db" => "EvePartyGSTIN",         "excel" => '$EvePartyGSTIN',                        "type" => "s", "optional" => true]
+    ["db" => "EvePartyGSTIN",         "excel" => '$EvePartyGSTIN',                        "type" => "s", "optional" => true],
+
+    /* Voucher tax totals from Tally (same value on every item row of
+       a voucher). GST here includes the GST on handling charges. */
+    ["db" => "EveEveiGSTTaxAmt",      "excel" => '$EveEveiGSTTaxAmt',                     "type" => "d", "optional" => true],
+    ["db" => "EveEveSGSTTaxAmt",      "excel" => '$EveEveSGSTTaxAmt',                     "type" => "d", "optional" => true],
+    ["db" => "EveEveCGSTTaxAmt",      "excel" => '$EveEveCGSTTaxAmt',                     "type" => "d", "optional" => true],
+    ["db" => "EveEveRoundOffAmt",     "excel" => '$EveEveRoundOffAmt',                    "type" => "d", "optional" => true],
+    ["db" => "EveEveHandChrgsAmt",    "excel" => '$EveEveHandChrgsAmt',                   "type" => "d", "optional" => true]
 ];
 
 
@@ -539,7 +547,12 @@ $alterDefinitions = [
     "EveBasicDueDateOfPymt" => "VARCHAR(100) NULL",
     "EveBasicOrderRef"      => "VARCHAR(255) NULL",
     "EveExecutive"          => "VARCHAR(255) NULL",
-    "EvePartyGSTIN"         => "VARCHAR(20) NULL"
+    "EvePartyGSTIN"         => "VARCHAR(20) NULL",
+    "EveEveiGSTTaxAmt"      => "DECIMAL(18,4) NULL",
+    "EveEveSGSTTaxAmt"      => "DECIMAL(18,4) NULL",
+    "EveEveCGSTTaxAmt"      => "DECIMAL(18,4) NULL",
+    "EveEveRoundOffAmt"     => "DECIMAL(18,4) NULL",
+    "EveEveHandChrgsAmt"    => "DECIMAL(18,4) NULL"
 ];
 
 $existingColumns = [];
@@ -706,12 +719,22 @@ foreach ($columnMap as $key => $map) {
     $header = normalizeHeader($map["excel"]);
 
     if (!isset($headerIndex[$header])) {
+
+        /* Older Excel exports do not have the optional columns:
+           those are left empty instead of stopping the import. */
+        if (!empty($map["optional"])) {
+            unset($columnMap[$key]);
+            continue;
+        }
+
         $missingHeaders[] = $map["excel"];
         continue;
     }
 
     $columnMap[$key]["index"] = $headerIndex[$header];
 }
+
+$columnMap = array_values($columnMap);
 
 if (!empty($missingHeaders)) {
 
