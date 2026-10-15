@@ -1,6 +1,7 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
-$conn = new mysqli("localhost", "root", "", "tally_db");
+$conn = db_connect("tally_db");
 
 $result = $conn->query("
     SELECT * FROM attendance 

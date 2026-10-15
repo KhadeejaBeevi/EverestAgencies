@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -26,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 try {
-    $conn = new mysqli("localhost", "root", "", "salescollection");
+    $conn = db_connect("salescollection");
     $conn->set_charset("utf8mb4");
 
     // Older files use "edited_field", newer ones "edited_fields"

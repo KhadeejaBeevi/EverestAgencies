@@ -1,14 +1,11 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 set_time_limit(300); // Extend max execution time to 5 minutes
 
-$servername = "localhost";
-$username = "root"; 
-$password = "";    
-$dbname = "tally_db"; 
 
 // DB connect
-$conn = new mysqli($servername, $username, $password, $dbname);
+$conn = db_connect("tally_db");
 if ($conn->connect_error) { 
     die("Connection failed: " . $conn->connect_error); 
 }

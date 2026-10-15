@@ -67,8 +67,10 @@ if (
 
 // ================= TESSERACT PATH =================
 
-$tesseract =
-'"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"';
+// Windows (XAMPP) install path, otherwise "tesseract" from the server PATH
+$tesseract = is_file('C:\\Program Files\\Tesseract-OCR\\tesseract.exe')
+    ? '"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"'
+    : 'tesseract';
 
 // ================= IMAGE INFO =================
 

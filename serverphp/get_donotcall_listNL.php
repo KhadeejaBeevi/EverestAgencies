@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
@@ -14,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-$mysqli = new mysqli("localhost", "root", "", "salescollection");
+$mysqli = db_connect("salescollection");
 
 if ($mysqli->connect_error) {
     echo json_encode(["error" => $mysqli->connect_error]);

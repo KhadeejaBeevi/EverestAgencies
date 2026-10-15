@@ -1,8 +1,15 @@
 <?php
 
-set_time_limit(0);
-ini_set('memory_limit', '1024M');
-ini_set('display_errors', '1');
+require_once __DIR__ . '/db_connect.php';
+
+date_default_timezone_set("Asia/Kolkata");
+
+/* Shared hosting may refuse these; the chunk size below keeps
+   each page load well inside the usual limits. */
+@set_time_limit(0);
+@ini_set('memory_limit', '1024M');
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
 /* =========================================================
@@ -34,6 +41,9 @@ flush();
    Each page load imports ONE chunk of rows and then
    automatically opens the next chunk (?start=...).
    The first page (no ?start) clears the table.
+
+   Kept smaller than on localhost so each chunk finishes
+   inside the hosting server's max_execution_time.
 ========================================================= */
 
 $chunkSize = 10000;
@@ -439,24 +449,26 @@ $columnMap = [
 
 /* =========================================================
    DATABASE CONNECTION
+   Login details come from db_connect.php on the server.
 ========================================================= */
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "salescollection"
-);
+try {
 
-if ($conn->connect_error) {
+    $pdo = db_pdo("salescollection", [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false
+    ]);
+
+} catch (Throwable $e) {
+
+    error_log("SALES IMPORT DB ERROR: " . $e->getMessage());
 
     die(
-        "<h3 style='color:red;'>Database connection failed:</h3>" .
-        htmlspecialchars($conn->connect_error)
+        "<h3 style='color:red;'>Database connection failed.</h3>" .
+        "<p>Check the details in db_connect.php.</p>"
     );
 }
-
-$conn->set_charset("utf8mb4");
 
 
 /* =========================================================
@@ -491,6 +503,13 @@ if ($file === null) {
     );
 }
 
+if (!class_exists("ZipArchive") || !class_exists("XMLReader")) {
+    die(
+        "<h3 style='color:red;'>PHP extensions missing.</h3>" .
+        "<p>Enable the <b>zip</b> and <b>xmlreader</b> PHP extensions in the hosting control panel.</p>"
+    );
+}
+
 $fileSize = filesize($file);
 
 echo "<h3>Excel Import Started</h3>";
@@ -510,13 +529,13 @@ flush();
    CHECK TABLE
 ========================================================= */
 
-$tableCheck = $conn->query(
-    "SHOW TABLES LIKE 'salesdata'"
-);
+try {
+    $tableExists = (bool)$pdo->query("SHOW TABLES LIKE 'salesdata'")->fetch();
+} catch (Throwable $e) {
+    $tableExists = false;
+}
 
-if (!$tableCheck || $tableCheck->num_rows === 0) {
-
-    $conn->close();
+if (!$tableExists) {
 
     die(
         "<h3 style='color:red;'>
@@ -557,12 +576,8 @@ $alterDefinitions = [
 
 $existingColumns = [];
 
-$columnsResult = $conn->query("SHOW COLUMNS FROM `salesdata`");
-
-if ($columnsResult) {
-    while ($col = $columnsResult->fetch_assoc()) {
-        $existingColumns[$col['Field']] = true;
-    }
+foreach ($pdo->query("SHOW COLUMNS FROM `salesdata`")->fetchAll() as $col) {
+    $existingColumns[$col['Field']] = true;
 }
 
 $missingColumns = [];
@@ -608,8 +623,6 @@ if (!empty($skippedColumns)) {
 
 if (!empty($missingColumns)) {
 
-    $conn->close();
-
     $alterLines = [];
 
     foreach ($missingColumns as $column) {
@@ -639,8 +652,6 @@ try {
     $xlsx = new XlsxStreamReader($file);
 
 } catch (Exception $e) {
-
-    $conn->close();
 
     die(
         "<h3 style='color:red;'>Cannot read Excel file:</h3>" .
@@ -738,8 +749,6 @@ $columnMap = array_values($columnMap);
 
 if (!empty($missingHeaders)) {
 
-    $conn->close();
-
     die(
         "<h3 style='color:red;'>Excel header(s) not found in row 1:</h3>" .
         "<pre>" . htmlspecialchars(implode("\n", $missingHeaders)) . "</pre>"
@@ -764,8 +773,6 @@ flush();
 $totalRows = $xlsx->totalRows();
 
 if ($totalRows <= 0) {
-
-    $conn->close();
 
     die(
         "<h3 style='color:red;'>
@@ -798,17 +805,17 @@ if ($isFirstChunk) {
 
 echo "<strong>Clearing old salesdata...</strong><br>";
 
-if (!$conn->query("TRUNCATE TABLE `salesdata`")) {
+try {
 
-    $error = $conn->error;
+    $pdo->exec("TRUNCATE TABLE `salesdata`");
 
-    $conn->close();
+} catch (Throwable $e) {
 
     die(
         "<h3 style='color:red;'>
             Could not truncate salesdata:
         </h3>" .
-        htmlspecialchars($error)
+        htmlspecialchars($e->getMessage())
     );
 }
 
@@ -824,13 +831,9 @@ flush();
 ========================================================= */
 
 $dbColumns = [];
-$bindTypes = "";
 
 foreach ($columnMap as $map) {
-
     $dbColumns[] = "`" . $map["db"] . "`";
-
-    $bindTypes .= ($map["type"] === "d") ? "d" : "s";
 }
 
 $sql =
@@ -845,19 +848,17 @@ $sql =
    PREPARE STATEMENT
 ========================================================= */
 
-$stmt = $conn->prepare($sql);
+try {
 
-if (!$stmt) {
+    $stmt = $pdo->prepare($sql);
 
-    $error = $conn->error;
-
-    $conn->close();
+} catch (Throwable $e) {
 
     die(
         "<h3 style='color:red;'>
             Prepare statement failed:
         </h3>" .
-        htmlspecialchars($error)
+        htmlspecialchars($e->getMessage())
     );
 }
 
@@ -1037,10 +1038,6 @@ if ($startRow <= $totalRows) {
 
 
     /* =====================================================
-       SET CHUNK
-    ===================================================== */
-
-    /* =====================================================
        READ CHUNK
     ===================================================== */
 
@@ -1057,9 +1054,6 @@ if ($startRow <= $totalRows) {
             htmlspecialchars($e->getMessage()) .
             "<br>";
 
-        $stmt->close();
-        $conn->close();
-
         exit;
     }
 
@@ -1068,7 +1062,7 @@ if ($startRow <= $totalRows) {
        START TRANSACTION
     ===================================================== */
 
-    $conn->begin_transaction();
+    $pdo->beginTransaction();
 
     $chunkInserted = 0;
     $chunkErrors = 0;
@@ -1141,53 +1135,28 @@ if ($startRow <= $totalRows) {
 
 
         /* =================================================
-           BIND PARAMETERS
-        ================================================= */
-
-        $bindResult = $stmt->bind_param(
-            $bindTypes,
-            ...$values
-        );
-
-
-        if (!$bindResult) {
-
-            echo
-                "<div style='color:red; padding:3px 0;'>
-                    ❌ Bind error at Excel row " .
-                number_format($currentExcelRow) .
-                ": " .
-                htmlspecialchars($stmt->error) .
-                "</div>";
-
-            $errorCount++;
-            $chunkErrors++;
-
-            continue;
-        }
-
-
-        /* =================================================
            EXECUTE INSERT
         ================================================= */
 
-        if (!$stmt->execute()) {
+        try {
+
+            $stmt->execute($values);
+
+            $successCount++;
+            $chunkInserted++;
+
+        } catch (Throwable $e) {
 
             echo
                 "<div style='color:red; padding:3px 0;'>
                     ❌ Insert error at Excel row " .
                 number_format($currentExcelRow) .
                 ": " .
-                htmlspecialchars($stmt->error) .
+                htmlspecialchars($e->getMessage()) .
                 "</div>";
 
             $errorCount++;
             $chunkErrors++;
-
-        } else {
-
-            $successCount++;
-            $chunkInserted++;
         }
     }
 
@@ -1196,18 +1165,9 @@ if ($startRow <= $totalRows) {
        COMMIT CHUNK
     ===================================================== */
 
-    if (!$conn->commit()) {
+    try {
 
-        echo
-            "<strong style='color:red;'>
-                Transaction commit failed:
-            </strong> " .
-            htmlspecialchars($conn->error) .
-            "<br>";
-
-        $errorCount++;
-
-    } else {
+        $pdo->commit();
 
         echo
             "<div style='color:#0066cc; margin:8px 0;'>
@@ -1218,6 +1178,17 @@ if ($startRow <= $totalRows) {
             </div>";
 
         flush();
+
+    } catch (Throwable $e) {
+
+        echo
+            "<strong style='color:red;'>
+                Transaction commit failed:
+            </strong> " .
+            htmlspecialchars($e->getMessage()) .
+            "<br>";
+
+        $errorCount++;
     }
 
 
@@ -1281,9 +1252,9 @@ if ($startRow <= $totalRows) {
    CLOSE
 ========================================================= */
 
-$stmt->close();
+$stmt = null;
 
-$conn->close();
+$pdo = null;
 
 
 /* =========================================================

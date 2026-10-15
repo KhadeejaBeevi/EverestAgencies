@@ -1,10 +1,11 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 require 'vendor/autoload.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
-$conn = new mysqli("localhost", "root", "", "tally_DB");
+$conn = db_connect("tally_db");
 
 // 🔥 Clear table before import
 $conn->query("TRUNCATE TABLE kseb_directory");

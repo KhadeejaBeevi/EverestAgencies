@@ -1,6 +1,74 @@
 <?php
 
+/*
+|--------------------------------------------------------------------------
+| ERROR REPORTING
+|--------------------------------------------------------------------------
+|
+| Never print PHP warnings into the JSON. If PHP stops with a fatal
+| error, send the real message back as JSON instead of a blank 500.
+|
+*/
+
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+ob_start();
+
+register_shutdown_function(function () {
+    $e = error_get_last();
+
+    if (
+        $e &&
+        in_array(
+            $e['type'],
+            [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR],
+            true
+        )
+    ) {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        if (!headers_sent()) {
+            http_response_code(500);
+            header("Content-Type: application/json; charset=UTF-8");
+        }
+
+        echo json_encode(
+            [
+                "success" => false,
+                "count" => 0,
+                "data" => [],
+                "message" => $e['message'] . " (" . basename($e['file']) . " line " . $e['line'] . ")"
+            ],
+            JSON_UNESCAPED_UNICODE |
+            JSON_UNESCAPED_SLASHES
+        );
+    }
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| SHARED DB CONNECTION (OPTIONAL)
+|--------------------------------------------------------------------------
+|
+| Uses db_connect.php when it is on the server. Without it, this file
+| connects directly, so the page works either way.
+|
+*/
+
+if (file_exists(__DIR__ . '/db_connect.php')) {
+    require_once __DIR__ . '/db_connect.php';
+}
+
 require_once __DIR__ . '/api_auth.php';
+
+// Drop anything the included files printed 
+// so the response stays valid JSON.
+if (ob_get_length()) {
+    ob_clean();
+}
 
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
@@ -30,12 +98,33 @@ mysqli_report(MYSQLI_REPORT_OFF);
 |
 */
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "salescollection"
-);
+function kseb_db_name(string $name): string
+{
+    if (function_exists('db_name')) {
+        $mapped = trim((string)db_name($name));
+
+        if ($mapped !== '') {
+            return $mapped;
+        }
+    }
+
+    return $name;
+}
+
+$conn = null;
+
+if (function_exists('db_connect')) {
+    $conn = db_connect("salescollection");
+}
+
+if (!($conn instanceof mysqli)) {
+    $conn = new mysqli(
+        "localhost",
+        "root",
+        "",
+        "salescollection"
+    );
+}
 
 if ($conn->connect_error) {
 
@@ -70,6 +159,18 @@ function cleanValue($value): string
 }
 
 
+
+
+// Lowercase + trimmed name used to match PartyLedgerName with
+// kseb_directory.tally_name.
+function kseb_name_key($value): string
+{
+    $value = trim((string)($value ?? ""));
+
+    return function_exists("mb_strtolower")
+        ? mb_strtolower($value, "UTF-8")
+        : strtolower($value);
+}
 
 
 function normalizeDirectoryAreaType($value): string
@@ -141,6 +242,55 @@ function getDistribution(
 
 
 try {
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | KSEB DIRECTORY (LOADED ONCE)
+    |--------------------------------------------------------------------------
+    |
+    | Matching used to run inside the SQL: for every sales row MySQL
+    | scanned the whole kseb_directory with FIND_IN_SET, which was very
+    | slow. Now the directory is read once and matched in PHP.
+    |
+    | tally_name can hold several comma-separated Tally ledger names.
+    | Each name is matched case-insensitively and trimmed. When the same
+    | name is in more than one row, the lowest id wins (as before).
+    |
+    */
+
+    $directoryByTallyName = [];
+
+    $directoryResult = $conn->query(
+        "SELECT id, tally_name, NAME, PARENT_AREA, PLACE, AREA
+         FROM " . kseb_db_name("tally_db") . ".kseb_directory
+         WHERE TRIM(COALESCE(tally_name, '')) <> ''
+         ORDER BY id ASC"
+    );
+
+    if (!$directoryResult) {
+        throw new Exception(
+            "KSEB directory query failed: " .
+            $conn->error
+        );
+    }
+
+    while ($directoryRow = $directoryResult->fetch_assoc()) {
+
+        foreach (explode(",", (string)$directoryRow["tally_name"]) as $tallyPart) {
+
+            $tallyKey = kseb_name_key($tallyPart);
+
+            if ($tallyKey === "" || isset($directoryByTallyName[$tallyKey])) {
+                continue;
+            }
+
+            $directoryByTallyName[$tallyKey] = $directoryRow;
+        }
+    }
+
+    $directoryResult->free();
+
 
 
     /*
@@ -233,79 +383,10 @@ try {
             sd.enquiry_no,
 
             sd.temp_item_desc,
-            sd.ledger_grand_parent,
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | DIRECT KSEB DIRECTORY
-            |--------------------------------------------------------------------------
-            |
-            | PartyLedgerName = tally_name
-            |
-            */
-
-            kd.id AS direct_directory_id,
-
-            kd.tally_name AS direct_tally_name,
-
-            kd.NAME AS direct_directory_name,
-
-            kd.PARENT_AREA AS direct_parent_area,
-
-            kd.PLACE AS direct_place,
-
-            kd.AREA AS direct_area
+            sd.ledger_grand_parent
 
 
         FROM salesdata sd
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | DIRECT KSEB DIRECTORY MATCH
-        |--------------------------------------------------------------------------
-        |
-        | Match:
-        |
-        | salesdata.PartyLedgerName
-        |
-        | with
-        |
-        | kseb_directory.tally_name
-        |
-        | Case-insensitive and trimmed.
-        |
-        */
-
-        LEFT JOIN tally_db.kseb_directory kd
-
-            ON kd.id = (
-
-                SELECT MIN(kd_match.id)
-
-                FROM tally_db.kseb_directory kd_match
-
-                WHERE
-                    TRIM(COALESCE(kd_match.tally_name, '')) <> ''
-
-                    AND FIND_IN_SET(
-                        LOWER(TRIM(COALESCE(sd.PartyLedgerName, ''))),
-                        REPLACE(
-                            REPLACE(
-                                REPLACE(
-                                    LOWER(TRIM(COALESCE(kd_match.tally_name, ''))),
-                                    ' , ',
-                                    ','
-                                ),
-                                ' ,',
-                                ','
-                            ),
-                            ', ',
-                            ','
-                        )
-                    ) > 0
-            )
 
 
         /*
@@ -577,40 +658,29 @@ try {
         |
         */
 
-        $directDirectoryId =
-            cleanValue(
-                $row["direct_directory_id"]
-            );
+        $directoryMatch =
+            $directoryByTallyName[
+                kseb_name_key($party)
+            ] ?? null;
 
+
+        $directDirectoryId =
+            cleanValue($directoryMatch["id"] ?? "");
 
         $directTallyName =
-            cleanValue(
-                $row["direct_tally_name"]
-            );
-
+            cleanValue($directoryMatch["tally_name"] ?? "");
 
         $directDirectoryName =
-            cleanValue(
-                $row["direct_directory_name"]
-            );
-
+            cleanValue($directoryMatch["NAME"] ?? "");
 
         $directParentArea =
-            cleanValue(
-                $row["direct_parent_area"]
-            );
-
+            cleanValue($directoryMatch["PARENT_AREA"] ?? "");
 
         $directPlace =
-            cleanValue(
-                $row["direct_place"]
-            );
-
+            cleanValue($directoryMatch["PLACE"] ?? "");
 
         $directArea =
-            cleanValue(
-                $row["direct_area"]
-            );
+            cleanValue($directoryMatch["AREA"] ?? "");
 
 
         /*
@@ -1551,5 +1621,3 @@ try {
         $conn->close();
     }
 }
-
-?>

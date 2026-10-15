@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -12,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
-$conn = new mysqli("localhost", "root", "", "tally_db");
+$conn = db_connect("tally_db");
 
 if ($conn->connect_error) {
     echo json_encode([

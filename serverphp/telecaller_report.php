@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Content-Type: application/json; charset=utf-8");
 header("Access-Control-Allow-Origin: *");
@@ -7,7 +8,7 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization, x-api-key");
 if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") exit;
 
 try {
-    $conn = new mysqli("localhost", "root", "", "salescollection");
+    $conn = db_connect("salescollection");
     if ($conn->connect_error) throw new Exception("Database connection failed: ".$conn->connect_error);
     $conn->set_charset("utf8mb4");
 

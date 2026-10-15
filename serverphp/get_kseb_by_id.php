@@ -3,7 +3,8 @@ require_once __DIR__ . '/api_auth.php';
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
 
-include "db.php"; // your DB connection file
+require_once __DIR__ . '/db_connect.php';
+$conn = db_connect("tally_db");
 
 $response = [];
 

@@ -441,6 +441,10 @@ const QuotationWise = () => {
         return !!key && !!longTermClients[key];
     };
 
+    // Long-Term Clients and Local Electrical Shops need no follow-up.
+    const isNoFollowupRow = (row) =>
+        isLongTermClient(row) || isLocalElectricalShop(row);
+
     const toggleLongTermClient = async (row) => {
         if (!isAdminUser) {
             showToast("Only Admin can edit Long-Term Client.");
@@ -977,11 +981,11 @@ const QuotationWise = () => {
         const loggedInUser = String(telecallerName || '').trim().toLowerCase();
 
         data.forEach((row) => {
-            // Billed quotations and Long-Term Clients are excluded from
-            // follow-up reminders (long-term clients need no follow-up).
+            // Billed quotations, Long-Term Clients and Local Electrical
+            // Shops are excluded from follow-up reminders (no follow-up needed).
             const rowStatus = getStatus(row);
             if (rowStatus === 'billed') return;
-            if (isLongTermClient(row)) return;
+            if (isNoFollowupRow(row)) return;
 
             const quotationNo = getQuotationNo(row);
             const followupPerson = String(
@@ -1103,7 +1107,7 @@ const QuotationWise = () => {
                 ).trim();
 
                 if (followupFilter === 'none') {
-                    return person === '' && !isLongTermClient(row);
+                    return person === '' && !isNoFollowupRow(row);
                 }
 
                 return person.toLowerCase() ===
@@ -1151,10 +1155,11 @@ const QuotationWise = () => {
                 const rowStatus = getStatus(row);
                 if (rowStatus === "billed") return false;
 
-                // Long-Term Clients need no follow-up, so they never appear in
-                // the New / Due / date follow-up lists (WhatsApp filters still apply).
+                // Long-Term Clients and Local Electrical Shops need no follow-up,
+                // so they never appear in the New / Due / date follow-up lists
+                // (WhatsApp filters still apply).
                 const isFollowupList = !String(followupQuickFilter).startsWith("wa_");
-                if (isFollowupList && isLongTermClient(row)) return false;
+                if (isFollowupList && isNoFollowupRow(row)) return false;
 
                 // No Follow-ups = no follow-up person AND no next follow-up date.
                 if (followupQuickFilter === "none") {
@@ -3893,7 +3898,11 @@ const QuotationWise = () => {
                                                                 </div>
                                                             )}
                                                             <div style={{ marginTop: (row.brought_by || row.assigned_to) ? "7px" : "0" }}>
-                                                                {followupByQuotation[quotationNo] ? (() => {
+                                                                {isNoFollowupRow(row) ? (
+                                                                    <span style={{ color: "#05693a", fontStyle: "italic" }}>
+                                                                        {isLongTermClient(row) ? "Long-Term Client" : "Local Electrical Shop"}: no follow-up needed
+                                                                    </span>
+                                                                ) : followupByQuotation[quotationNo] ? (() => {
                                                                     const isFollowupExpanded = expandedFollowup === quotationNo;
                                                                     const history = followupHistoryByQuotation[quotationNo] || [];
                                                                     return (
@@ -3987,8 +3996,6 @@ const QuotationWise = () => {
                                                                     );
                                                                 })() : followupLoading ? (
                                                                     <span style={{ color: "#999", fontStyle: "italic" }}>Loading...</span>
-                                                                ) : isLongTermClient(row) ? (
-                                                                    <span style={{ color: "#05693a", fontStyle: "italic" }}>Long-Term Client: no follow-up needed</span>
                                                                 ) : (
                                                                     <span style={{ color: "#999", fontStyle: "italic" }}>No Follow Up</span>
                                                                 )}
@@ -4064,7 +4071,7 @@ const QuotationWise = () => {
                                                         >
                                                             {/* Lost quotations can get a note too, so a
                                                                 returning customer can be followed up again. */}
-                                                            {status === "quotation" || status === "lost" ? (
+                                                            {(status === "quotation" || status === "lost") && !isNoFollowupRow(row) ? (
                                                                 <button
                                                                     onClick={() =>
                                                                         openNoteModal(

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
@@ -10,12 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // DB
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "tally_db"
-);
+$conn = db_connect("tally_db");
 
 
 if ($conn->connect_error) {

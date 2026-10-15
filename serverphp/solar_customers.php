@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/api_auth.php';
 
@@ -13,12 +14,7 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 
 mysqli_report(MYSQLI_REPORT_OFF);
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "salescollection"
-);
+$conn = db_connect("salescollection");
 
 if ($conn->connect_error) {
     echo json_encode([

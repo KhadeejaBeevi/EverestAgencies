@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Banner from "../../components/Banner/Banner.jsx";
 import { apiFetch } from "../../api/apiClient";
+import { BackToLeadGen } from "./LeadGenReportGuard";
 
 const API = "/serverphp";
 
@@ -414,6 +415,21 @@ const LeadContributionReport = () => {
                     Contribution
                 </div>
 
+            </div>
+
+            {/* =====================================================
+                BACK
+            ====================================================== */}
+
+            <div
+                style={{
+                    maxWidth: "1500px",
+                    margin: "0 auto",
+                    padding: "18px 18px 0",
+                    boxSizing: "border-box",
+                }}
+            >
+                <BackToLeadGen />
             </div>
 
             {/* =====================================================

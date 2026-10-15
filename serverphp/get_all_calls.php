@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
@@ -28,7 +29,7 @@ try {
     // =====================
     // DB CONNECTION
     // =====================
-    $conn = new mysqli("localhost", "root", "", "tally_db");
+    $conn = db_connect("tally_db");
     $conn->set_charset("utf8mb4");
 
     // =====================

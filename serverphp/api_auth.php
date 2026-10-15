@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 // Stop PHP warnings/notices from being returned as JSON
 error_reporting(E_ALL);
@@ -19,18 +20,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 
 
-$host = "localhost";
-$dbname = "tally_db";
-$username = "root";
-$password = "";
 
 try {
 
-    $pdo = new PDO(
-        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
-        $username,
-        $password,
-        [
+    $pdo = db_pdo("tally_db", [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
         ]

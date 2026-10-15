@@ -1,7 +1,8 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/../vendor/autoload.php';
-$conn = new mysqli("localhost", "root", "", "salescollection"); // Change DB if needed
+$conn = db_connect("salescollection"); // Change DB if needed
 
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);

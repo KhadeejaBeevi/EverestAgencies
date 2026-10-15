@@ -1,11 +1,12 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
-$mysqli = new mysqli("localhost", "root", "", "salescollection");
+$mysqli = db_connect("salescollection");
 
 if ($mysqli->connect_error) {
     echo json_encode(["success" => false, "error" => $mysqli->connect_error]);

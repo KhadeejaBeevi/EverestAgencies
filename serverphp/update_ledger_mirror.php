@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/api_auth.php';
 require_once __DIR__ . '/ledger_mirror_tally.php';
@@ -27,12 +28,7 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 |--------------------------------------------------------------------------
 */
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "salescollection"
-);
+$conn = db_connect("salescollection");
 
 if ($conn->connect_error) {
 

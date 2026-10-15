@@ -1,8 +1,9 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Content-Type: application/json");
 
-$conn = new mysqli("localhost", "root", "", "tally_db");
+$conn = db_connect("tally_db");
 
 $uid = $_GET['uid'] ?? '';
 

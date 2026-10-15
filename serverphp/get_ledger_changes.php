@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/api_auth.php';
 require_once __DIR__ . '/ledger_mirror_tally.php';
@@ -30,12 +31,7 @@ mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 try {
 
-    $conn = new mysqli(
-        "localhost",
-        "root",
-        "",
-        "salescollection"
-    );
+    $conn = db_connect("salescollection");
 
     $conn->set_charset("utf8mb4");
 

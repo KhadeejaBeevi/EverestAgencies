@@ -71,3 +71,8 @@ serverphp/chat.php
 
 zip
 
+
+serverphp_old/
+
+serverphp/db_credentials.php
+error_log

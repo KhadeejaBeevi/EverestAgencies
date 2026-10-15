@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 
 set_time_limit(0);
@@ -7,10 +8,6 @@ ini_set('memory_limit', '512M');
 echo "Starting Tally XML import process...\n";
 
 
-$host = 'localhost';
-$dbname = 'salescollection';
-$username = 'root';
-$password = '';
 
 
 $DUPLICATE_HANDLING = 'REPLACE'; 
@@ -207,7 +204,7 @@ curl_setopt($testCh, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0);
     
     // Connect to database
     echo "Connecting to database...\n";
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8", $username, $password);
+    $pdo = db_pdo("salescollection", [], "utf8");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     echo "✅ Database connected successfully!\n";
     

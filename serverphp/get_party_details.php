@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 // Turn off all error reporting for production
 error_reporting(0);
@@ -14,11 +15,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit(0);
 }
 
-// Database configuration - UPDATE THESE WITH YOUR ACTUAL CREDENTIALS
-$host = 'localhost';
-$dbname = 'salescollection'; // Replace with your database name
-$username = 'root';    // Replace with your database username
-$password = '';     // REPLACE WITH YOUR DATABASE PASSWORD
 
 // Function to send JSON error response
 function sendError($message) {
@@ -29,7 +25,7 @@ function sendError($message) {
 
 try {
     // Create PDO connection
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8", $username, $password);
+    $pdo = db_pdo("salescollection", [], "utf8");
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 

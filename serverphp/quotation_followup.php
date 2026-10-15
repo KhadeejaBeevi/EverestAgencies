@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/api_auth.php';
 
@@ -12,12 +13,7 @@ header("Content-Type: application/json; charset=UTF-8");
 
 ob_start();
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "salescollection"
-);
+$conn = db_connect("salescollection");
 
 if ($conn->connect_error) {
     ob_clean();

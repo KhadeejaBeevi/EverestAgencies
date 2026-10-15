@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 ini_set('max_execution_time', 600);
 ini_set('memory_limit', '1024M');
@@ -8,12 +9,7 @@ header("Content-Type: application/json");
 
 
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "salescollection"
-);
+$conn = db_connect("salescollection");
 
 
 

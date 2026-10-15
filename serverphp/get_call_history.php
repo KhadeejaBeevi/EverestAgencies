@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/api_auth.php';
-include "db.php";
+require_once __DIR__ . '/db_connect.php';
+$conn = db_connect("tally_db");
 
 $kseb_id = $_GET['kseb_id'];
 

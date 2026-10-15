@@ -1,5 +1,28 @@
 <?php
 
+require_once __DIR__ . '/db_connect.php';
+
+/* =========================================================
+   HOSTING SETTINGS
+   Database login comes from db_connect.php on the server.
+========================================================= */
+
+/* Public address of this serverphp folder, e.g.
+   "https://app.everestagencies.com/serverphp".
+   Leave empty to work it out from the current request. */
+define("PUBLIC_BASE_URL", "");
+
+/* Keep false on the live server so database errors are logged,
+   not shown to users. */
+define("APP_DEBUG", false);
+
+/* Hosting servers usually run in UTC; enquiry dates, the
+   financial year and timers must use Indian time. */
+date_default_timezone_set("Asia/Kolkata");
+error_reporting(E_ALL);
+ini_set("display_errors", APP_DEBUG ? "1" : "0");
+ini_set("log_errors", "1");
+
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key");
@@ -10,28 +33,29 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
     exit;
 }
 
-$host = "localhost";
-$dbname = "salescollection";
-$username = "root";
-$password = "";
+/* Logs the real error and returns a message that is safe to
+   send to the browser. */
+function errorDetail($e)
+{
+    error_log("ENQUIRY REPORT ERROR: " . $e->getMessage());
+    return APP_DEBUG ? $e->getMessage() : "Please try again or contact the administrator.";
+}
 
 try {
-    $pdo = new PDO(
-        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
-        $username,
-        $password,
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false
-        ]
-    );
+    $pdo = db_pdo("salescollection", [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false
+    ]);
+
+    /* Make MySQL NOW() match PHP date() on the hosting server. */
+    $pdo->exec("SET time_zone = '+05:30'");
 } catch (PDOException $e) {
     http_response_code(500);
     echo json_encode([
         "success" => false,
         "message" => "Database connection failed.",
-        "error" => $e->getMessage()
+        "error" => errorDetail($e)
     ]);
     exit;
 }
@@ -162,15 +186,26 @@ function getNextEnquiryNumber($pdo)
 
 /* =========================================================
    BASE URL
+   Uses PUBLIC_BASE_URL when set; otherwise the folder this
+   script is served from, so it works on any domain or path.
 ========================================================= */
 
 function getBaseUrl()
 {
-    $https = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off");
+    if (PUBLIC_BASE_URL !== "") {
+        return PUBLIC_BASE_URL;
+    }
+
+    $https = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off")
+        || (($_SERVER["SERVER_PORT"] ?? "") === "443")
+        || (strtolower($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? "") === "https");
     $protocol = $https ? "https" : "http";
     $host = $_SERVER["HTTP_HOST"] ?? "localhost";
 
-    return $protocol . "://" . $host . "/everest/serverphp";
+    $path = str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? ""));
+    $path = rtrim($path, "/.");
+
+    return $protocol . "://" . $host . $path;
 }
 
 
@@ -312,6 +347,8 @@ function deleteAttachmentFile($attachment)
 
 /* =========================================================
    PARSE ATTACHMENTS
+   File URLs are rebuilt from stored_name so attachments saved
+   on localhost still open after moving to the live server.
 ========================================================= */
 
 function parseAttachments($value)
@@ -320,17 +357,20 @@ function parseAttachments($value)
         return [];
     }
 
-    if (is_array($value)) {
-        return $value;
+    $attachments = is_array($value) ? $value : json_decode($value, true);
+
+    if (!is_array($attachments)) {
+        return [];
     }
 
-    $decoded = json_decode($value, true);
-
-    if (is_array($decoded)) {
-        return $decoded;
+    foreach ($attachments as &$attachment) {
+        if (is_array($attachment) && !empty($attachment["stored_name"])) {
+            $attachment["file_url"] = getBaseUrl() . "/enquiry_uploads/" . rawurlencode(basename($attachment["stored_name"]));
+        }
     }
+    unset($attachment);
 
-    return [];
+    return $attachments;
 }
 
 
@@ -829,7 +869,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to load quotation ready list.", null, [
-            "error" => $e->getMessage()
+            "error" => errorDetail($e)
         ]);
     }
 }
@@ -856,7 +896,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to update quotation notification.", null, [
-            "error" => $e->getMessage()
+            "error" => errorDetail($e)
         ]);
     }
 }
@@ -1033,12 +1073,15 @@ function backfillTimerQueue($pdo)
 }
 
 /* Runs $callback inside a named MySQL lock so two users
-   cannot start two timers at the same moment. */
+   cannot start two timers at the same moment. The lock name
+   includes the database name so two sites on one shared
+   MySQL server do not block each other. */
 function withTimerLock($pdo, $callback)
 {
     ensureTimerTable($pdo);
 
-    $pdo->query("SELECT GET_LOCK('enquiry_timer_queue', 10)");
+    $lockName = "salescollection.enquiry_timer_queue";
+    $pdo->prepare("SELECT GET_LOCK(:name, 10)")->execute([":name" => $lockName]);
 
     try {
         $callback();
@@ -1046,7 +1089,7 @@ function withTimerLock($pdo, $callback)
         syncTimerQueue($pdo);
         return getTimerQueue($pdo);
     } finally {
-        $pdo->query("SELECT RELEASE_LOCK('enquiry_timer_queue')");
+        $pdo->prepare("SELECT RELEASE_LOCK(:name)")->execute([":name" => $lockName]);
     }
 }
 
@@ -1063,7 +1106,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to load timer queue.", null, [
-            "error" => $e->getMessage()
+            "error" => errorDetail($e)
         ]);
     }
 }
@@ -1118,7 +1161,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Timer update failed.", null, [
-            "error" => $e->getMessage()
+            "error" => errorDetail($e)
         ]);
     }
 }
@@ -1183,6 +1226,7 @@ if (
         readfile($filePath);
         exit;
     } catch (Throwable $e) {
+        error_log("ATTACHMENT DOWNLOAD ERROR: " . $e->getMessage());
         http_response_code(500);
         echo "Unable to download attachment.";
         exit;
@@ -1222,7 +1266,7 @@ if ($method === "GET") {
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to load enquiries.", null, [
-            "error" => $e->getMessage()
+            "error" => errorDetail($e)
         ]);
     }
 }
@@ -1234,6 +1278,13 @@ if ($method === "GET") {
 ========================================================= */
 
 if ($method === "POST") {
+
+    /* The upload was bigger than post_max_size, so PHP dropped
+       every field. Say so instead of "Enquiry date is required". */
+    if (empty($_POST) && empty($_FILES) && (int)($_SERVER["CONTENT_LENGTH"] ?? 0) > 0) {
+        http_response_code(413);
+        responseJson(false, "Attachments are too large for the server (limit " . ini_get("post_max_size") . ").");
+    }
 
     try {
         $id = isset($_POST["id"]) ? (int)$_POST["id"] : 0;
@@ -1558,7 +1609,7 @@ if ($method === "POST") {
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to save enquiry.", null, [
-            "error" => $e->getMessage()
+            "error" => errorDetail($e)
         ]);
     }
 }
@@ -1570,6 +1621,3 @@ if ($method === "POST") {
 
 http_response_code(405);
 responseJson(false, "Method not allowed.");
-
-
-

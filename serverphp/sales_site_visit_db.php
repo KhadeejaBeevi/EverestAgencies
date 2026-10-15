@@ -1,9 +1,10 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 // Shared helpers for the Sales Site Visit endpoints.
 
 function sales_site_visit_conn()
 {
-    $conn = new mysqli("localhost", "root", "", "tally_db");
+    $conn = db_connect("tally_db");
 
     if ($conn->connect_error) {
         echo json_encode([
@@ -56,7 +57,7 @@ function sales_site_visit_phone_key($phone)
 // Returns the matched party ledger name, or null when the customer is new.
 function sales_site_visit_find_party($customerName, $phone)
 {
-    $conn = new mysqli("localhost", "root", "", "salescollection");
+    $conn = db_connect("salescollection");
 
     if ($conn->connect_error) {
         return null;

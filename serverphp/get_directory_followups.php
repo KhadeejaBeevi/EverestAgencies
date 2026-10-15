@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json");
@@ -7,12 +8,7 @@ header("Content-Type: application/json");
 // DB CONNECTION
 // =====================================================
 
-$conn = new mysqli(
-    "localhost",
-    "root",
-    "",
-    "tally_db"
-);
+$conn = db_connect("tally_db");
 
 if ($conn->connect_error) {
 

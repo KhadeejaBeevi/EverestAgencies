@@ -1,6 +1,36 @@
 <?php
 
-require_once __DIR__ . '/../vendor/autoload.php';
+// =====================================================
+// RUNTIME SETTINGS
+// 13,000+ ledgers is too much for PHP's default
+// 128M / 30 second limits, so raise them and show
+// any error instead of a blank page.
+// =====================================================
+
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+ini_set('memory_limit', '1024M');
+set_time_limit(0);
+
+register_shutdown_function(function () {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        echo "<br><b style='color:red'>Import stopped:</b> "
+           . htmlspecialchars($error['message'])
+           . " (" . htmlspecialchars(basename($error['file'])) . ":" . $error['line'] . ")";
+    }
+});
+
+// Report MySQL errors through ->error instead of exceptions
+mysqli_report(MYSQLI_REPORT_OFF);
+
+$autoload = __DIR__ . '/../vendor/autoload.php';
+
+if (!file_exists($autoload)) {
+    die("vendor/autoload.php not found. Run <b>composer install</b> in the project folder.");
+}
+
+require_once $autoload;
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -8,21 +38,18 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 // DATABASE CONNECTION
 // =====================================================
 
-$conn = new mysqli("localhost", "root", "", "salescollection");
+if (file_exists(__DIR__ . '/db_connect.php')) {
+    require_once __DIR__ . '/db_connect.php';
+    $conn = db_connect("salescollection");
+} else {
+    $conn = new mysqli("localhost", "root", "", "salescollection");
+}
 
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
 
 $conn->set_charset("utf8mb4");
-
-// =====================================================
-// TRUNCATE OLD DATA
-// =====================================================
-
-if (!$conn->query("TRUNCATE TABLE `salesdatalatest33`")) {
-    die("Failed to truncate table: " . $conn->error);
-}
 
 // =====================================================
 // EXCEL FILE
@@ -37,16 +64,22 @@ if (!file_exists($file)) {
 
 // =====================================================
 // LOAD EXCEL
+// Values only (no styles) to keep memory low.
 // =====================================================
 
 try {
-    $spreadsheet = IOFactory::load($file);
-} catch (Exception $e) {
+    $reader = IOFactory::createReaderForFile($file);
+    $reader->setReadDataOnly(true);
+    $spreadsheet = $reader->load($file);
+} catch (Throwable $e) {
     die("Unable to load Excel file: " . htmlspecialchars($e->getMessage()));
 }
 
 $sheet = $spreadsheet->getActiveSheet();
 $data = $sheet->toArray(null, true, true, false);
+
+$spreadsheet->disconnectWorksheets();
+unset($spreadsheet, $sheet, $reader);
 
 if (count($data) < 2) {
     die("No data found in Excel.");
@@ -224,6 +257,20 @@ $skipped = 0;
 
 $totalRows = count($data) - 1;
 
+// =====================================================
+// REPLACE OLD DATA IN ONE TRANSACTION
+// Old ledgers stay in place if the import stops
+// halfway, and one commit is much faster than
+// 13,000 separate ones.
+// =====================================================
+
+$conn->begin_transaction();
+
+if (!$conn->query("DELETE FROM `salesdatalatest33`")) {
+    $conn->rollback();
+    die("Failed to clear table: " . htmlspecialchars($conn->error));
+}
+
 for ($i = 1; $i < count($data); $i++) {
 
     $row = $data[$i];
@@ -301,6 +348,10 @@ for ($i = 1; $i < count($data); $i++) {
 
         echo "<br>";
     }
+}
+
+if (!$conn->commit()) {
+    die("Failed to save import: " . htmlspecialchars($conn->error));
 }
 
 // =====================================================

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/api_auth.php';
 
@@ -19,17 +20,8 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 |--------------------------------------------------------------------------
 */
 
-$host = "localhost";
-$username = "root";
-$password = "";
-$database = "salescollection";
 
-$conn = new mysqli(
-    $host,
-    $username,
-    $password,
-    $database
-);
+$conn = db_connect("salescollection");
 
 if ($conn->connect_error) {
 

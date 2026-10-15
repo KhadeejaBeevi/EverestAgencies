@@ -10,8 +10,10 @@ import CallLaterPopup from "../CRM/CallLaterPopup";
 import SorryCallPopup from "../CRM/SorryCallPopup";
 import HiddenPartyPopup from "./DoNotCallPopupNL";
 import { apiFetch } from "../../api/apiClient";
+import useIsAdmin from "./useIsAdmin";
 
 export default function PartyTable() {
+  const { isAdmin } = useIsAdmin();
   const [partyList, setPartyList] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [selectedParty, setSelectedParty] = useState(null);
@@ -634,6 +636,12 @@ export default function PartyTable() {
         "/leadcontributionreport";
     };
 
+  const openLeadCallReport =
+    () => {
+      window.location.href =
+        "/leadcallreport";
+    };
+
   // =========================================================
   // RETURN
   // =========================================================
@@ -656,17 +664,6 @@ export default function PartyTable() {
           className="bg-green-600 text-white px-3 py-2 sm:px-4 rounded text-sm sm:text-base w-full sm:w-auto hover:bg-green-700 transition-colors"
         >
           ➕ New Lead GEN
-        </button>
-
-        {/* LEAD CONTRIBUTION */}
-
-        <button
-          onClick={
-            openLeadContributionReport
-          }
-          className="bg-blue-800 text-white px-3 py-2 sm:px-4 rounded text-sm sm:text-base w-full sm:w-auto hover:bg-blue-900 transition-colors shadow-sm font-semibold"
-        >
-          📊 Lead Contribution
         </button>
 
       </div>
@@ -1116,18 +1113,29 @@ export default function PartyTable() {
             📑 Enquiry Report
           </button>
 
-          {/* =================================================
-              LEAD CONTRIBUTION REPORT
-          ================================================== */}
+          {/* REPORTS (ADMIN ONLY) */}
 
-          <button
-            onClick={
-              openLeadContributionReport
-            }
-            className="w-full sm:w-auto px-3 py-2 sm:px-4 text-xs sm:text-sm font-medium bg-blue-800 hover:bg-blue-900 text-white rounded-lg shadow-sm whitespace-nowrap transition-colors font-semibold"
-          >
-            📊 Lead Contribution
-          </button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={
+                  openLeadContributionReport
+                }
+                className="w-full sm:w-auto px-3 py-2 sm:px-4 text-xs sm:text-sm font-medium bg-blue-800 hover:bg-blue-900 text-white rounded-lg shadow-sm whitespace-nowrap transition-colors font-semibold"
+              >
+                📊 Lead Contribution
+              </button>
+
+              <button
+                onClick={
+                  openLeadCallReport
+                }
+                className="w-full sm:w-auto px-3 py-2 sm:px-4 text-xs sm:text-sm font-medium bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg shadow-sm whitespace-nowrap transition-colors font-semibold"
+              >
+                📞 Call &amp; Conversion Report
+              </button>
+            </>
+          )}
 
         </div>
 

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 
 $tallyUrl = "http://117.221.70.147:14151";
@@ -68,7 +69,7 @@ if (!isset($xml->COMPANYINFO)) {
 }
 
 
-$conn = new mysqli("localhost", "root", "", "tally_db");
+$conn = db_connect("tally_db");
 
 if ($conn->connect_error) {
     die("❌ DB Connection failed: " . $conn->connect_error);

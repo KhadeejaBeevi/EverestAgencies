@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -9,7 +10,7 @@ header("Access-Control-Allow-Methods: POST");
 header("Content-Type: application/json");
 
 // Connect to database
-$conn = new mysqli("localhost", "root", "", "salescollection");
+$conn = db_connect("salescollection");
 if ($conn->connect_error) {
     die(json_encode(["error" => "Connection failed"]));
 }

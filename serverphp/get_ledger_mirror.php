@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -19,10 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 |--------------------------------------------------------------------------
 */
 
-$host = "localhost";
-$dbname = "salescollection";
-$username = "root";
-$password = "";
 
 
 /*
@@ -76,11 +73,7 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    $pdo = new PDO(
-        "mysql:host={$host};dbname={$dbname};charset=utf8mb4",
-        $username,
-        $password,
-        [
+    $pdo = db_pdo("salescollection", [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_EMULATE_PREPARES => false,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC

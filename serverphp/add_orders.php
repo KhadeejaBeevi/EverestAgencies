@@ -1,9 +1,10 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json");
 
-$conn = new mysqli("localhost", "root", "", "tally_db");
+$conn = db_connect("tally_db");
 
 $order_date = $_POST['date'];
 $party_name = $_POST['party'];
@@ -24,7 +25,10 @@ if (isset($_FILES['poImage'])) {
 
     move_uploaded_file($_FILES['poImage']['tmp_name'], $target);
 
-    $po_image_url = "http://localhost/everest/serverphp/uploads/" . $fileName;
+    $https = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off");
+    $baseUrl = ($https ? "https" : "http") . "://" . ($_SERVER["HTTP_HOST"] ?? "localhost")
+        . rtrim(str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? "")), "/");
+    $po_image_url = $baseUrl . "/uploads/" . $fileName;
 }
 
 $stmt = $conn->prepare("INSERT INTO sales_orders 

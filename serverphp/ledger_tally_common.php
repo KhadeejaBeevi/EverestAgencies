@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/db_connect.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -118,7 +119,7 @@ function xmlEscape($value)
 
 function openLedgerDb()
 {
-    $conn = new mysqli("localhost", "root", "", "salescollection");
+    $conn = db_connect("salescollection");
 
     if ($conn->connect_error) {
         sendJson([
