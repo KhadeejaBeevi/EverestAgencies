@@ -14,6 +14,18 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 ob_start();
 
+// Shared hosting often has small limits; this report loads every KSEB
+// invoice with its items. (Ignored where the host does not allow it.)
+@set_time_limit(120);
+@ini_set('memory_limit', '512M');
+
+// JSON flags for every response. INVALID_UTF8_SUBSTITUTE stops one bad
+// character in Tally data from making json_encode() return nothing.
+const KSEB_JSON_FLAGS =
+    JSON_UNESCAPED_UNICODE |
+    JSON_UNESCAPED_SLASHES |
+    JSON_INVALID_UTF8_SUBSTITUTE;
+
 register_shutdown_function(function () {
     $e = error_get_last();
 
@@ -41,8 +53,7 @@ register_shutdown_function(function () {
                 "data" => [],
                 "message" => $e['message'] . " (" . basename($e['file']) . " line " . $e['line'] . ")"
             ],
-            JSON_UNESCAPED_UNICODE |
-            JSON_UNESCAPED_SLASHES
+            KSEB_JSON_FLAGS
         );
     }
 });
@@ -64,7 +75,7 @@ if (file_exists(__DIR__ . '/db_connect.php')) {
 
 require_once __DIR__ . '/api_auth.php';
 
-// Drop anything the included files printed 
+// Drop anything the included files printed (stray spaces, notices)
 // so the response stays valid JSON.
 if (ob_get_length()) {
     ob_clean();
@@ -98,26 +109,33 @@ mysqli_report(MYSQLI_REPORT_OFF);
 |
 */
 
-function kseb_db_name(string $name): string
-{
-    if (function_exists('db_name')) {
-        $mapped = trim((string)db_name($name));
-
-        if ($mapped !== '') {
-            return $mapped;
-        }
-    }
-
-    return $name;
-}
-
 $conn = null;
 
 if (function_exists('db_connect')) {
-    $conn = db_connect("salescollection");
-}
 
-if (!($conn instanceof mysqli)) {
+    // Hosted server: always use the shared connection settings.
+    $conn = db_connect("salescollection");
+
+    if (!($conn instanceof mysqli)) {
+
+        http_response_code(500);
+
+        echo json_encode(
+            [
+                "success" => false,
+                "count" => 0,
+                "data" => [],
+                "message" => "db_connect('salescollection') did not return a database connection. Check db_connect.php."
+            ],
+            KSEB_JSON_FLAGS
+        );
+
+        exit;
+    }
+
+} else {
+
+    // Local testing without db_connect.php.
     $conn = new mysqli(
         "localhost",
         "root",
@@ -137,8 +155,7 @@ if ($conn->connect_error) {
             "data" => [],
             "message" => "Database connection failed: " . $conn->connect_error
         ],
-        JSON_UNESCAPED_UNICODE |
-        JSON_UNESCAPED_SLASHES
+        KSEB_JSON_FLAGS
     );
 
     exit;
@@ -253,6 +270,10 @@ try {
     | scanned the whole kseb_directory with FIND_IN_SET, which was very
     | slow. Now the directory is read once and matched in PHP.
     |
+    | Uses its OWN tally_db connection: on cPanel every database has its
+    | own MySQL user, and the salescollection user cannot read tally_db
+    | (locally root can read both, which is why it worked there).
+    |
     | tally_name can hold several comma-separated Tally ledger names.
     | Each name is matched case-insensitively and trimmed. When the same
     | name is in more than one row, the lowest id wins (as before).
@@ -261,9 +282,22 @@ try {
 
     $directoryByTallyName = [];
 
-    $directoryResult = $conn->query(
+    $directoryConn = function_exists('db_connect')
+        ? db_connect("tally_db")
+        : new mysqli("localhost", "root", "", "tally_db");
+
+    if (!($directoryConn instanceof mysqli) || $directoryConn->connect_error) {
+        throw new Exception(
+            "KSEB directory connection failed" .
+            ($directoryConn instanceof mysqli ? ": " . $directoryConn->connect_error : ".")
+        );
+    }
+
+    $directoryConn->set_charset("utf8mb4");
+
+    $directoryResult = $directoryConn->query(
         "SELECT id, tally_name, NAME, PARENT_AREA, PLACE, AREA
-         FROM " . kseb_db_name("tally_db") . ".kseb_directory
+         FROM kseb_directory
          WHERE TRIM(COALESCE(tally_name, '')) <> ''
          ORDER BY id ASC"
     );
@@ -271,7 +305,7 @@ try {
     if (!$directoryResult) {
         throw new Exception(
             "KSEB directory query failed: " .
-            $conn->error
+            $directoryConn->error
         );
     }
 
@@ -290,6 +324,7 @@ try {
     }
 
     $directoryResult->free();
+    $directoryConn->close();
 
 
 
@@ -1571,7 +1606,7 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    echo json_encode(
+    $json = json_encode(
 
         [
             "success" =>
@@ -1584,10 +1619,21 @@ try {
                 $data
         ],
 
-        JSON_UNESCAPED_UNICODE |
-        JSON_UNESCAPED_SLASHES
+        KSEB_JSON_FLAGS
 
     );
+
+
+    if ($json === false) {
+
+        throw new Exception(
+            "Could not build the JSON response: " .
+            json_last_error_msg()
+        );
+    }
+
+
+    echo $json;
 
 
 } catch (Throwable $e) {
@@ -1610,8 +1656,7 @@ try {
                 $e->getMessage()
         ],
 
-        JSON_UNESCAPED_UNICODE |
-        JSON_UNESCAPED_SLASHES
+        KSEB_JSON_FLAGS
 
     );
 
