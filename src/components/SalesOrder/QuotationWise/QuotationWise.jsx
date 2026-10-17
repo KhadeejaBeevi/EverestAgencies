@@ -11,6 +11,7 @@ import {
     getQuotationPdfFileName
 } from "./QuotationPdf.jsx";
 import WhatsappLogModal from "./WhatsappLogModal.jsx";
+import WhatsappApiSender from "./WhatsappApiSender.jsx";
 import {
     addDaysLocal,
     authHeaders,
@@ -165,6 +166,9 @@ const QuotationWise = () => {
 
     const [selectedQuotationKeys, setSelectedQuotationKeys] = useState([]);
     const [showWhatsappModal, setShowWhatsappModal] = useState(false);
+    // "app": open each chat in the WhatsApp app (manual Send).
+    // "api": send automatically through the WhatsApp Cloud API (whatsapp_api.php).
+    const [whatsappSendMode, setWhatsappSendMode] = useState("app");
     const [showTemplateManager, setShowTemplateManager] = useState(false);
     const [editingWhatsappTemplate, setEditingWhatsappTemplate] = useState(null);
     const [selectedWhatsappTemplateId, setSelectedWhatsappTemplateId] = useState("quotation-ready");
@@ -440,10 +444,6 @@ const QuotationWise = () => {
         const key = normalizePartyKey(getPartyNameForLongTerm(row));
         return !!key && !!longTermClients[key];
     };
-
-    // Long-Term Clients and Local Electrical Shops need no follow-up.
-    const isNoFollowupRow = (row) =>
-        isLongTermClient(row) || isLocalElectricalShop(row);
 
     const toggleLongTermClient = async (row) => {
         if (!isAdminUser) {
@@ -981,11 +981,11 @@ const QuotationWise = () => {
         const loggedInUser = String(telecallerName || '').trim().toLowerCase();
 
         data.forEach((row) => {
-            // Billed quotations, Long-Term Clients and Local Electrical
-            // Shops are excluded from follow-up reminders (no follow-up needed).
+            // Billed quotations and Long-Term Clients are excluded from
+            // follow-up reminders (long-term clients need no follow-up).
             const rowStatus = getStatus(row);
             if (rowStatus === 'billed') return;
-            if (isNoFollowupRow(row)) return;
+            if (isLongTermClient(row)) return;
 
             const quotationNo = getQuotationNo(row);
             const followupPerson = String(
@@ -1107,7 +1107,7 @@ const QuotationWise = () => {
                 ).trim();
 
                 if (followupFilter === 'none') {
-                    return person === '' && !isNoFollowupRow(row);
+                    return person === '' && !isLongTermClient(row);
                 }
 
                 return person.toLowerCase() ===
@@ -1155,11 +1155,10 @@ const QuotationWise = () => {
                 const rowStatus = getStatus(row);
                 if (rowStatus === "billed") return false;
 
-                // Long-Term Clients and Local Electrical Shops need no follow-up,
-                // so they never appear in the New / Due / date follow-up lists
-                // (WhatsApp filters still apply).
+                // Long-Term Clients need no follow-up, so they never appear in
+                // the New / Due / date follow-up lists (WhatsApp filters still apply).
                 const isFollowupList = !String(followupQuickFilter).startsWith("wa_");
-                if (isFollowupList && isNoFollowupRow(row)) return false;
+                if (isFollowupList && isLongTermClient(row)) return false;
 
                 // No Follow-ups = no follow-up person AND no next follow-up date.
                 if (followupQuickFilter === "none") {
@@ -1523,11 +1522,10 @@ const QuotationWise = () => {
     };
 
 
-    const getWhatsappMessage = (template, row) => {
-        if (!template) return "";
-
+    // Values for the {{placeholders}} of app templates and Meta API templates.
+    const getWhatsappFields = (row) => {
         const quotationAmount = getQuotationTotalWithGst(row);
-        const replacements = {
+        return {
             customer_name: getWhatsappCustomerName(row),
             quotation_no: getQuotationNo(row),
             quotation_amount: formatAmount(quotationAmount),
@@ -1541,7 +1539,12 @@ const QuotationWise = () => {
             invoice_no: String(row?.invoice_no || "").trim(),
             enquiry_no: String(row?.enquiry_no || "").trim()
         };
+    };
 
+    const getWhatsappMessage = (template, row) => {
+        if (!template) return "";
+
+        const replacements = getWhatsappFields(row);
         return String(template.message || "").replace(
             /{{\s*([a-zA-Z0-9_]+)\s*}}/g,
             (match, key) =>
@@ -1742,6 +1745,14 @@ const QuotationWise = () => {
     //    Because every tab is opened directly from a user click,
     //    browsers never block it as a popup.
     // -----------------------------------------------------
+    // Resolve each selected quotation back to the original API row so we use
+    // the exact walkin_cust_no field used by the existing WhatsApp icon.
+    const resolveWhatsappRows = (rows) => rows.map((row) => {
+        const quotationNo = getQuotationNo(row);
+        const originalRow = data.find((item) => getQuotationNo(item) === quotationNo);
+        return originalRow || row;
+    });
+
     const startWhatsappQueue = () => {
         const rows = selectedWhatsappRows;
         const template = whatsappTemplates.find((item) => item.id === selectedWhatsappTemplateId);
@@ -1755,13 +1766,7 @@ const QuotationWise = () => {
             return;
         }
 
-        // Resolve each selected quotation back to the original API row so we use
-        // the exact walkin_cust_no field used by the existing WhatsApp icon.
-        const resolvedRows = rows.map((row) => {
-            const quotationNo = getQuotationNo(row);
-            const originalRow = data.find((item) => getQuotationNo(item) === quotationNo);
-            return originalRow || row;
-        });
+        const resolvedRows = resolveWhatsappRows(rows);
 
         const rowsWithWhatsapp = resolvedRows.filter((row) =>
             getWhatsappMobile(getWhatsappRowMobile(row))
@@ -1835,14 +1840,19 @@ const QuotationWise = () => {
 
     // Fire-and-forget: never blocks opening WhatsApp. The entry is added to the
     // screen immediately and replaced by the saved record when the server replies.
+    // Quotation details saved with every log entry (app chats and API sends).
+    const getWhatsappLogFields = (row) => ({
+        quotation_no: getQuotationNo(row),
+        order_no: String(row?.order_no || row?.OrderNo || "").trim(),
+        party_name: String(row?.party_name || row?.PartyLedgerName || "").trim(),
+        customer_name: getWhatsappCustomerName(row),
+        quotation_amount: getQuotationTotalWithGst(row)
+    });
+
     const logWhatsappSend = (row, { sendType, template, message, pdfAttached }) => {
         const entry = {
-            quotation_no: getQuotationNo(row),
-            order_no: String(row?.order_no || row?.OrderNo || "").trim(),
-            party_name: String(row?.party_name || row?.PartyLedgerName || "").trim(),
-            customer_name: getWhatsappCustomerName(row),
+            ...getWhatsappLogFields(row),
             mobile: getWhatsappMobile(getWhatsappRowMobile(row)),
-            quotation_amount: getQuotationTotalWithGst(row),
             send_type: sendType,
             template_id: template?.id || "",
             template_name: template?.name || "",
@@ -1922,6 +1932,7 @@ const QuotationWise = () => {
         setWhatsappQueueSkipped(0);
         setWhatsappPdfStatus({ key: "", loading: false, error: "" });
         setWhatsappPdfBlobs({});
+        setWhatsappSendMode("app");
     };
 
     // Open WhatsApp Desktop/App for the customer's mobile number.
@@ -3898,11 +3909,7 @@ const QuotationWise = () => {
                                                                 </div>
                                                             )}
                                                             <div style={{ marginTop: (row.brought_by || row.assigned_to) ? "7px" : "0" }}>
-                                                                {isNoFollowupRow(row) ? (
-                                                                    <span style={{ color: "#05693a", fontStyle: "italic" }}>
-                                                                        {isLongTermClient(row) ? "Long-Term Client" : "Local Electrical Shop"}: no follow-up needed
-                                                                    </span>
-                                                                ) : followupByQuotation[quotationNo] ? (() => {
+                                                                {followupByQuotation[quotationNo] ? (() => {
                                                                     const isFollowupExpanded = expandedFollowup === quotationNo;
                                                                     const history = followupHistoryByQuotation[quotationNo] || [];
                                                                     return (
@@ -3996,6 +4003,8 @@ const QuotationWise = () => {
                                                                     );
                                                                 })() : followupLoading ? (
                                                                     <span style={{ color: "#999", fontStyle: "italic" }}>Loading...</span>
+                                                                ) : isLongTermClient(row) ? (
+                                                                    <span style={{ color: "#05693a", fontStyle: "italic" }}>Long-Term Client: no follow-up needed</span>
                                                                 ) : (
                                                                     <span style={{ color: "#999", fontStyle: "italic" }}>No Follow Up</span>
                                                                 )}
@@ -4071,7 +4080,7 @@ const QuotationWise = () => {
                                                         >
                                                             {/* Lost quotations can get a note too, so a
                                                                 returning customer can be followed up again. */}
-                                                            {(status === "quotation" || status === "lost") && !isNoFollowupRow(row) ? (
+                                                            {status === "quotation" || status === "lost" ? (
                                                                 <button
                                                                     onClick={() =>
                                                                         openNoteModal(
@@ -4628,10 +4637,42 @@ const QuotationWise = () => {
 
                                 <div style={{ padding: "20px" }}>
                                     {!queueActive && (
+                                        <div style={{ display: "flex", marginBottom: "14px", border: "1px solid #25D366", borderRadius: "6px", overflow: "hidden" }}>
+                                            {[
+                                                ["app", "WhatsApp App (manual)"],
+                                                ["api", "WhatsApp API (automatic)"]
+                                            ].map(([mode, label]) => (
+                                                <button
+                                                    key={mode}
+                                                    type="button"
+                                                    onClick={() => setWhatsappSendMode(mode)}
+                                                    style={{ flex: 1, padding: "8px", border: "none", cursor: "pointer", fontWeight: "700", fontSize: "13px", background: whatsappSendMode === mode ? "#25D366" : "#fff", color: whatsappSendMode === mode ? "#fff" : "#075e54" }}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {!queueActive && (
                                         <div style={{ marginBottom: "14px", fontSize: "13px", color: "#444" }}>
                                             <strong>{selectedRows.length}</strong> quotation(s) selected.
                                         </div>
                                     )}
+
+                                    {whatsappSendMode === "api" && !queueActive ? (
+                                        <WhatsappApiSender
+                                            rows={resolveWhatsappRows(selectedRows)}
+                                            getFields={getWhatsappFields}
+                                            getMobile={(row) => getWhatsappMobile(getWhatsappRowMobile(row))}
+                                            getCustomerName={getWhatsappCustomerName}
+                                            getLogFields={getWhatsappLogFields}
+                                            getPdfBlob={getQuotationPdfBlob}
+                                            getPdfFileName={getQuotationPdfFileName}
+                                            onFinished={fetchWhatsappLog}
+                                            onClose={closeWhatsappModal}
+                                        />
+                                    ) : (<>
 
                                     <label style={{ display: "block", fontWeight: "700", fontSize: "13px", marginBottom: "6px" }}>WhatsApp Template</label>
                                     <div style={{ display: "flex", gap: "8px", marginBottom: "15px" }}>
@@ -4767,6 +4808,7 @@ const QuotationWise = () => {
                                             </button>
                                         )}
                                     </div>
+                                    </>)}
                                 </div>
                             </div>
                         </div>

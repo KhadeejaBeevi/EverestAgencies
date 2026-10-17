@@ -1,5 +1,4 @@
 <?php
-require_once __DIR__ . '/db_connect.php';
 
 require_once __DIR__ . '/api_auth.php';
 require_once __DIR__ . '/firebase_auth.php';
@@ -15,7 +14,9 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
 }
 
 /*
- * WhatsApp send log for the Quotation Wise page.
+ * WhatsApp send log for the Quotation Wise and Solar New Leads pages.
+ * "module" says which page an entry came from ("quotation" or "solar");
+ * each page lists only its own entries.
  *
  * action "log":  records one WhatsApp chat opened from the page
  *                (which number, which quotation, which template/message,
@@ -26,7 +27,12 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
  * app. A record means the chat was opened with the message pre-filled.
  */
 
-$conn = db_connect("salescollection");
+$conn = new mysqli(
+    "localhost",
+    "root",
+    "",
+    "salescollection"
+);
 
 if ($conn->connect_error) {
     http_response_code(500);
@@ -56,13 +62,35 @@ $conn->query("
         sent_by VARCHAR(255) NOT NULL,
         sent_by_uid VARCHAR(128) DEFAULT NULL,
         sent_by_email VARCHAR(255) DEFAULT NULL,
+        module VARCHAR(30) NOT NULL DEFAULT 'quotation',
+        lead_id VARCHAR(50) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_quotation (quotation_no),
+        INDEX idx_module (module),
         INDEX idx_mobile (mobile),
         INDEX idx_sent_by (sent_by),
         INDEX idx_created (created_at)
     )
 ");
+
+// Tables created before Solar New Leads used the log have no module/lead_id.
+$moduleColumn = $conn->query("SHOW COLUMNS FROM whatsapp_send_log LIKE 'module'");
+if ($moduleColumn && $moduleColumn->num_rows === 0) {
+    $conn->query("
+        ALTER TABLE whatsapp_send_log
+            ADD COLUMN module VARCHAR(30) NOT NULL DEFAULT 'quotation',
+            ADD COLUMN lead_id VARCHAR(50) DEFAULT NULL,
+            ADD INDEX idx_module (module)
+    ");
+}
+
+const WHATSAPP_LOG_MODULES = ["quotation", "solar"];
+
+function module_input($input): string
+{
+    $module = strtolower(trim((string)($input["module"] ?? "quotation")));
+    return in_array($module, WHATSAPP_LOG_MODULES, true) ? $module : "quotation";
+}
 
 function str_input($input, $key, $max = 255): string
 {
@@ -106,15 +134,18 @@ try {
         $pdfAttached = !empty($input["pdf_attached"]) ? 1 : 0;
         $sentByUid = $user["uid"];
         $sentByEmail = $user["email"];
+        $module = module_input($input);
+        $leadId = str_input($input, "lead_id", 50);
 
         $stmt = $conn->prepare("
             INSERT INTO whatsapp_send_log
                 (
                     quotation_no, order_no, party_name, customer_name, mobile,
                     quotation_amount, send_type, template_id, template_name, message,
-                    pdf_attached, sent_by, sent_by_uid, sent_by_email
+                    pdf_attached, sent_by, sent_by_uid, sent_by_email,
+                    module, lead_id
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         if (!$stmt) {
@@ -122,7 +153,7 @@ try {
         }
 
         $stmt->bind_param(
-            "sssssdssssisss",
+            "sssssdssssisssss",
             $quotationNo,
             $orderNo,
             $partyName,
@@ -136,7 +167,9 @@ try {
             $pdfAttached,
             $sentBy,
             $sentByUid,
-            $sentByEmail
+            $sentByEmail,
+            $module,
+            $leadId
         );
 
         if (!$stmt->execute()) {
@@ -156,9 +189,16 @@ try {
 
     if ($action === "list") {
 
-        $where = [];
-        $types = "";
-        $params = [];
+        $where = ["module = ?"];
+        $types = "s";
+        $params = [module_input($input)];
+
+        $leadId = str_input($input, "lead_id", 50);
+        if ($leadId !== "") {
+            $where[] = "lead_id = ?";
+            $types .= "s";
+            $params[] = $leadId;
+        }
 
         $fromDate = str_input($input, "from_date", 10);
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fromDate)) {
@@ -197,9 +237,9 @@ try {
             SELECT
                 id, quotation_no, order_no, party_name, customer_name, mobile,
                 quotation_amount, send_type, template_id, template_name, message,
-                pdf_attached, sent_by, sent_by_uid, sent_by_email, created_at
+                pdf_attached, sent_by, sent_by_uid, sent_by_email, module, lead_id, created_at
             FROM whatsapp_send_log
-            " . ($where ? "WHERE " . implode(" AND ", $where) : "") . "
+            WHERE " . implode(" AND ", $where) . "
             ORDER BY created_at DESC, id DESC
             LIMIT " . $limit;
 

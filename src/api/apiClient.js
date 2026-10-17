@@ -38,7 +38,13 @@ export async function apiFetch(url, options = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
+        let serverMessage = "";
+        try {
+            serverMessage = (await response.clone().json())?.message || "";
+        } catch {
+            // Not JSON.
+        }
+        throw new Error(serverMessage || `API request failed: ${response.status}`);
     }
 
     return response;

@@ -1,28 +1,5 @@
 <?php
 
-require_once __DIR__ . '/db_connect.php';
-
-/* =========================================================
-   HOSTING SETTINGS
-   Database login comes from db_connect.php on the server.
-========================================================= */
-
-/* Public address of this serverphp folder, e.g.
-   "https://app.everestagencies.com/serverphp".
-   Leave empty to work it out from the current request. */
-define("PUBLIC_BASE_URL", "");
-
-/* Keep false on the live server so database errors are logged,
-   not shown to users. */
-define("APP_DEBUG", false);
-
-/* Hosting servers usually run in UTC; enquiry dates, the
-   financial year and timers must use Indian time. */
-date_default_timezone_set("Asia/Kolkata");
-error_reporting(E_ALL);
-ini_set("display_errors", APP_DEBUG ? "1" : "0");
-ini_set("log_errors", "1");
-
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key");
@@ -33,29 +10,28 @@ if ($_SERVER["REQUEST_METHOD"] === "OPTIONS") {
     exit;
 }
 
-/* Logs the real error and returns a message that is safe to
-   send to the browser. */
-function errorDetail($e)
-{
-    error_log("ENQUIRY REPORT ERROR: " . $e->getMessage());
-    return APP_DEBUG ? $e->getMessage() : "Please try again or contact the administrator.";
-}
+$host = "localhost";
+$dbname = "salescollection";
+$username = "root";
+$password = "";
 
 try {
-    $pdo = db_pdo("salescollection", [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false
-    ]);
-
-    /* Make MySQL NOW() match PHP date() on the hosting server. */
-    $pdo->exec("SET time_zone = '+05:30'");
+    $pdo = new PDO(
+        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+        $username,
+        $password,
+        [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]
+    );
 } catch (PDOException $e) {
     http_response_code(500);
     echo json_encode([
         "success" => false,
         "message" => "Database connection failed.",
-        "error" => errorDetail($e)
+        "error" => $e->getMessage()
     ]);
     exit;
 }
@@ -186,26 +162,15 @@ function getNextEnquiryNumber($pdo)
 
 /* =========================================================
    BASE URL
-   Uses PUBLIC_BASE_URL when set; otherwise the folder this
-   script is served from, so it works on any domain or path.
 ========================================================= */
 
 function getBaseUrl()
 {
-    if (PUBLIC_BASE_URL !== "") {
-        return PUBLIC_BASE_URL;
-    }
-
-    $https = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off")
-        || (($_SERVER["SERVER_PORT"] ?? "") === "443")
-        || (strtolower($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? "") === "https");
+    $https = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off");
     $protocol = $https ? "https" : "http";
     $host = $_SERVER["HTTP_HOST"] ?? "localhost";
 
-    $path = str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? ""));
-    $path = rtrim($path, "/.");
-
-    return $protocol . "://" . $host . $path;
+    return $protocol . "://" . $host . "/everest/serverphp";
 }
 
 
@@ -347,8 +312,6 @@ function deleteAttachmentFile($attachment)
 
 /* =========================================================
    PARSE ATTACHMENTS
-   File URLs are rebuilt from stored_name so attachments saved
-   on localhost still open after moving to the live server.
 ========================================================= */
 
 function parseAttachments($value)
@@ -357,20 +320,17 @@ function parseAttachments($value)
         return [];
     }
 
-    $attachments = is_array($value) ? $value : json_decode($value, true);
-
-    if (!is_array($attachments)) {
-        return [];
+    if (is_array($value)) {
+        return $value;
     }
 
-    foreach ($attachments as &$attachment) {
-        if (is_array($attachment) && !empty($attachment["stored_name"])) {
-            $attachment["file_url"] = getBaseUrl() . "/enquiry_uploads/" . rawurlencode(basename($attachment["stored_name"]));
-        }
-    }
-    unset($attachment);
+    $decoded = json_decode($value, true);
 
-    return $attachments;
+    if (is_array($decoded)) {
+        return $decoded;
+    }
+
+    return [];
 }
 
 
@@ -379,154 +339,61 @@ function parseAttachments($value)
    Matches enquiry quotation number with salesdata quotation number
 ========================================================= */
 
-/* Lowercased + trimmed key, matching LOWER(TRIM(...)) in MySQL. */
-function salesdataKey($value)
-{
-    $value = trim((string)$value);
-    return function_exists("mb_strtolower") ? mb_strtolower($value, "UTF-8") : strtolower($value);
-}
-
-/*
- * Loads every salesdata row linked to the given enquiry numbers or
- * quotation numbers with a few batched queries, instead of one or
- * more full-table queries per enquiry. Returns rows grouped by
- * lowercased enquiry number and by lowercased quotation number,
- * each group ordered by `Sl No`.
- */
-function preloadSalesdataLinks($pdo, $enquiryNos, $quotationNos)
-{
-    $result = ["by_enquiry" => [], "by_quotation" => []];
-    $rowsById = [];
-
-    $enquiryKeys = array_values(array_unique(array_filter(array_map("salesdataKey", $enquiryNos), "strlen")));
-    $quotationKeys = array_values(array_unique(array_filter(array_map("salesdataKey", $quotationNos), "strlen")));
-
-    $select = "SELECT `Sl No` AS sl_no, enquiry_no, VoucherNumber, OrderNo, EveInvVchOrderNos, EnteredBy FROM salesdata";
-
-    try {
-        foreach (array_chunk($enquiryKeys, 500) as $chunk) {
-            $in = implode(",", array_fill(0, count($chunk), "?"));
-            $stmt = $pdo->prepare("$select WHERE LOWER(TRIM(COALESCE(enquiry_no, ''))) IN ($in)");
-            $stmt->execute($chunk);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $rowsById[(string)$row["sl_no"]] = $row;
-            }
-        }
-
-        foreach (array_chunk($quotationKeys, 500) as $chunk) {
-            $in = implode(",", array_fill(0, count($chunk), "?"));
-            $stmt = $pdo->prepare("
-                $select
-                WHERE LOWER(TRIM(COALESCE(VoucherNumber, ''))) IN ($in)
-                   OR LOWER(TRIM(COALESCE(OrderNo, ''))) IN ($in)
-                   OR LOWER(TRIM(COALESCE(EveInvVchOrderNos, ''))) IN ($in)
-            ");
-            $stmt->execute(array_merge($chunk, $chunk, $chunk));
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $rowsById[(string)$row["sl_no"]] = $row;
-            }
-        }
-    } catch (Throwable $e) {
-        error_log("SALESDATA PRELOAD ERROR: " . $e->getMessage());
-        return $result;
-    }
-
-    uasort($rowsById, function ($a, $b) {
-        return (float)$a["sl_no"] <=> (float)$b["sl_no"];
-    });
-
-    foreach ($rowsById as $row) {
-        $enquiryKey = salesdataKey($row["enquiry_no"] ?? "");
-        if ($enquiryKey !== "") {
-            $result["by_enquiry"][$enquiryKey][] = $row;
-        }
-
-        $keys = [];
-        foreach (["VoucherNumber", "OrderNo", "EveInvVchOrderNos"] as $field) {
-            $key = salesdataKey($row[$field] ?? "");
-            if ($key !== "") $keys[$key] = true;
-        }
-        foreach (array_keys($keys) as $key) {
-            $result["by_quotation"][$key][] = $row;
-        }
-    }
-
-    return $result;
-}
-
-function summarizeQuotationDetailsByEnquiry($rows)
-{
-    $result = [
-        "quotation_no" => "",
-        "quotation_nos" => [],
-        "entered_by" => ""
-    ];
-
-    foreach ($rows as $row) {
-        foreach (["VoucherNumber", "OrderNo", "EveInvVchOrderNos"] as $field) {
-            $q = trim((string)($row[$field] ?? ""));
-            if ($q !== "" && !in_array($q, $result["quotation_nos"], true)) {
-                $result["quotation_nos"][] = $q;
-            }
-        }
-        if ($result["entered_by"] === "") {
-            $enteredBy = trim((string)($row["EnteredBy"] ?? ""));
-            if ($enteredBy !== "") $result["entered_by"] = $enteredBy;
-        }
-    }
-
-    if (!empty($result["quotation_nos"])) {
-        $result["quotation_no"] = $result["quotation_nos"][0];
-    }
-    return $result;
-}
-
-function summarizeEnquiryDetailsByQuotation($rows, $quotationNo)
-{
-    $result = [
-        "enquiry_no" => "",
-        "quotation_no" => "",
-        "quotation_nos" => [],
-        "entered_by" => ""
-    ];
-
-    foreach ($rows as $row) {
-        if ($result["enquiry_no"] === "") {
-            $enq = trim((string)($row["enquiry_no"] ?? ""));
-            if ($enq !== "") $result["enquiry_no"] = $enq;
-        }
-
-        if ($result["entered_by"] === "") {
-            $enteredBy = trim((string)($row["EnteredBy"] ?? ""));
-            if ($enteredBy !== "") $result["entered_by"] = $enteredBy;
-        }
-
-        foreach (["VoucherNumber", "OrderNo", "EveInvVchOrderNos"] as $field) {
-            $q = trim((string)($row[$field] ?? ""));
-            if ($q !== "" && !in_array($q, $result["quotation_nos"], true)) {
-                $result["quotation_nos"][] = $q;
-            }
-            if ($result["quotation_no"] === "" && $q !== "") {
-                $result["quotation_no"] = $q;
-            }
-        }
-
-        if ($result["enquiry_no"] !== "" && $result["entered_by"] !== "" && $result["quotation_no"] !== "") break;
-    }
-
-    if ($result["quotation_no"] === "" && $quotationNo !== "") {
-        $result["quotation_no"] = $quotationNo;
-    }
-    return $result;
-}
-
 function getQuotationDetailsByEnquiryNo($pdo, $enquiryNo)
 {
     $enquiryNo = trim((string)$enquiryNo);
-    if ($enquiryNo === "") return summarizeQuotationDetailsByEnquiry([]);
+    $result = [
+        "quotation_no" => "",
+        "quotation_nos" => [],
+        "entered_by" => ""
+    ];
 
-    $links = preloadSalesdataLinks($pdo, [$enquiryNo], []);
-    return summarizeQuotationDetailsByEnquiry($links["by_enquiry"][salesdataKey($enquiryNo)] ?? []);
+    if ($enquiryNo === "") return $result;
+
+    try {
+        $sql = "
+            SELECT VoucherNumber, OrderNo, EveInvVchOrderNos, EnteredBy
+            FROM salesdata
+            WHERE TRIM(COALESCE(enquiry_no, '')) = :enquiry_no
+            ORDER BY `Sl No` ASC
+        ";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([":enquiry_no" => $enquiryNo]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$rows) {
+            $sql = "
+                SELECT VoucherNumber, OrderNo, EveInvVchOrderNos, EnteredBy
+                FROM salesdata
+                WHERE LOWER(TRIM(COALESCE(enquiry_no, ''))) = LOWER(:enquiry_no)
+                ORDER BY `Sl No` ASC
+            ";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([":enquiry_no" => $enquiryNo]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        foreach ($rows as $row) {
+            foreach (["VoucherNumber", "OrderNo", "EveInvVchOrderNos"] as $field) {
+                $q = trim((string)($row[$field] ?? ""));
+                if ($q !== "" && !in_array($q, $result["quotation_nos"], true)) {
+                    $result["quotation_nos"][] = $q;
+                }
+            }
+            if ($result["entered_by"] === "") {
+                $enteredBy = trim((string)($row["EnteredBy"] ?? ""));
+                if ($enteredBy !== "") $result["entered_by"] = $enteredBy;
+            }
+        }
+
+        if (!empty($result["quotation_nos"])) {
+            $result["quotation_no"] = $result["quotation_nos"][0];
+        }
+        return $result;
+    } catch (Throwable $e) {
+        error_log("SALESDATA ENQUIRY LOOKUP ERROR: " . $e->getMessage());
+        return $result;
+    }
 }
 
 
@@ -538,23 +405,159 @@ function getQuotationDetailsByEnquiryNo($pdo, $enquiryNo)
 function getEnquiryDetailsByQuotationNo($pdo, $quotationNo)
 {
     $quotationNo = trim((string)$quotationNo);
-    if ($quotationNo === "") return summarizeEnquiryDetailsByQuotation([], "");
+    $result = [
+        "enquiry_no" => "",
+        "quotation_no" => "",
+        "quotation_nos" => [],
+        "entered_by" => ""
+    ];
 
-    $links = preloadSalesdataLinks($pdo, [], [$quotationNo]);
-    return summarizeEnquiryDetailsByQuotation($links["by_quotation"][salesdataKey($quotationNo)] ?? [], $quotationNo);
+    if ($quotationNo === "") return $result;
+
+    try {
+        /* Use different placeholders because native PDO prepares do not safely
+           support reusing the same named placeholder multiple times. */
+        $sql = "
+            SELECT enquiry_no, VoucherNumber, OrderNo, EveInvVchOrderNos, EnteredBy
+            FROM salesdata
+            WHERE TRIM(COALESCE(VoucherNumber, '')) = :voucher_no
+               OR TRIM(COALESCE(OrderNo, '')) = :order_no
+               OR TRIM(COALESCE(EveInvVchOrderNos, '')) = :eve_order_no
+            ORDER BY `Sl No` ASC
+        ";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([
+            ":voucher_no" => $quotationNo,
+            ":order_no" => $quotationNo,
+            ":eve_order_no" => $quotationNo
+        ]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$rows) {
+            $sql = "
+                SELECT enquiry_no, VoucherNumber, OrderNo, EveInvVchOrderNos, EnteredBy
+                FROM salesdata
+                WHERE LOWER(TRIM(COALESCE(VoucherNumber, ''))) = LOWER(:voucher_no)
+                   OR LOWER(TRIM(COALESCE(OrderNo, ''))) = LOWER(:order_no)
+                   OR LOWER(TRIM(COALESCE(EveInvVchOrderNos, ''))) = LOWER(:eve_order_no)
+                ORDER BY `Sl No` ASC
+            ";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ":voucher_no" => $quotationNo,
+                ":order_no" => $quotationNo,
+                ":eve_order_no" => $quotationNo
+            ]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        foreach ($rows as $row) {
+            if ($result["enquiry_no"] === "") {
+                $enq = trim((string)($row["enquiry_no"] ?? ""));
+                if ($enq !== "") $result["enquiry_no"] = $enq;
+            }
+
+            if ($result["entered_by"] === "") {
+                $enteredBy = trim((string)($row["EnteredBy"] ?? ""));
+                if ($enteredBy !== "") $result["entered_by"] = $enteredBy;
+            }
+
+            foreach (["VoucherNumber", "OrderNo", "EveInvVchOrderNos"] as $field) {
+                $q = trim((string)($row[$field] ?? ""));
+                if ($q !== "" && !in_array($q, $result["quotation_nos"], true)) {
+                    $result["quotation_nos"][] = $q;
+                }
+                if ($result["quotation_no"] === "" && $q !== "") {
+                    $result["quotation_no"] = $q;
+                }
+            }
+
+            if ($result["enquiry_no"] !== "" && $result["entered_by"] !== "" && $result["quotation_no"] !== "") break;
+        }
+
+        if ($result["quotation_no"] === "" && $quotationNo !== "") {
+            $result["quotation_no"] = $quotationNo;
+        }
+        return $result;
+    } catch (Throwable $e) {
+        error_log("SALESDATA QUOTATION LOOKUP ERROR: " . $e->getMessage());
+        return $result;
+    }
+}
+
+
+/* =========================================================
+   ENTERED BY FROM SALESDATA (BY VOUCHER NUMBER)
+   The quotation number is stored in salesdata.VoucherNumber.
+   Returns [lowercased quotation no => EnteredBy] for every
+   quotation number found, using the first row (by Sl No)
+   that has an EnteredBy value.
+========================================================= */
+
+function getEnteredByForQuotations($pdo, $quotationNos)
+{
+    $map = [];
+    $wanted = [];
+
+    foreach ($quotationNos as $quotationNo) {
+        $quotationNo = trim((string)$quotationNo);
+        if ($quotationNo !== "") {
+            $wanted[strtolower($quotationNo)] = $quotationNo;
+        }
+    }
+
+    if (empty($wanted)) return $map;
+
+    $collect = function ($rows) use (&$map) {
+        foreach ($rows as $row) {
+            $key = strtolower(trim((string)($row["VoucherNumber"] ?? "")));
+            $enteredBy = trim((string)($row["EnteredBy"] ?? ""));
+            if ($key !== "" && $enteredBy !== "" && !isset($map[$key])) {
+                $map[$key] = $enteredBy;
+            }
+        }
+    };
+
+    try {
+        /* Exact match first. */
+        foreach (array_chunk(array_values($wanted), 500) as $chunk) {
+            $in = implode(",", array_fill(0, count($chunk), "?"));
+            $stmt = $pdo->prepare("
+                SELECT VoucherNumber, EnteredBy
+                FROM salesdata
+                WHERE TRIM(COALESCE(VoucherNumber, '')) IN ($in)
+                  AND TRIM(COALESCE(EnteredBy, '')) <> ''
+                ORDER BY `Sl No` ASC
+            ");
+            $stmt->execute($chunk);
+            $collect($stmt->fetchAll(PDO::FETCH_ASSOC));
+        }
+
+        /* Case-insensitive match for any still missing. */
+        $missing = array_values(array_diff_key($wanted, $map));
+        foreach (array_chunk($missing, 500) as $chunk) {
+            $in = implode(",", array_fill(0, count($chunk), "LOWER(?)"));
+            $stmt = $pdo->prepare("
+                SELECT VoucherNumber, EnteredBy
+                FROM salesdata
+                WHERE LOWER(TRIM(COALESCE(VoucherNumber, ''))) IN ($in)
+                  AND TRIM(COALESCE(EnteredBy, '')) <> ''
+                ORDER BY `Sl No` ASC
+            ");
+            $stmt->execute($chunk);
+            $collect($stmt->fetchAll(PDO::FETCH_ASSOC));
+        }
+    } catch (Throwable $e) {
+        error_log("SALESDATA ENTERED BY LOOKUP ERROR: " . $e->getMessage());
+    }
+
+    return $map;
 }
 
 
 function attachQuotationEnteredBy($pdo, &$data)
 {
     if (!is_array($data)) return;
-
-    /* One batched salesdata load for all rows (was several queries per row). */
-    $links = preloadSalesdataLinks(
-        $pdo,
-        array_column($data, "enquiry_no"),
-        array_column($data, "sales_order_no")
-    );
 
     foreach ($data as &$row) {
         $savedQuotationNo = trim((string)($row["sales_order_no"] ?? ""));
@@ -569,17 +572,12 @@ function attachQuotationEnteredBy($pdo, &$data)
 
         /* Direction 1: Enquiry page has quotation number. */
         if ($savedQuotationNo !== "") {
-            $details = summarizeEnquiryDetailsByQuotation(
-                $links["by_quotation"][salesdataKey($savedQuotationNo)] ?? [],
-                $savedQuotationNo
-            );
+            $details = getEnquiryDetailsByQuotationNo($pdo, $savedQuotationNo);
         }
 
         /* Direction 2: quotation page has saved enquiry number. */
         if ($savedEnquiryNo !== "") {
-            $byEnquiry = summarizeQuotationDetailsByEnquiry(
-                $links["by_enquiry"][salesdataKey($savedEnquiryNo)] ?? []
-            );
+            $byEnquiry = getQuotationDetailsByEnquiryNo($pdo, $savedEnquiryNo);
 
             if (($details["entered_by"] ?? "") === "") {
                 $details["entered_by"] = $byEnquiry["entered_by"] ?? "";
@@ -608,6 +606,18 @@ function attachQuotationEnteredBy($pdo, &$data)
            itself has no quotation number, expose it to the existing UI. */
         if ($savedQuotationNo === "" && !empty($details["quotation_no"])) {
             $row["sales_order_no"] = $details["quotation_no"];
+        }
+    }
+    unset($row);
+
+    /* Entered By = salesdata.EnteredBy of the row whose VoucherNumber
+       is this enquiry's quotation number. */
+    $enteredByMap = getEnteredByForQuotations($pdo, array_column($data, "sales_order_no"));
+
+    foreach ($data as &$row) {
+        $key = strtolower(trim((string)($row["sales_order_no"] ?? "")));
+        if ($key !== "" && isset($enteredByMap[$key])) {
+            $row["entered_by"] = $enteredByMap[$key];
         }
     }
     unset($row);
@@ -869,7 +879,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to load quotation ready list.", null, [
-            "error" => errorDetail($e)
+            "error" => $e->getMessage()
         ]);
     }
 }
@@ -896,7 +906,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to update quotation notification.", null, [
-            "error" => errorDetail($e)
+            "error" => $e->getMessage()
         ]);
     }
 }
@@ -1073,15 +1083,12 @@ function backfillTimerQueue($pdo)
 }
 
 /* Runs $callback inside a named MySQL lock so two users
-   cannot start two timers at the same moment. The lock name
-   includes the database name so two sites on one shared
-   MySQL server do not block each other. */
+   cannot start two timers at the same moment. */
 function withTimerLock($pdo, $callback)
 {
     ensureTimerTable($pdo);
 
-    $lockName = "salescollection.enquiry_timer_queue";
-    $pdo->prepare("SELECT GET_LOCK(:name, 10)")->execute([":name" => $lockName]);
+    $pdo->query("SELECT GET_LOCK('enquiry_timer_queue', 10)");
 
     try {
         $callback();
@@ -1089,7 +1096,7 @@ function withTimerLock($pdo, $callback)
         syncTimerQueue($pdo);
         return getTimerQueue($pdo);
     } finally {
-        $pdo->prepare("SELECT RELEASE_LOCK(:name)")->execute([":name" => $lockName]);
+        $pdo->query("SELECT RELEASE_LOCK('enquiry_timer_queue')");
     }
 }
 
@@ -1106,7 +1113,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to load timer queue.", null, [
-            "error" => errorDetail($e)
+            "error" => $e->getMessage()
         ]);
     }
 }
@@ -1161,7 +1168,7 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Timer update failed.", null, [
-            "error" => errorDetail($e)
+            "error" => $e->getMessage()
         ]);
     }
 }
@@ -1226,7 +1233,6 @@ if (
         readfile($filePath);
         exit;
     } catch (Throwable $e) {
-        error_log("ATTACHMENT DOWNLOAD ERROR: " . $e->getMessage());
         http_response_code(500);
         echo "Unable to download attachment.";
         exit;
@@ -1266,7 +1272,7 @@ if ($method === "GET") {
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to load enquiries.", null, [
-            "error" => errorDetail($e)
+            "error" => $e->getMessage()
         ]);
     }
 }
@@ -1278,13 +1284,6 @@ if ($method === "GET") {
 ========================================================= */
 
 if ($method === "POST") {
-
-    /* The upload was bigger than post_max_size, so PHP dropped
-       every field. Say so instead of "Enquiry date is required". */
-    if (empty($_POST) && empty($_FILES) && (int)($_SERVER["CONTENT_LENGTH"] ?? 0) > 0) {
-        http_response_code(413);
-        responseJson(false, "Attachments are too large for the server (limit " . ini_get("post_max_size") . ").");
-    }
 
     try {
         $id = isset($_POST["id"]) ? (int)$_POST["id"] : 0;
@@ -1609,7 +1608,7 @@ if ($method === "POST") {
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to save enquiry.", null, [
-            "error" => errorDetail($e)
+            "error" => $e->getMessage()
         ]);
     }
 }

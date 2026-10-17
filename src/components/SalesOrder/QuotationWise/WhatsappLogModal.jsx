@@ -11,7 +11,10 @@ const inputStyle = { width: "100%", boxSizing: "border-box", padding: "8px 10px"
 
 // Every WhatsApp chat opened from the Quotation Wise page: number, time and
 // who sent it, with search, sender/date filters and Excel export.
-const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onReload, onClose }) => {
+// variant "solar": the same log for Solar New Leads (company instead of
+// quotation, catalog instead of quotation PDF).
+const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onReload, onClose, variant = "quotation" }) => {
+    const isSolar = variant === "solar";
     const whatsappLog = log;
     const whatsappLogLoading = loading;
     const fetchWhatsappLog = onReload;
@@ -56,7 +59,18 @@ const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onRel
             window.alert("No WhatsApp log to export.");
             return;
         }
-        const sheet = XLSX.utils.json_to_sheet(rows.map((item, index) => ({
+        const sheet = XLSX.utils.json_to_sheet(rows.map((item, index) => isSolar ? ({
+            "S.No": index + 1,
+            "Date & Time": formatDateTime(item.created_at),
+            "Sent By": item.sent_by || "",
+            "Sent By Email": item.sent_by_email || "",
+            "Mobile": item.mobile || "",
+            "Company": item.party_name || "",
+            "Decision Maker": item.customer_name || "",
+            "Template": item.template_name || "",
+            "Catalog Sent": Number(item.pdf_attached) ? "Yes" : "No",
+            "Message": item.message || ""
+        }) : ({
             "S.No": index + 1,
             "Date & Time": formatDateTime(item.created_at),
             "Sent By": item.sent_by || "",
@@ -74,7 +88,7 @@ const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onRel
         })));
         const book = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(book, sheet, "WhatsApp Log");
-        XLSX.writeFile(book, "WhatsApp_Send_Log.xlsx");
+        XLSX.writeFile(book, isSolar ? "Solar_WhatsApp_Send_Log.xlsx" : "WhatsApp_Send_Log.xlsx");
     };
 
     const cell = { padding: "7px 8px", borderBottom: "1px solid #eee", verticalAlign: "top" };
@@ -85,7 +99,7 @@ const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onRel
             <div style={{ width: "100%", maxWidth: "1300px", maxHeight: "92vh", display: "flex", flexDirection: "column", background: "#fff", borderRadius: "12px", boxShadow: "0 10px 40px rgba(0,0,0,0.3)", overflow: "hidden" }}>
                 <div style={{ padding: "14px 20px", background: "#075e54", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                        <div style={{ fontSize: "18px", fontWeight: "800" }}>📋 WhatsApp Send Log</div>
+                        <div style={{ fontSize: "18px", fontWeight: "800" }}>📋 {isSolar ? "Solar WhatsApp Log" : "WhatsApp Send Log"}</div>
                         <div style={{ fontSize: "11px", opacity: 0.9, marginTop: "3px" }}>
                             Every WhatsApp chat opened from this page — number, time and who sent it.
                         </div>
@@ -98,7 +112,7 @@ const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onRel
                         type="text"
                         value={whatsappLogSearch}
                         onChange={(e) => setWhatsappLogSearch(e.target.value)}
-                        placeholder="Search number / party / quotation / message..."
+                        placeholder={isSolar ? "Search number / company / message..." : "Search number / party / quotation / message..."}
                         style={{ ...inputStyle, width: screenWidth < 700 ? "100%" : "300px", height: "34px" }}
                     />
                     <select value={whatsappLogSentBy} onChange={(e) => setWhatsappLogSentBy(e.target.value)} style={{ ...inputStyle, width: "auto", height: "34px" }}>
@@ -168,11 +182,11 @@ const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onRel
                                     <th style={head}>Date & Time</th>
                                     <th style={head}>Sent By</th>
                                     <th style={head}>Mobile</th>
-                                    <th style={head}>Customer / Party</th>
-                                    <th style={head}>Quotation</th>
-                                    <th style={{ ...head, textAlign: "right" }}>Amount</th>
+                                    <th style={head}>{isSolar ? "Company / Decision Maker" : "Customer / Party"}</th>
+                                    {!isSolar && <th style={head}>Quotation</th>}
+                                    {!isSolar && <th style={{ ...head, textAlign: "right" }}>Amount</th>}
                                     <th style={head}>Type / Template</th>
-                                    <th style={head}>PDF</th>
+                                    <th style={head}>{isSolar ? "Catalog" : "PDF"}</th>
                                     <th style={head}>Message</th>
                                 </tr>
                             </thead>
@@ -192,19 +206,30 @@ const WhatsappLogModal = ({ log, loading, initialSearch = "", screenWidth, onRel
                                                 {item.sent_by_email && <div style={{ color: "#777", fontSize: "10px" }}>{item.sent_by_email}</div>}
                                             </td>
                                             <td style={{ ...cell, whiteSpace: "nowrap", fontWeight: "700" }}>{item.mobile}</td>
-                                            <td style={cell}>
-                                                <div style={{ fontWeight: "700" }}>{item.customer_name}</div>
-                                                {item.party_name && item.party_name !== item.customer_name && (
-                                                    <div style={{ color: "#666", fontSize: "11px" }}>{item.party_name}</div>
-                                                )}
-                                            </td>
-                                            <td style={cell}>
-                                                <div style={{ fontWeight: "700" }}>{item.quotation_no}</div>
-                                                {item.order_no && <div style={{ color: "#666", fontSize: "11px" }}>Order: {item.order_no}</div>}
-                                            </td>
-                                            <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>
-                                                {item.quotation_amount ? `₹ ${formatAmount(item.quotation_amount)}` : ""}
-                                            </td>
+                                            {isSolar ? (
+                                                <td style={cell}>
+                                                    <div style={{ fontWeight: "700" }}>{item.party_name}</div>
+                                                    {item.customer_name && (
+                                                        <div style={{ color: "#666", fontSize: "11px" }}>{item.customer_name}</div>
+                                                    )}
+                                                </td>
+                                            ) : (
+                                                <>
+                                                    <td style={cell}>
+                                                        <div style={{ fontWeight: "700" }}>{item.customer_name}</div>
+                                                        {item.party_name && item.party_name !== item.customer_name && (
+                                                            <div style={{ color: "#666", fontSize: "11px" }}>{item.party_name}</div>
+                                                        )}
+                                                    </td>
+                                                    <td style={cell}>
+                                                        <div style={{ fontWeight: "700" }}>{item.quotation_no}</div>
+                                                        {item.order_no && <div style={{ color: "#666", fontSize: "11px" }}>Order: {item.order_no}</div>}
+                                                    </td>
+                                                    <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>
+                                                        {item.quotation_amount ? `₹ ${formatAmount(item.quotation_amount)}` : ""}
+                                                    </td>
+                                                </>
+                                            )}
                                             <td style={cell}>
                                                 {item.send_type === "direct" ? (
                                                     <span style={{ color: "#666" }}>Direct chat (no message)</span>

@@ -72,7 +72,5 @@ serverphp/chat.php
 zip
 
 
-serverphp_old/
-
-serverphp/db_credentials.php
-error_log
+# WhatsApp Cloud API access token and secrets
+serverphp/whatsapp_config.php
