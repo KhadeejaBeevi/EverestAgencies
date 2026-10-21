@@ -131,6 +131,8 @@ const QuotationWise = () => {
     const [expandedQuotation, setExpandedQuotation] = useState(null);
     const [expandedParty, setExpandedParty] = useState(null);
     const [expandedBilledParty, setExpandedBilledParty] = useState(null);
+    // Quotation whose Bill Details (billed items of its invoices) are open.
+    const [expandedBill, setExpandedBill] = useState(null);
 
     const [showNoteModal, setShowNoteModal] = useState(false);
     const [selectedQuotation, setSelectedQuotation] = useState(null);
@@ -1956,6 +1958,170 @@ const QuotationWise = () => {
 
     const renderBanner = () => <Banner />;
 
+    // One invoice of a billed quotation: billed items, tax summary and total,
+    // laid out like the quotation Item Details.
+    const renderBillDetails = (bill, billIndex) => {
+        const billItems = Array.isArray(bill?.items) ? bill.items : [];
+        const tax = getQuotationTaxSummary({
+            items: billItems,
+            quotation_amount: bill?.taxable_amount,
+            quotation_amount_with_gst: bill?.total_with_gst,
+            cgst_amount: bill?.cgst_amount,
+            sgst_amount: bill?.sgst_amount,
+            igst_amount: bill?.igst_amount,
+            round_off_amount: bill?.round_off_amount,
+            handling_charges: bill?.handling_charges
+        });
+        const summaryRows = [
+            ["Taxable Amount", tax.taxable],
+            tax.handling ? ["Handling Charges", tax.handling] : null,
+            ...(tax.fromTally
+                ? [
+                    tax.cgst ? ["CGST", tax.cgst] : null,
+                    tax.sgst ? ["SGST", tax.sgst] : null,
+                    tax.igst ? ["IGST", tax.igst] : null
+                ]
+                : [["GST", tax.gst]]),
+            Math.abs(tax.roundOff) >= 0.005 ? ["Round Off", tax.roundOff] : null
+        ].filter(Boolean);
+        const cellStyle = { padding: "6px 8px", border: "1px solid #eee", textAlign: "right" };
+
+        return (
+            <div
+                key={`${bill?.invoice_no || "bill"}-${billIndex}`}
+                style={{
+                    width: "850px",
+                    maxWidth: "90%",
+                    margin: "8px auto 12px auto",
+                    border: "2px solid #198754",
+                    borderRadius: "6px",
+                    background: "#fff",
+                    overflow: "hidden",
+                    boxShadow: "0 3px 10px rgba(0,0,0,0.08)"
+                }}
+            >
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "10px",
+                        padding: "9px 12px",
+                        background: "linear-gradient(90deg, #198754, #20a065)",
+                        color: "#fff"
+                    }}
+                >
+                    <div style={{ fontSize: "13px", fontWeight: "700" }}>
+                        Bill Details — {bill?.invoice_no || "Invoice"}
+                        {bill?.invoice_date && (
+                            <span style={{ fontWeight: "500", marginLeft: "8px" }}>
+                                ({formatDate(bill.invoice_date)})
+                            </span>
+                        )}
+                        {bill?.billed_party && (
+                            <span style={{ fontWeight: "500", marginLeft: "8px" }}>
+                                · {cleanBilledParty(bill.billed_party)}
+                            </span>
+                        )}
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => setExpandedBill(null)}
+                        style={{
+                            border: "none",
+                            background: "#dc3545",
+                            color: "#fff",
+                            width: "23px",
+                            height: "23px",
+                            borderRadius: "4px",
+                            cursor: "pointer",
+                            fontSize: "15px",
+                            fontWeight: "700",
+                            lineHeight: "20px",
+                            padding: 0,
+                            flexShrink: 0
+                        }}
+                    >
+                        ×
+                    </button>
+                </div>
+
+                <div style={{ width: "100%", overflowX: "auto", maxHeight: "350px", overflowY: "auto" }}>
+                    <table style={{ width: "100%", minWidth: "700px", borderCollapse: "collapse", fontSize: "11px", tableLayout: "fixed" }}>
+                        <thead>
+                            <tr style={{ background: "#f7f7f7" }}>
+                                <th style={{ padding: "7px 8px", border: "1px solid #ddd", textAlign: "center", width: "55px" }}>SL No.</th>
+                                <th style={{ padding: "7px 8px", border: "1px solid #ddd", textAlign: "left" }}>Item Name</th>
+                                <th style={{ padding: "7px 8px", border: "1px solid #ddd", textAlign: "right", width: "120px" }}>Rate</th>
+                                <th style={{ padding: "7px 8px", border: "1px solid #ddd", textAlign: "right", width: "100px" }}>Quantity</th>
+                                <th style={{ padding: "7px 8px", border: "1px solid #ddd", textAlign: "right", width: "150px" }}>Value</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {billItems.map((item, itemIndex) => {
+                                const itemName = String(item.item_name || "").trim().toUpperCase();
+                                const tempDescription = String(item.temp_item_desc || "").trim();
+                                const isTemporaryItem =
+                                    itemName === "TEMPRORY ITEM" || itemName === "TEMPRORY ITEM MTR";
+
+                                return (
+                                    <tr key={itemIndex}>
+                                        <td style={{ ...cellStyle, textAlign: "center" }}>{itemIndex + 1}</td>
+                                        <td
+                                            style={{
+                                                ...cellStyle,
+                                                textAlign: "left",
+                                                whiteSpace: "normal",
+                                                overflowWrap: "anywhere",
+                                                wordBreak: "break-word",
+                                                maxWidth: 0
+                                            }}
+                                        >
+                                            <div>{item.item_name}</div>
+                                            {isTemporaryItem && tempDescription && (
+                                                <div className="temporary-item-desc">({tempDescription})</div>
+                                            )}
+                                        </td>
+                                        <td style={cellStyle}>{formatAmount(item.rate)}</td>
+                                        <td style={cellStyle}>
+                                            {Number(item.quantity || 0).toLocaleString("en-IN", {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2
+                                            })}
+                                        </td>
+                                        <td style={{ ...cellStyle, fontWeight: "600" }}>{formatAmount(item.value)}</td>
+                                    </tr>
+                                );
+                            })}
+
+                            {summaryRows.map(([label, amount], summaryIndex) => (
+                                <tr key={label} style={{ background: "#f8f9fa", fontWeight: "700" }}>
+                                    <td colSpan={4} style={{ padding: "7px 8px", textAlign: "right", borderTop: summaryIndex === 0 ? "2px solid #555" : undefined }}>
+                                        {label}
+                                    </td>
+                                    <td style={{ padding: "7px 8px", textAlign: "right", borderTop: summaryIndex === 0 ? "2px solid #555" : undefined }}>
+                                        {formatAmount(amount)}
+                                    </td>
+                                </tr>
+                            ))}
+
+                            <tr style={{ background: "#edf8f1", fontWeight: "800", fontSize: "12px" }}>
+                                <td colSpan={4} style={{ padding: "8px", textAlign: "right", borderTop: "1px solid #777" }}>
+                                    Bill Total
+                                </td>
+                                <td style={{ padding: "8px", textAlign: "right", borderTop: "1px solid #777", color: "#198754" }}>
+                                    {formatAmount(tax.total)}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
+    };
+
 
     // Column widths as a share of the screen, so the whole table fits
     // small desktops without sideways scrolling. Admins have one extra column.
@@ -3724,8 +3890,44 @@ const QuotationWise = () => {
                                                         >
                                                             {status === "billed" && (
                                                                 <>
-                                                                    <div>
-                                                                        {row.invoice_no || ""}
+                                                                    <div style={{ display: "flex", alignItems: "flex-start", gap: "5px" }}>
+                                                                        <span style={{ flex: 1, minWidth: 0 }}>
+                                                                            {row.invoice_no || ""}
+                                                                        </span>
+
+                                                                        {Array.isArray(row.bills) && row.bills.length > 0 && (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    setExpandedBill(
+                                                                                        previous =>
+                                                                                            previous === quotationNo
+                                                                                                ? null
+                                                                                                : quotationNo
+                                                                                    )
+                                                                                }
+                                                                                title={
+                                                                                    expandedBill === quotationNo
+                                                                                        ? "Hide bill details"
+                                                                                        : "Show bill details"
+                                                                                }
+                                                                                style={{
+                                                                                    width: "16px",
+                                                                                    minWidth: "16px",
+                                                                                    height: "16px",
+                                                                                    padding: 0,
+                                                                                    border: "none",
+                                                                                    background: "transparent",
+                                                                                    color: "#198754",
+                                                                                    cursor: "pointer",
+                                                                                    fontSize: "10px",
+                                                                                    fontWeight: "700",
+                                                                                    lineHeight: "16px"
+                                                                                }}
+                                                                            >
+                                                                                {expandedBill === quotationNo ? "▲" : "▼"}
+                                                                            </button>
+                                                                        )}
                                                                     </div>
 
                                                                     {row.invoice_date && (
@@ -4378,6 +4580,30 @@ const QuotationWise = () => {
                                                                             </table>
                                                                         </div>
                                                                     </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+
+                                                    {/* ======================================
+                                                        BILL DETAILS
+                                                    ======================================= */}
+
+                                                    {expandedBill === quotationNo &&
+                                                        status === "billed" &&
+                                                        Array.isArray(row.bills) &&
+                                                        row.bills.length > 0 && (
+                                                            <tr>
+                                                                <td
+                                                                    colSpan={isAdminUser ? 12 : 11}
+                                                                    style={{
+                                                                        padding: "0",
+                                                                        background: "#f8f9fa",
+                                                                        border: "none"
+                                                                    }}
+                                                                >
+                                                                    {row.bills.map((bill, billIndex) =>
+                                                                        renderBillDetails(bill, billIndex)
+                                                                    )}
                                                                 </td>
                                                             </tr>
                                                         )}

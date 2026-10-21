@@ -362,11 +362,14 @@ const [editData, setEditData] = useState({
             files
         } = e.target;
 
-        if (name === "po_image") {
+        if (
+            name === "po_image" ||
+            name === "quotation_image"
+        ) {
 
             setEditData(prev => ({
                 ...prev,
-                po_image: files[0]
+                [name]: files[0]
             }));
 
             return;
@@ -475,6 +478,36 @@ const [editData, setEditData] = useState({
 
 
 
+
+    const isPdf = (url) =>
+        /\.pdf$/i.test(url || "");
+
+    const renderAttachment = (url, title, alt) => {
+
+        if (!url) return "-";
+
+        if (isPdf(url)) {
+            return (
+                <button
+                    type="button"
+                    className="table-pdf"
+                    onClick={() => openPreview(title, url)}
+                >
+                    PDF
+                </button>
+            );
+        }
+
+        return (
+            <img
+                src={url}
+                alt={alt}
+                className="table-image"
+                onClick={() => openPreview(title, url)}
+            />
+        );
+
+    };
 
     const openPreview = (title, image) => {
 
@@ -880,18 +913,47 @@ const handleAddChange = (e) => {
 
                             </h3>
 
-                            <img
+                            {isPdf(previewImage) ? (
 
-                                src={previewImage}
+                                <iframe
 
-                                alt="Preview"
+                                    src={previewImage}
 
-                                style={{
-                                    width: "100%",
-                                    borderRadius: "10px"
-                                }}
+                                    title={previewTitle}
 
-                            />
+                                    style={{
+
+                                        width: "100%",
+
+                                        height: "75vh",
+
+                                        border: "none",
+
+                                        borderRadius: "10px"
+
+                                    }}
+
+                                />
+
+                            ) : (
+
+                                <img
+
+                                    src={previewImage}
+
+                                    alt="Preview"
+
+                                    style={{
+
+                                        width: "100%",
+
+                                        borderRadius: "10px"
+
+                                    }}
+
+                                />
+
+                            )}
 
                             <div className="modal-buttons">
 
@@ -1082,21 +1144,7 @@ const handleAddChange = (e) => {
                                         )}
                                     </td>
                                     <td>
-                                        {item.quotation_image_url ? (
-                                            <img
-                                                src={item.quotation_image_url}
-                                                alt="Quotation"
-                                                className="table-image"
-                                                onClick={() =>
-                                                    openPreview(
-                                                        "Quotation Image",
-                                                        item.quotation_image_url
-                                                    )
-                                                }
-                                            />
-                                        ) : (
-                                            "-"
-                                        )}
+                                        {renderAttachment(item.quotation_image_url, "Quotation Image", "Quotation")}
                                     </td>
 
                                     <td>
@@ -1109,32 +1157,7 @@ const handleAddChange = (e) => {
 
                                     <td>
 
-                                        {
-                                            item.po_image_url
-                                                ?
-
-                                                <img
-
-                                                    src={item.po_image_url}
-
-                                                    alt="PO"
-
-                                                    className="table-image"
-
-                                                    onClick={() =>
-                                                        openPreview(
-                                                            "Purchase Order Image",
-                                                            item.po_image_url
-                                                        )
-                                                    }
-
-                                                />
-
-                                                :
-
-                                                "-"
-
-                                        }
+                                        {renderAttachment(item.po_image_url, "Purchase Order Image", "PO")}
 
                                     </td>
 
@@ -1145,20 +1168,7 @@ const handleAddChange = (e) => {
                                     <td>₹{item.invoice_amount || 0}</td>
 
                                     <td>
-                                        {item.invoice_image_url ? (
-                                            <img
-                                                src={item.invoice_image_url}
-                                                className="table-image"
-                                                onClick={() =>
-                                                    openPreview(
-                                                        "Invoice Image",
-                                                        item.invoice_image_url
-                                                    )
-                                                }
-                                            />
-                                        ) : (
-                                            "-"
-                                        )}
+                                        {renderAttachment(item.invoice_image_url, "Invoice Image", "Invoice")}
                                     </td>
                                     <td>
                                         {canManagePO ? (
@@ -1390,7 +1400,7 @@ const handleAddChange = (e) => {
                                         <input
                                             type="file"
                                             name="quotation_image"
-                                            accept="image/*"
+                                            accept="image/*,application/pdf"
                                             onChange={handleAddChange}
                                         />
                                     </div>
@@ -1487,7 +1497,7 @@ const handleAddChange = (e) => {
                                         <input
                                             type="file"
                                             name="po_image"
-                                            accept="image/*"
+                                            accept="image/*,application/pdf"
                                             onChange={handleAddChange}
                                         />
                                     </div>
@@ -1544,7 +1554,7 @@ const handleAddChange = (e) => {
                                                 <input
                                                     type="file"
                                                     name="invoice_image"
-                                                    accept="image/*"
+                                                    accept="image/*,application/pdf"
                                                     onChange={(e) => handleInvoiceChange(0, e)}
                                                 />
                                             </div>
@@ -1662,7 +1672,7 @@ const handleAddChange = (e) => {
     <input
         type="file"
         name="quotation_image"
-        accept="image/*"
+        accept="image/*,application/pdf"
         onChange={handleEditChange}
     />
 </div>
@@ -1780,6 +1790,7 @@ const handleAddChange = (e) => {
                                     <input
                                         type="file"
                                         name="po_image"
+                                        accept="image/*,application/pdf"
                                         onChange={handleEditChange}
                                     />
 
@@ -1837,7 +1848,7 @@ const handleAddChange = (e) => {
                                             <input
                                                 type="file"
                                                 name="invoice_image"
-                                                accept="image/*"
+                                                accept="image/*,application/pdf"
                                                 onChange={(e)=>handleEditInvoiceChange(0,e)}
                                             />
                                         </div>

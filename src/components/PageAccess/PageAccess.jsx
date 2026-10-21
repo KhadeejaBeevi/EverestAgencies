@@ -57,9 +57,9 @@ const ALL_PAGES = [
 
     "Telecaller Report",
     "Lead Contribution Report",
-    "Lead Call Report",
     "Ledger Changes",
     "KSEB Payment",
+    "KSEB Outstanding",
     "KSEB Overall Sales",
     "KSEB Location Report",
     "KSEB Detail Report",

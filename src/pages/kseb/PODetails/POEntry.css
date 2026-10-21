@@ -241,6 +241,19 @@
     overflow-y:auto;
 }
 
+/* Override the global .modal backdrop rule from SalesOrders.css,
+   which otherwise turns this modal into a full-screen flex row
+   and pushes the title to the left of the form. */
+.po-container .modal{
+    position:relative;
+    top:auto;
+    left:auto;
+    display:block;
+    height:auto;
+    z-index:auto;
+    background:#fff;
+}
+
 .modal-title{
     position:sticky;
     top:0;
@@ -331,6 +344,20 @@
     padding:12px 28px;
     border-radius:8px;
     cursor:pointer;
+}
+
+/* Override global .modal-buttons button rules from SalesOrders.css */
+.po-container .modal-buttons button{
+    flex:0 0 auto;
+    font-weight:600;
+}
+
+.po-container .modal-buttons .tender_save-btn{
+    background:#16a34a;
+}
+
+.po-container .modal-buttons .tender_cancel-btn{
+    background:#dc2626;
 }
 
 /* ==========================================
@@ -450,4 +477,19 @@
     .modal-buttons button{
         width:100%;
     }
+}
+
+/* ==========================================
+   PDF ATTACHMENT
+========================================== */
+
+.table-pdf{
+    width:70px;
+    height:70px;
+    border:1px solid #ddd;
+    border-radius:6px;
+    background:#fee2e2;
+    color:#b91c1c;
+    font-weight:700;
+    cursor:pointer;
 }

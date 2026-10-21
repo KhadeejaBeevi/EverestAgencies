@@ -1,16 +1,21 @@
 <?php
 
-// =====================================================
-// RUNTIME SETTINGS
-// 13,000+ ledgers is too much for PHP's default
-// 128M / 30 second limits, so raise them and show
-// any error instead of a blank page.
-// =====================================================
+require_once __DIR__ . '/db_connect.php';
 
-ini_set('display_errors', 1);
+date_default_timezone_set("Asia/Kolkata");
+
+/* =========================================================
+   RUNTIME SETTINGS
+   13,000+ ledgers is too much for PHP's default
+   128M / 30 second limits. Shared hosting may refuse
+   these, so they are silenced.
+========================================================= */
+
+@set_time_limit(0);
+@ini_set('memory_limit', '1024M');
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 error_reporting(E_ALL);
-ini_set('memory_limit', '1024M');
-set_time_limit(0);
 
 register_shutdown_function(function () {
     $error = error_get_last();
@@ -20,9 +25,6 @@ register_shutdown_function(function () {
            . " (" . htmlspecialchars(basename($error['file'])) . ":" . $error['line'] . ")";
     }
 });
-
-// Report MySQL errors through ->error instead of exceptions
-mysqli_report(MYSQLI_REPORT_OFF);
 
 $autoload = __DIR__ . '/../vendor/autoload.php';
 
@@ -34,38 +36,46 @@ require_once $autoload;
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
-// =====================================================
-// DATABASE CONNECTION
-// =====================================================
 
-if (file_exists(__DIR__ . '/db_connect.php')) {
-    require_once __DIR__ . '/db_connect.php';
-    $conn = db_connect("salescollection");
-} else {
-    $conn = new mysqli("localhost", "root", "", "salescollection");
+/* =========================================================
+   DATABASE CONNECTION
+   Login details come from db_connect.php on the server.
+========================================================= */
+
+try {
+
+    $pdo = db_pdo("salescollection", [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false
+    ]);
+
+} catch (Throwable $e) {
+
+    error_log("LEDGER IMPORT DB ERROR: " . $e->getMessage());
+
+    die(
+        "<h3 style='color:red;'>Database connection failed.</h3>" .
+        "<p>Check the details in db_connect.php.</p>"
+    );
 }
 
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
 
-$conn->set_charset("utf8mb4");
+/* =========================================================
+   EXCEL FILE
+========================================================= */
 
-// =====================================================
-// EXCEL FILE
-// =====================================================
-
-// Updated Excel file name
 $file = __DIR__ . "/EverestCRMLedgers.xlsx";
 
 if (!file_exists($file)) {
     die("Excel file not found:<br>" . htmlspecialchars($file));
 }
 
-// =====================================================
-// LOAD EXCEL
-// Values only (no styles) to keep memory low.
-// =====================================================
+
+/* =========================================================
+   LOAD EXCEL
+   Values only (no styles) to keep memory low.
+========================================================= */
 
 try {
     $reader = IOFactory::createReaderForFile($file);
@@ -85,25 +95,28 @@ if (count($data) < 2) {
     die("No data found in Excel.");
 }
 
-// =====================================================
-// GET MYSQL TABLE COLUMNS
-// =====================================================
+
+/* =========================================================
+   GET MYSQL TABLE COLUMNS
+========================================================= */
 
 $tableColumns = [];
 
-$result = $conn->query("SHOW COLUMNS FROM `salesdatalatest33`");
+try {
 
-if (!$result) {
-    die("Unable to read MySQL table columns: " . $conn->error);
+    foreach ($pdo->query("SHOW COLUMNS FROM `salesdatalatest33`")->fetchAll() as $col) {
+        $tableColumns[] = $col['Field'];
+    }
+
+} catch (Throwable $e) {
+
+    die("Unable to read MySQL table columns: " . htmlspecialchars($e->getMessage()));
 }
 
-while ($row = $result->fetch_assoc()) {
-    $tableColumns[] = $row['Field'];
-}
 
-// =====================================================
-// READ + NORMALIZE EXCEL HEADERS
-// =====================================================
+/* =========================================================
+   READ + NORMALIZE EXCEL HEADERS
+========================================================= */
 
 $excelHeaders = [];
 
@@ -131,37 +144,63 @@ foreach ($data[0] as $index => $header) {
     $specialColumns = [
         'Ledger.$_EveLedFldExe'          => '$_EveLedFldExe',
         'Ledger.$_EveLedTeleCall'        => '$_EveLedTeleCall',
-        'Ledger.$_EveLedCRMSalesCoord'  => '$_EveLedCRMSalesCoord',
-        'Ledger.$_EveBillCrPeriod'       => '$_EveBillCrPeriod'
+        'Ledger.$_EveLedCRMSalesCoord'   => '$_EveLedCRMSalesCoord',
+        'Ledger.$_EveBillCrPeriod'       => '$_EveBillCrPeriod',
+        'Ledger.$_PrimaryParentLed'      => '$_PrimaryParentLed'
     ];
 
     if (isset($specialColumns[$header])) {
         $header = $specialColumns[$header];
     }
 
-    /*
-     * NEW EXCEL COLUMN:
-     * Ledger.$_PrimaryParentLed
-     *
-     * This is now supported automatically.
-     * After removing backticks it becomes:
-     * Ledger.$_PrimaryParentLed
-     *
-     * If the MySQL table column is also named:
-     * $_PrimaryParentLed
-     * add the mapping below.
-     */
+    // -------------------------------------------------
+    // NEW EXCEL COLUMN: Ledger.$OpeningBalance
+    // Use $OpeningBalance if the table already has it,
+    // otherwise keep the Excel name and add the column
+    // to MySQL the first time it is imported.
+    // -------------------------------------------------
 
-    if ($header === 'Ledger.$_PrimaryParentLed') {
-        $header = '$_PrimaryParentLed';
+    if ($header === 'Ledger.$OpeningBalance') {
+
+        if (in_array('$OpeningBalance', $tableColumns, true)) {
+
+            $header = '$OpeningBalance';
+
+        } elseif (!in_array($header, $tableColumns, true)) {
+
+            try {
+
+                $pdo->exec(
+                    "ALTER TABLE `salesdatalatest33`
+                     ADD COLUMN `Ledger.\$OpeningBalance` DECIMAL(18,2) NULL"
+                );
+
+            } catch (Throwable $e) {
+
+                die(
+                    "<h3 style='color:red;'>Unable to add OpeningBalance column:</h3>" .
+                    htmlspecialchars($e->getMessage()) .
+                    "<p>Please run:</p>" .
+                    "<pre>ALTER TABLE `salesdatalatest33`\n" .
+                    "ADD COLUMN `Ledger.\$OpeningBalance` DECIMAL(18,2) NULL;</pre>"
+                );
+            }
+
+            $tableColumns[] = $header;
+
+            echo "<div style='color:#0066cc;'>Added column " .
+                htmlspecialchars($header) .
+                " to salesdatalatest33.</div>";
+        }
     }
 
     $excelHeaders[$index] = $header;
 }
 
-// =====================================================
-// MATCH EXCEL COLUMNS WITH MYSQL
-// =====================================================
+
+/* =========================================================
+   MATCH EXCEL COLUMNS WITH MYSQL
+========================================================= */
 
 $insertColumns = [];
 $excelIndexes = [];
@@ -184,37 +223,20 @@ foreach ($excelHeaders as $index => $header) {
     }
 }
 
-// =====================================================
-// CHECK
-// =====================================================
-
 if (count($insertColumns) === 0) {
     die("No matching columns found between Excel and MySQL.");
 }
 
-$columnList = implode(",", $insertColumns);
 
-// =====================================================
-// DISPLAY IMPORT INFORMATION
-// =====================================================
+/* =========================================================
+   DISPLAY IMPORT INFORMATION
+========================================================= */
 
 echo "<h3>Import Information</h3>";
 
-echo "Excel Columns Found: <b>"
-   . count($excelHeaders)
-   . "</b><br>";
-
-echo "Matched SQL Columns: <b>"
-   . count($insertColumns)
-   . "</b><br>";
-
-echo "Missing Columns: <b>"
-   . count($missingColumns)
-   . "</b><br>";
-
-// =====================================================
-// SHOW MISSING COLUMNS
-// =====================================================
+echo "Excel Columns Found: <b>" . count($excelHeaders) . "</b><br>";
+echo "Matched SQL Columns: <b>" . count($insertColumns) . "</b><br>";
+echo "Missing Columns: <b>" . count($missingColumns) . "</b><br>";
 
 if (count($missingColumns) > 0) {
 
@@ -227,29 +249,34 @@ if (count($missingColumns) > 0) {
 
 echo "<hr>";
 
-// =====================================================
-// PREPARE INSERT
-// =====================================================
 
-$placeholders = implode(
-    ",",
-    array_fill(0, count($excelIndexes), "?")
-);
+/* =========================================================
+   PREPARE INSERT
+========================================================= */
 
-$sql = "INSERT INTO `salesdatalatest33`
-        ($columnList)
-        VALUES
-        ($placeholders)";
+$sql =
+    "INSERT INTO `salesdatalatest33` (" .
+    implode(",", $insertColumns) .
+    ") VALUES (" .
+    implode(",", array_fill(0, count($excelIndexes), "?")) .
+    ")";
 
-$stmt = $conn->prepare($sql);
+try {
 
-if (!$stmt) {
-    die("Prepare failed: " . htmlspecialchars($conn->error));
+    $stmt = $pdo->prepare($sql);
+
+} catch (Throwable $e) {
+
+    die("Prepare failed: " . htmlspecialchars($e->getMessage()));
 }
 
-// =====================================================
-// IMPORT DATA
-// =====================================================
+
+/* =========================================================
+   REPLACE OLD DATA IN ONE TRANSACTION
+   Old ledgers stay in place if the import stops
+   halfway, and one commit is much faster than
+   13,000 separate ones.
+========================================================= */
 
 $success = 0;
 $failed = 0;
@@ -257,18 +284,19 @@ $skipped = 0;
 
 $totalRows = count($data) - 1;
 
-// =====================================================
-// REPLACE OLD DATA IN ONE TRANSACTION
-// Old ledgers stay in place if the import stops
-// halfway, and one commit is much faster than
-// 13,000 separate ones.
-// =====================================================
+try {
 
-$conn->begin_transaction();
+    $pdo->beginTransaction();
 
-if (!$conn->query("DELETE FROM `salesdatalatest33`")) {
-    $conn->rollback();
-    die("Failed to clear table: " . htmlspecialchars($conn->error));
+    $pdo->exec("DELETE FROM `salesdatalatest33`");
+
+} catch (Throwable $e) {
+
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+
+    die("Failed to clear table: " . htmlspecialchars($e->getMessage()));
 }
 
 for ($i = 1; $i < count($data); $i++) {
@@ -318,75 +346,51 @@ for ($i = 1; $i < count($data); $i++) {
     }
 
     // -------------------------------------------------
-    // Bind all values as strings
-    // -------------------------------------------------
-
-    $types = str_repeat('s', count($values));
-
-    $stmt->bind_param(
-        $types,
-        ...$values
-    );
-
-    // -------------------------------------------------
     // INSERT
     // -------------------------------------------------
 
-    if ($stmt->execute()) {
+    try {
+
+        $stmt->execute($values);
 
         $success++;
 
-    } else {
+    } catch (Throwable $e) {
 
         $failed++;
 
-        echo "<b style='color:red'>";
-        echo "Row " . ($i + 1);
-        echo "</b> : ";
-
-        echo htmlspecialchars($stmt->error);
-
-        echo "<br>";
+        echo "<b style='color:red'>Row " . ($i + 1) . "</b> : " .
+            htmlspecialchars($e->getMessage()) .
+            "<br>";
     }
 }
 
-if (!$conn->commit()) {
-    die("Failed to save import: " . htmlspecialchars($conn->error));
+try {
+
+    $pdo->commit();
+
+} catch (Throwable $e) {
+
+    die("Failed to save import: " . htmlspecialchars($e->getMessage()));
 }
 
-// =====================================================
-// RESULT
-// =====================================================
+
+/* =========================================================
+   RESULT
+========================================================= */
 
 echo "<hr>";
 
 echo "<h2>Import Completed</h2>";
 
-echo "Total Excel Rows: <b>"
-   . $totalRows
-   . "</b><br>";
+echo "Total Excel Rows: <b>" . $totalRows . "</b><br>";
+echo "Successfully Imported: <b style='color:green'>" . $success . "</b><br>";
+echo "Skipped Empty Rows: <b>" . $skipped . "</b><br>";
+echo "Failed: <b style='color:red'>" . $failed . "</b><br>";
+echo "Matched Columns: <b>" . count($insertColumns) . "</b><br>";
+echo "Missing Columns: <b>" . count($missingColumns) . "</b><br>";
 
-echo "Successfully Imported: <b style='color:green'>"
-   . $success
-   . "</b><br>";
-
-echo "Skipped Empty Rows: <b>"
-   . $skipped
-   . "</b><br>";
-
-echo "Failed: <b style='color:red'>"
-   . $failed
-   . "</b><br>";
-
-echo "Matched Columns: <b>"
-   . count($insertColumns)
-   . "</b><br>";
-
-echo "Missing Columns: <b>"
-   . count($missingColumns)
-   . "</b><br>";
-
-$stmt->close();
-$conn->close();
+$stmt = null;
+$pdo = null;
 
 ?>

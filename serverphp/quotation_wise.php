@@ -311,6 +311,9 @@ try {
                 "_invoice_numbers" => [],
                 "_invoice_dates" => [],
 
+                // Bill details: billed items grouped by invoice number.
+                "_bills" => [],
+
                 "status" => "Quotation Only",
                 "description" => $description,
                 "items" => []
@@ -450,24 +453,38 @@ try {
 
     /* =========================================================
        4. GET INVOICES
+
+       Item columns and Tally tax columns are read too, for the
+       Bill Details shown under the invoice number.
     ========================================================= */
 
     $invoiceSql = "
         SELECT
-            VoucherNumber,
-            Date,
-            PartyLedgerName,
-            EveInvMailingName,
-            EveInvMailingAdd,
-            Amount,
-            EveItemGstRate,
-            EveItemTaxAmt,
-            EveInvVchOrderNos
-        FROM salesdata
+            s.VoucherNumber,
+            s.Date,
+            s.PartyLedgerName,
+            s.EveInvMailingName,
+            s.EveInvMailingAdd,
+            s.Amount,
+            s.EveItemGstRate,
+            s.EveItemTaxAmt,
+            s.EveInvVchOrderNos,
+            s.StockItemName,
+            s.StockItemDescription,
+            s.temp_item_desc,
+            s.BilledQty,
+            s.Rate,
+            s.JasBaseUnit,
+            s.JasPriBillQty,
+            $taxSelectSql
+        FROM salesdata s
         WHERE
-            LOWER(TRIM(COALESCE(VoucherTypeName, ''))) <> 'sales order'
-            AND EveInvVchOrderNos IS NOT NULL
-            AND TRIM(EveInvVchOrderNos) <> ''
+            LOWER(TRIM(COALESCE(s.VoucherTypeName, ''))) <> 'sales order'
+            AND s.EveInvVchOrderNos IS NOT NULL
+            AND TRIM(s.EveInvVchOrderNos) <> ''
+        ORDER BY
+            s.Date ASC,
+            s.`Sl No` ASC
     ";
 
     $invoiceResult = $pdo->query($invoiceSql);
@@ -498,6 +515,10 @@ try {
                 )
             )
         );
+
+        // An invoice row is added to a quotation's bill details only once,
+        // even when two of its references point to the same quotation.
+        $billedOrderKeys = [];
 
         foreach ($references as $ref) {
 
@@ -590,6 +611,75 @@ try {
             }
 
             $order["status"] = "Billed";
+
+            /* Bill details: billed items grouped by invoice number. */
+
+            if (!isset($billedOrderKeys[$matchedOrderKey])) {
+
+                $billedOrderKeys[$matchedOrderKey] = true;
+
+                $billKey = $invoiceNo !== "" ? $invoiceNo : "-";
+
+                if (!isset($order["_bills"][$billKey])) {
+                    $order["_bills"][$billKey] = [
+                        "invoice_no" => $invoiceNo,
+                        "invoice_date" => $invoiceDate,
+                        "billed_party" => $invoiceParty,
+                        "taxable_amount" => 0,
+                        "gst_amount" => 0,
+                        "items" => []
+                    ];
+                    // Tally's voucher tax totals (same on every item row).
+                    foreach ($taxColumns as $field => $dbColumn) {
+                        $order["_bills"][$billKey][$field] = null;
+                    }
+                }
+
+                $bill =& $order["_bills"][$billKey];
+
+                foreach ($taxColumns as $field => $dbColumn) {
+                    $taxValue = $invoiceRow[$dbColumn] ?? null;
+                    if (
+                        $bill[$field] === null
+                        && $taxValue !== null
+                        && trim((string)$taxValue) !== ""
+                    ) {
+                        $bill[$field] = (float)$taxValue;
+                    }
+                }
+
+                $bill["taxable_amount"] += $invoiceAmount;
+                $bill["gst_amount"] += $invoiceGstAmount;
+
+                $billItemName = trim((string)($invoiceRow["StockItemName"] ?? ""));
+                $billDescription = trim((string)($invoiceRow["StockItemDescription"] ?? ""));
+                $billQuantity = (float)($invoiceRow["BilledQty"] ?? 0);
+                $billRate = (float)($invoiceRow["Rate"] ?? 0);
+
+                if (
+                    $billItemName !== ""
+                    || $billDescription !== ""
+                    || $billQuantity != 0
+                    || $billRate != 0
+                    || $invoiceAmount != 0
+                ) {
+                    $bill["items"][] = [
+                        "item_name" => $billItemName !== "" ? $billItemName : $billDescription,
+                        "temp_item_desc" => trim((string)($invoiceRow["temp_item_desc"] ?? "")),
+                        "description" => $billDescription,
+                        "quantity" => $billQuantity,
+                        "rate" => $billRate,
+                        "gst_rate" => $invoiceGstRate,
+                        "gst_amount" => $invoiceGstAmount,
+                        "value" => $invoiceAmount,
+                        "value_with_gst" => $invoiceAmount + $invoiceGstAmount,
+                        "unit" => trim((string)($invoiceRow["JasBaseUnit"] ?? "")),
+                        "quantity_text" => trim((string)($invoiceRow["JasPriBillQty"] ?? ""))
+                    ];
+                }
+
+                unset($bill);
+            }
 
             unset($order);
         }
@@ -699,9 +789,45 @@ try {
             $order["billed_amount_with_gst"] = 0;
         }
 
+        /* Bill details: one entry per invoice, with a Tally-style total. */
+
+        $order["bills"] = [];
+
+        if ($order["status"] === "Billed") {
+
+            foreach ($order["_bills"] as $bill) {
+
+                $bill["taxable_amount"] = round((float)$bill["taxable_amount"], 2);
+                $bill["gst_amount"] = round((float)$bill["gst_amount"], 2);
+
+                $billHasTallyTax = false;
+                foreach (array_keys($taxColumns) as $field) {
+                    if ($bill[$field] !== null) {
+                        $billHasTallyTax = true;
+                    }
+                }
+
+                $bill["total_with_gst"] = $billHasTallyTax
+                    ? round(
+                        $bill["taxable_amount"]
+                            + (float)$bill["handling_charges"]
+                            + (float)$bill["cgst_amount"]
+                            + (float)$bill["sgst_amount"]
+                            + (float)$bill["igst_amount"]
+                            + (float)$bill["round_off_amount"],
+                        2
+                    )
+                    : round($bill["taxable_amount"] + $bill["gst_amount"], 0);
+
+                $order["bills"][] = $bill;
+            }
+        }
+
         unset(
             $order["_billed_parties"],
-            $order["_invoice_numbers"]
+            $order["_invoice_numbers"],
+            $order["_invoice_dates"],
+            $order["_bills"]
         );
     }
 

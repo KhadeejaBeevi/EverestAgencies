@@ -59,6 +59,7 @@ export default function KsebDirectory() {
   // =========================================================
 
   const [tallyLedgers, setTallyLedgers] = useState([]);
+  const [securityDepositLedgers, setSecurityDepositLedgers] = useState([]);
 
   // =========================================================
   // USER ROLE
@@ -114,6 +115,11 @@ export default function KsebDirectory() {
 
           // Tally ledger names coming from salesdatalatest33
           setTallyLedgers(result.tallyLedgers || []);
+
+          // Security Deposit ledgers (start with "Security Deposit", contain KSEB)
+          setSecurityDepositLedgers(
+            result.securityDepositLedgers || []
+          );
         }
       })
       .catch(console.error);
@@ -691,6 +697,37 @@ export default function KsebDirectory() {
   };
 
   // =========================================================
+  // AVAILABLE SECURITY DEPOSIT LEDGERS
+  // =========================================================
+
+  const usedSecurityDepositLedgers = new Set(
+    data
+      .map((item) =>
+        (item.security_deposit_ledger || "").trim()
+      )
+      .filter(Boolean)
+  );
+
+  const getAvailableSecurityDepositLedgers = (
+    currentItem
+  ) => {
+    const currentLedger =
+      (currentItem?.security_deposit_ledger || "").trim();
+
+    return securityDepositLedgers.filter((ledger) => {
+      const ledgerName = (ledger || "").trim();
+
+      // Current card keeps its own selected ledger
+      if (currentLedger && ledgerName === currentLedger) {
+        return true;
+      }
+
+      // Hide ledger already assigned elsewhere
+      return !usedSecurityDepositLedgers.has(ledgerName);
+    });
+  };
+
+  // =========================================================
   // SAVE
   // =========================================================
 
@@ -699,7 +736,22 @@ const handleSave = async () => {
     const payload = {
       ...editData,
       tally_name: (editData?.tally_name || "").trim(),
+      security_deposit_ledger: (
+        editData?.security_deposit_ledger || ""
+      ).trim(),
     };
+
+    // Security Deposit Ledger must be one of the listed ledgers
+    if (
+      payload.security_deposit_ledger &&
+      !securityDepositLedgers.some(
+        (ledger) =>
+          (ledger || "").trim() === payload.security_deposit_ledger
+      )
+    ) {
+      alert("Please choose a Security Deposit Ledger from the list.");
+      return;
+    }
 
     const response = await apiFetch(`${API}/update_kseb.php`, {
       method: "POST",
@@ -730,6 +782,10 @@ const handleSave = async () => {
       ...selectedItem,
       ...payload,
       tally_name: result.tally_name ?? payload.tally_name ?? "",
+      security_deposit_ledger:
+        result.security_deposit_ledger ??
+        payload.security_deposit_ledger ??
+        "",
     };
 
     const updatedData = data.map((item) =>
@@ -1560,6 +1616,20 @@ const handleSave = async () => {
                   )}
                 </p>
 
+                {/* SECURITY DEPOSIT LEDGER */}
+                <p style={{ fontSize: "14px", fontWeight: "400", margin: "8px 0" }}>
+                  <strong>Security Deposit Ledger:</strong>{" "}
+                  {item.security_deposit_ledger ? (
+                    <span style={{ fontWeight: "400" }}>
+                      {item.security_deposit_ledger}
+                    </span>
+                  ) : (
+                    <span style={{ color: "#777", fontWeight: "400" }}>
+                      Not Assigned
+                    </span>
+                  )}
+                </p>
+
                 {userLocation &&
                   item.latitude &&
                   item.longitude && (
@@ -1981,6 +2051,65 @@ const handleSave = async () => {
     )}
   </td>
 </tr>
+
+                {/* =================================================
+                    SECURITY DEPOSIT LEDGER
+                ================================================= */}
+
+                <tr>
+                  <td>
+                    <strong>Security Deposit Ledger</strong>
+                  </td>
+
+                  <td>
+                    {isEditing ? (
+                      <>
+                      <input
+                        type="text"
+                        list="security-deposit-ledger-options"
+                        value={editData?.security_deposit_ledger || ""}
+                        onChange={(e) =>
+                          handleChange(e, "security_deposit_ledger")
+                        }
+                        placeholder="Type to search Security Deposit Ledger"
+                        autoComplete="off"
+                        style={{
+                          width: "100%",
+                          padding: "7px 10px",
+                          fontSize: "14px",
+                          fontWeight: "400",
+                          border: "1px solid #ccc",
+                          borderRadius: "4px",
+                          backgroundColor: "#fff",
+                          boxSizing: "border-box",
+                        }}
+                      />
+
+                      <datalist id="security-deposit-ledger-options">
+                        {getAvailableSecurityDepositLedgers(selectedItem).map(
+                          (ledger) => (
+                            <option key={ledger} value={ledger} />
+                          )
+                        )}
+                      </datalist>
+                      </>
+                    ) : selectedItem?.security_deposit_ledger ? (
+                      <span style={{ fontSize: "14px", fontWeight: "400" }}>
+                        {selectedItem.security_deposit_ledger}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: "400",
+                          color: "#777",
+                        }}
+                      >
+                        Not Assigned
+                      </span>
+                    )}
+                  </td>
+                </tr>
 
                 {/* DECISION MAKER */}
 

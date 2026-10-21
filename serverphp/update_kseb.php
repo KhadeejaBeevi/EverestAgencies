@@ -37,6 +37,23 @@ $id = (int)$data['id'];
 
 
 // =====================================================
+// MAKE SURE THE SECURITY DEPOSIT LEDGER COLUMN EXISTS
+// =====================================================
+
+$columnCheck = $conn->query("
+    SHOW COLUMNS FROM kseb_directory LIKE 'security_deposit_ledger'
+");
+
+if ($columnCheck && $columnCheck->num_rows === 0) {
+    $conn->query("
+        ALTER TABLE kseb_directory
+        ADD COLUMN security_deposit_ledger VARCHAR(255) NULL DEFAULT NULL
+        AFTER tally_name
+    ");
+}
+
+
+// =====================================================
 // GET EXISTING KSEB RECORD
 // =====================================================
 
@@ -130,6 +147,53 @@ if ($oldTallyName === '' && $newTallyName !== '') {
 
 
 // =====================================================
+// SECURITY DEPOSIT LEDGER
+// Can be changed or cleared, but one ledger
+// belongs to only one KSEB card
+// =====================================================
+
+$newSecurityDepositLedger = trim($data['security_deposit_ledger'] ?? '');
+
+if ($newSecurityDepositLedger !== '') {
+
+    $sdDuplicateStmt = $conn->prepare("
+        SELECT id, PLACE
+        FROM kseb_directory
+        WHERE security_deposit_ledger = ?
+          AND id <> ?
+        LIMIT 1
+    ");
+
+    $sdDuplicateStmt->bind_param(
+        "si",
+        $newSecurityDepositLedger,
+        $id
+    );
+
+    $sdDuplicateStmt->execute();
+
+    $sdDuplicateResult = $sdDuplicateStmt->get_result();
+
+    if ($sdDuplicateResult->num_rows > 0) {
+
+        $sdDuplicateRow = $sdDuplicateResult->fetch_assoc();
+
+        echo json_encode([
+            "status" => "error",
+            "message" => "This Security Deposit Ledger is already assigned to another KSEB card: " .
+                         $sdDuplicateRow['PLACE']
+        ]);
+
+        exit;
+    }
+}
+
+// Store an empty selection as NULL
+$securityDepositLedgerValue =
+    $newSecurityDepositLedger !== '' ? $newSecurityDepositLedger : null;
+
+
+// =====================================================
 // CHECK DECISION MAKER NAME CHANGE
 // =====================================================
 
@@ -160,6 +224,7 @@ UPDATE kseb_directory SET
     SRS_ASSISTANT_EXECUTIVE_ENGINEER=?,
     MAIL_ID=?,
     tally_name=?,
+    security_deposit_ledger=?,
 
     decision_maker_updated_at =
         CASE
@@ -182,7 +247,7 @@ if (!$stmt) {
 }
 
 $stmt->bind_param(
-    "ssssssssssssi",
+    "sssssssssssssi",
     $data['NAME'],
     $data['DECISION_MAKER_DESIGNATION'],
     $data['DEPUTY_CHIEF_ENGINEER_OFF_PER'],
@@ -193,6 +258,7 @@ $stmt->bind_param(
     $data['SRS_ASSISTANT_EXECUTIVE_ENGINEER'],
     $data['MAIL_ID'],
     $newTallyName,
+    $securityDepositLedgerValue,
     $decisionMakerDate,
     $decisionMakerDate,
     $id
@@ -203,7 +269,8 @@ if ($stmt->execute()) {
 
     echo json_encode([
         "status" => "success",
-        "tally_name" => $newTallyName
+        "tally_name" => $newTallyName,
+        "security_deposit_ledger" => $newSecurityDepositLedger
     ]);
 
 } else {

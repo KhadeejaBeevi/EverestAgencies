@@ -159,7 +159,9 @@ export const formatAmount = (value) => {
         return "";
     }
 
-    const number = Number(value);
+    // Tally stores sales amounts as negative numbers; show them without
+    // the minus sign.
+    const number = Math.abs(Number(value));
 
     if (isNaN(number)) {
         return "";

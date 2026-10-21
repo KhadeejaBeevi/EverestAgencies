@@ -38,7 +38,7 @@ const DEFAULT_SOLAR_TEMPLATES = [
     id: "solar-intro",
     name: "Solar Introduction",
     message:
-      "Dear {decision_maker},\n\nGreetings from *Everest Agencies*, Cochin!\n\nWe are a trusted, authorised electrical dealer at Chidambaram Chambers, Doraiswamy Iyer Road, Cochin. We supply industrial and domestic electrical goods, U.G. cables, switches, starters, motors, control panel accessories and complete *solar systems*.\n\nFor {company_name}, we can offer:\n☀️ Complete solar systems from one supplier\n✅ Genuine products from leading brands\n💰 Competitive dealer pricing\n🤝 Prompt support from our Cochin team\n\nOur solar catalog:\n{catalog_link}\n\nReply to this message or call us on 8593010100 for details and a quotation.\n\nRegards,\n{sender_name}\nEverest Agencies\nChidambaram Chambers, Doraiswamy Iyer Road, Cochin - 682 035\nwww.everestagencies.com",
+      "Dear {decision_maker},\n\nGreetings from *Everest Agencies*, Cochin!\n\nWe are a trusted, authorised electrical dealer at Chidambaram Chambers, Doraiswamy Iyer Road, Cochin. We supply industrial and domestic electrical goods, U.G. cables, switches, starters, motors, control panel accessories and complete *solar systems*.\n\nFor {company_name}, we can offer:\n☀️ Complete solar systems from one supplier\n✅ Genuine products from leading brands\n💰 Competitive dealer pricing\n🤝 Prompt support from our Cochin team\n\nOur solar catalog:\n{catalog_link}\n\nReply to this message or call us on 9249181466 for details and a quotation.\n\nRegards,\n{sender_name}\nEverest Agencies\nChidambaram Chambers, Doraiswamy Iyer Road, Cochin - 682 035\nwww.everestagencies.com",
   },
   {
     id: "solar-catalog",

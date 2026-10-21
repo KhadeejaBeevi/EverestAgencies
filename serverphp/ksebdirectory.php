@@ -82,13 +82,50 @@ while ($row = $ledgerResult->fetch_assoc()) {
 
 
 /* =========================
+   SECURITY DEPOSIT LEDGERS
+   Ledgers starting with "Security Deposit" that mention KSEB
+========================= */
+
+$securityDepositLedgers = [];
+
+$sdLedgerQuery = "
+    SELECT DISTINCT PartyLedgerName
+    FROM " . db_name("salescollection") . ".salesdatalatest33
+    WHERE PartyLedgerName LIKE 'Security Deposit%'
+      AND PartyLedgerName LIKE '%KSEB%'
+    ORDER BY PartyLedgerName
+";
+
+$sdLedgerResult = $conn->query($sdLedgerQuery);
+
+if (!$sdLedgerResult) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "Security deposit ledger query failed: " . $conn->error
+    ]);
+    $conn->close();
+    exit;
+}
+
+while ($row = $sdLedgerResult->fetch_assoc()) {
+
+    $ledgerName = trim($row["PartyLedgerName"]);
+
+    if ($ledgerName !== "") {
+        $securityDepositLedgers[] = $ledgerName;
+    }
+}
+
+
+/* =========================
    RESPONSE
 ========================= */
 
 echo json_encode([
     "status" => "success",
     "data" => $data,
-    "tallyLedgers" => $tallyLedgers
+    "tallyLedgers" => $tallyLedgers,
+    "securityDepositLedgers" => $securityDepositLedgers
 ]);
 
 $conn->close();

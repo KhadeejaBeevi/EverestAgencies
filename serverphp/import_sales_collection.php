@@ -370,7 +370,7 @@ class XlsxStreamReader
 /* =========================================================
    COLUMN MAPPING  (database column => Excel header)
 
-   The Excel export currently has 65 columns (A..BM).
+   The Excel export currently has 69 columns (A..BQ).
    Columns are located by their header text in row 1, so
    inserting / reordering columns in the Excel export will
    not break the import.
@@ -443,7 +443,15 @@ $columnMap = [
     ["db" => "EveEveSGSTTaxAmt",      "excel" => '$EveEveSGSTTaxAmt',                     "type" => "d", "optional" => true],
     ["db" => "EveEveCGSTTaxAmt",      "excel" => '$EveEveCGSTTaxAmt',                     "type" => "d", "optional" => true],
     ["db" => "EveEveRoundOffAmt",     "excel" => '$EveEveRoundOffAmt',                    "type" => "d", "optional" => true],
-    ["db" => "EveEveHandChrgsAmt",    "excel" => '$EveEveHandChrgsAmt',                   "type" => "d", "optional" => true]
+    ["db" => "EveEveHandChrgsAmt",    "excel" => '$EveEveHandChrgsAmt',                   "type" => "d", "optional" => true],
+
+    /* Bill-wise details of the voucher (columns AF..AI).
+       Sales: the bill created ("New Ref"); Receipt / Payment:
+       the bill settled ("Agst Ref"); Sales Order: "On Account". */
+    ["db" => "ADCBillName",           "excel" => '$Name',                                 "type" => "s", "optional" => true],
+    ["db" => "ADCBillType",           "excel" => '$BillType',                             "type" => "s", "optional" => true],
+    ["db" => "ADCBillCrPeriod",       "excel" => '$BillCreditPeriod',                     "type" => "s", "optional" => true],
+    ["db" => "ADCLedgerName",         "excel" => '$LedgerName',                           "type" => "s", "optional" => true]
 ];
 
 
@@ -476,6 +484,7 @@ try {
 ========================================================= */
 
 $possibleFiles = [
+    __DIR__ . "/EverestCRMSALES_COLLECTION_NEW.xlsx",
     __DIR__ . "/EverestCRMSALES COLLECTION.xlsx",
     __DIR__ . "/EverestCRMSALES_COLLECTION.xlsx",
     __DIR__ . "/EverestCRMSALES COLLECTION (1).xlsx"
@@ -571,7 +580,11 @@ $alterDefinitions = [
     "EveEveSGSTTaxAmt"      => "DECIMAL(18,4) NULL",
     "EveEveCGSTTaxAmt"      => "DECIMAL(18,4) NULL",
     "EveEveRoundOffAmt"     => "DECIMAL(18,4) NULL",
-    "EveEveHandChrgsAmt"    => "DECIMAL(18,4) NULL"
+    "EveEveHandChrgsAmt"    => "DECIMAL(18,4) NULL",
+    "ADCBillName"           => "VARCHAR(100) NULL",
+    "ADCBillType"           => "VARCHAR(50) NULL",
+    "ADCBillCrPeriod"       => "VARCHAR(50) NULL",
+    "ADCLedgerName"         => "VARCHAR(255) NULL"
 ];
 
 $existingColumns = [];

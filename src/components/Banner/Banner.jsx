@@ -32,6 +32,7 @@ import {
   Sun,
   Sunrise,
   CreditCard,
+  Wallet,
   ShieldCheck,
   Activity,
   Menu,
@@ -790,6 +791,14 @@ function Banner() {
                         >
                           <CreditCard size={16} />
                           <span>KSEB Payment</span>
+                        </Link>
+
+                        <Link
+                          to="/kseboutstanding"
+                          onClick={closeDesktopMenu}
+                        >
+                          <Wallet size={16} />
+                          <span>KSEB Outstanding</span>
                         </Link>
 
                       </div>

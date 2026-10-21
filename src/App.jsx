@@ -36,7 +36,6 @@ import CreateSalesUser from './components/CreateSalesUser/CreateSalesUser';
 import SalesUserDashboard from './components/SalesUserDashboard/SalesUserDashboard';
 import SalesOrders from './pages/Sales/SalesOrders';
 import SiteVisit from './pages/kseb/SiteVisit';
-import SalesSiteVisit from './pages/Sales/SalesSiteVisit';
 import LRPage from './pages/Sales/LorryReceipt';
 import KsebDirectoryTable from './pages/kseb/KsebDirectoryTable';
 import TravelPlanWidget from './pages/kseb/TravelPlanWidget';
@@ -66,14 +65,12 @@ import GlobalAlterationAlert from "./components/GlobalAlterationAlert";
 import QuotationReadyAlert from "./components/QuotationReadyAlert";
 import TelecallerReport from "./components/SalesOrder/TelecallerReport/TelecallerReport";
 import KSEBPayment from "./pages/kseb/KSEBPayment";
+import KSEBOutstanding from "./pages/kseb/KSEBOutstanding";
 import KsebOverallSales from "./pages/kseb/KSEBOverallSales";
 import KsebLocationReport from "./pages/kseb/KsebLocationReport";
 import KsebDetailReport from "./pages/kseb/KsebDetailReport";
 import SolarCustomers from "./pages/Solar/SolarCustomers";
 import LeadContributionReport from "./pages/newpartydetails/LeadContributionReport";
-import LeadCallReport from "./pages/newpartydetails/LeadCallReport";
-import { AdminOnly } from "./pages/newpartydetails/LeadGenReportGuard";
-import LedgerChanges from "./pages/LedgerChanges/LedgerChanges";
 
 
 function App() {
@@ -93,7 +90,7 @@ function App() {
   return (
     <Router>
       <UserSessionManager />
-
+       
        <GlobalAlterationAlert/>
        <QuotationReadyAlert/>
       <Routes>
@@ -239,11 +236,6 @@ function App() {
             <NewParty />
           </ProtectedRoute>} />
 
-        <Route path="/ledgerchanges" element={
-          <ProtectedRoute page="Ledger Changes">
-            <LedgerChanges />
-          </ProtectedRoute>} />
-
         <Route path="/CRMstockitem" element={
           <ProtectedRoute page="Stock Items" >
             <CRMstock />
@@ -278,11 +270,6 @@ function App() {
         <Route path="/lrdetails" element={
           <ProtectedRoute page="Lorry Receipt">
             <LRPage />
-          </ProtectedRoute>} />
-
-        <Route path="/salessitevisit" element={
-          <ProtectedRoute page="Sales Site Visit">
-            <SalesSiteVisit />
           </ProtectedRoute>} />
 
         <Route path="/solarnewleads" element={
@@ -325,17 +312,7 @@ function App() {
 
           <Route path="/leadcontributionreport" element={
             <ProtectedRoute page="Lead Contribution Report">
-              <AdminOnly>
-                <LeadContributionReport />
-              </AdminOnly>
-            </ProtectedRoute>
-          }/>
-
-          <Route path="/leadcallreport" element={
-            <ProtectedRoute page="Lead Call Report">
-              <AdminOnly>
-                <LeadCallReport />
-              </AdminOnly>
+              <LeadContributionReport />
             </ProtectedRoute>
           }/>
 
@@ -345,7 +322,13 @@ function App() {
             </ProtectedRoute>
           }/>
 
+          <Route path="/kseboutstanding" element={
+            <ProtectedRoute page="KSEB Outstanding">
+              <KSEBOutstanding />
+            </ProtectedRoute>
+          }/>
 
+          
           <Route path="/kseboverallsales" element={
             <ProtectedRoute page="KSEB Overall Sales">
               <KsebOverallSales />
@@ -415,3 +398,4 @@ function App() {
 }
 
 export default App;
+

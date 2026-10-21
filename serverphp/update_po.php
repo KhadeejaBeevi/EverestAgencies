@@ -61,7 +61,8 @@ function uploadImage($field, $oldFile, $uploadDir)
         "jpg",
         "jpeg",
         "png",
-        "webp"
+        "webp",
+        "pdf"
     ];
 
     if (!in_array($extension, $allowedExtensions)) {

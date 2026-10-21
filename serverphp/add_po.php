@@ -31,10 +31,24 @@ function uploadImage($fieldName, $uploadDir)
         $_FILES[$fieldName]["error"] == 0
     ) {
 
-        $extension = pathinfo(
-            $_FILES[$fieldName]["name"],
-            PATHINFO_EXTENSION
+        $extension = strtolower(
+            pathinfo(
+                $_FILES[$fieldName]["name"],
+                PATHINFO_EXTENSION
+            )
         );
+
+        $allowedExtensions = [
+            "jpg",
+            "jpeg",
+            "png",
+            "webp",
+            "pdf"
+        ];
+
+        if (!in_array($extension, $allowedExtensions)) {
+            return "";
+        }
 
         $fileName =
             time() . "_" .
@@ -42,12 +56,14 @@ function uploadImage($fieldName, $uploadDir)
             "." .
             $extension;
 
-        move_uploaded_file(
-            $_FILES[$fieldName]["tmp_name"],
-            $uploadDir . $fileName
-        );
-
-        return $fileName;
+        if (
+            move_uploaded_file(
+                $_FILES[$fieldName]["tmp_name"],
+                $uploadDir . $fileName
+            )
+        ) {
+            return $fileName;
+        }
     }
 
     return "";
