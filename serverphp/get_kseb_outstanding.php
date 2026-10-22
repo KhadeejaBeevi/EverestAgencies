@@ -1,5 +1,4 @@
 <?php
-
 require_once __DIR__ . '/api_auth.php';
 require_once __DIR__ . '/db_connect.php';
 
@@ -88,6 +87,10 @@ try {
 | and round off lines are missing: their total (what the voucher is
 | short of balancing) is shown as one "not in export" line.
 |
+| Executive of a KSEB ledger = its Tally group (ParentLedgerName, e.g.
+| "Libin K A", "Sreelal", "Thomson"). EveExecutive on KSEB sales is
+| mostly just "KSEB", so it is only used when the ledger has no group.
+|
 | Opening balance per ledger (as on 1st April) comes from
 | salesdatalatest33 `Ledger.$OpeningBalance`, returned as
 | opening_balances { ledger name: amount }, Dr positive / Cr negative.
@@ -133,6 +136,18 @@ function creditDays(...$values): int
     }
 
     return 0;
+}
+
+/* EveExecutive "KSEB" / "Sundry Debtors" group are not a person. */
+function executiveName($value): string
+{
+    $name = cleanValue($value);
+
+    if (strcasecmp($name, "KSEB") === 0 || strcasecmp($name, "Sundry Debtors") === 0) {
+        return "";
+    }
+
+    return $name;
 }
 
 function ageBucket(int $overdueDays): string
@@ -209,6 +224,16 @@ function voucherDetails(string $salesId, array $rows): array
     ];
     $tax = array_fill_keys(array_keys($taxColumns), null);
 
+    // Ledgers with bill-wise rows: their plain ledger line (no bill,
+    // no bill type) is the same money and is left out.
+    $billWise = [];
+
+    foreach ($rows as $row) {
+        if (cleanValue($row["ADCBillName"]) !== "" || cleanValue($row["ADCBillType"]) !== "") {
+            $billWise[ledgerKey($row["ledger"])] = true;
+        }
+    }
+
     foreach ($rows as $row) {
 
         // Voucher level values are repeated on every row: take the first.
@@ -234,8 +259,14 @@ function voucherDetails(string $salesId, array $rows): array
         $billRef = cleanValue($row["ADCBillName"]);
         $billType = cleanValue($row["ADCBillType"]);
 
-        // Numbered vouchers repeat the same allocation on every row.
-        if ($voucherNo !== "") {
+        if ($billRef === "" && $billType === "" && isset($billWise[ledgerKey($ledger)])) {
+            continue;
+        }
+
+        // All rows here are one voucher (one Sales ID): an allocation
+        // repeated on several rows (item rows, or the voucher imported
+        // twice) is kept once.
+        if ($voucherNo !== "" || $billRef !== "") {
             $key = ledgerKey($ledger) . "|" . strtolower($billRef) . "|" . strtolower($billType);
 
             if (isset($seen[$key])) {
@@ -284,6 +315,11 @@ function voucherDetails(string $salesId, array $rows): array
 
         foreach ($tax as $name => $value) {
             if ($value === null || abs($value) < 0.005) {
+                continue;
+            }
+
+            // Already in the export as a real ledger line.
+            if (isset($ledgers[ledgerKey($name)])) {
                 continue;
             }
 
@@ -475,6 +511,8 @@ try {
             s.`Date`,
             s.`Sales ID` AS sales_id,
             COALESCE(NULLIF(TRIM(s.ADCLedgerName), ''), s.PartyLedgerName) AS ledger,
+            s.PartyLedgerName,
+            s.ParentLedgerName,
             s.EveExecutive,
             s.Reference,
             s.Narration,
@@ -501,11 +539,17 @@ try {
     ]);
 
     /* =========================================================
-       3. ONE ALLOCATION PER VOUCHER (numbered vouchers)
+       3. ONE ALLOCATION PER VOUCHER (Sales ID)
     ========================================================= */
 
     $allocations = [];
     $numbered = [];
+    $billWise = [];
+
+    // Ledger -> Tally group (executive). ParentLedgerName belongs to
+    // PartyLedgerName, so only rows where the allocation ledger is the
+    // party ledger itself are used.
+    $ledgerGroup = [];
 
     // How many KSEB receipt rows exist - 0 means the Excel imported
     // into salesdata had no Receipt vouchers.
@@ -518,6 +562,13 @@ try {
         if (stripos($voucherType, "receipt") !== false) {
             $receiptRows++;
         }
+        $ledgerName = ledgerKey($row["ledger"]);
+        $group = executiveName($row["ParentLedgerName"]);
+
+        if ($group !== "" && ledgerKey($row["PartyLedgerName"]) === $ledgerName) {
+            $ledgerGroup[$ledgerName] = $group;
+        }
+
         $voucherNo = cleanValue($row["VoucherNumber"]);
         $billRef = cleanValue($row["ADCBillName"]);
         $billType = cleanValue($row["ADCBillType"]);
@@ -533,7 +584,7 @@ try {
             "date" => cleanValue($row["Date"]),
             "sales_id" => cleanValue($row["sales_id"]),
             "party" => cleanValue($row["ledger"]),
-            "executive" => cleanValue($row["EveExecutive"]),
+            "executive" => executiveName($row["EveExecutive"]),
             "reference" => cleanValue($row["Reference"]),
             "narration" => shortNarration($row["Narration"]),
             "bill_ref" => $billRef,
@@ -546,16 +597,39 @@ try {
             "amount" => $amount
         ];
 
-        if ($voucherNo === "") {
+        /* Sales ID is Tally's voucher id: one allocation per voucher,
+           ledger, bill and type, however many rows repeat it (item rows,
+           or the same voucher imported twice under another voucher
+           type / number). Without a Sales ID, numbered vouchers are
+           matched by number and every unnumbered row is its own. */
+        // Voucher + ledger. Rows with a bill (or a bill type such as
+        // On Account) are its bill-wise allocations; a row with neither
+        // is the plain ledger line of the same amount, see below.
+        $voucherKey = strtolower(
+            ($entry["sales_id"] !== "" ? "id|" . $entry["sales_id"] : $voucherType . "|" . $voucherNo)
+            . "|" . ledgerKey($entry["party"])
+        );
+
+        $entry["voucher_key"] = $voucherKey;
+
+        if ($billRef !== "" || $billType !== "") {
+            $billWise[$voucherKey] = true;
+        }
+
+        if ($entry["sales_id"] !== "") {
+            $key = strtolower(
+                "id|" . $entry["sales_id"] . "|" . ledgerKey($entry["party"]) . "|" . $billRef . "|" . $billType
+            );
+        } elseif ($voucherNo !== "") {
+            $key = strtolower(
+                $voucherType . "|" . $voucherNo . "|" . ledgerKey($entry["party"]) . "|" . $billRef . "|" . $billType
+            );
+        } else {
             if ($amount !== null && abs($amount) >= 0.005) {
                 $allocations[] = $entry;
             }
             continue;
         }
-
-        $key = strtolower(
-            $voucherType . "|" . $voucherNo . "|" . ledgerKey($entry["party"]) . "|" . $billRef . "|" . $billType
-        );
 
         if (!isset($numbered[$key])) {
             $numbered[$key] = $entry;
@@ -569,6 +643,15 @@ try {
     foreach ($numbered as $entry) {
 
         if ($entry["amount"] === null || abs($entry["amount"]) < 0.005) {
+            continue;
+        }
+
+        /* The export can carry the ledger line itself (no bill, no bill
+           type) next to its bill-wise allocations. It is the same money:
+           when the voucher has allocations for this ledger, they count
+           and the plain line is left out. */
+        if ($entry["bill_ref"] === "" && $entry["bill_type"] === ""
+            && isset($billWise[$entry["voucher_key"]])) {
             continue;
         }
 
@@ -600,12 +683,14 @@ try {
         if (!isset($ledgerInfo[$partyKey])) {
             $ledgerInfo[$partyKey] = [
                 "party" => $a["party"],
-                "executive" => ""
+                "executive" => $ledgerGroup[$partyKey] ?? ""
             ];
         }
 
-        // Executive comes from sales vouchers only.
-        if (stripos($a["voucher_type"], "sales") !== false && $a["executive"] !== "") {
+        // No ledger group: executive comes from sales vouchers.
+        if (!isset($ledgerGroup[$partyKey])
+            && stripos($a["voucher_type"], "sales") !== false
+            && $a["executive"] !== "") {
             $ledgerInfo[$partyKey]["executive"] = $a["executive"];
         }
 
@@ -796,9 +881,9 @@ try {
             "bucket" => $bucket,
             "status" => $status,
             "party" => $party,
-            "executive" => $ref["executive"] !== ""
-                ? $ref["executive"]
-                : $ledgerInfo[$ref["party_key"]]["executive"],
+            "executive" => $ledgerInfo[$ref["party_key"]]["executive"] !== ""
+                ? $ledgerInfo[$ref["party_key"]]["executive"]
+                : $ref["executive"],
             "reference" => $ref["reference"],
             "distribution" => $distribution,
             "bill_amount" => round($ref["bill_amount"], 2),
