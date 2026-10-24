@@ -71,6 +71,10 @@ import KsebLocationReport from "./pages/kseb/KsebLocationReport";
 import KsebDetailReport from "./pages/kseb/KsebDetailReport";
 import SolarCustomers from "./pages/Solar/SolarCustomers";
 import LeadContributionReport from "./pages/newpartydetails/LeadContributionReport";
+import LeadCallReport from "./pages/newpartydetails/LeadCallReport";
+import { AdminOnly } from "./pages/newpartydetails/LeadGenReportGuard";
+import LedgerChanges from "./pages/LedgerChanges/LedgerChanges";
+import SalesSiteVisit from "./pages/Sales/SalesSiteVisit";
 
 
 function App() {
@@ -231,6 +235,11 @@ function App() {
             <Salescrm />
           </ProtectedRoute>} />
 
+        <Route path="/ledgerchanges" element={
+          <ProtectedRoute page="Ledger Changes">
+            <LedgerChanges />
+          </ProtectedRoute>} />
+
         <Route path="/newpartyledgerdetails" element={
           <ProtectedRoute page="New Party">
             <NewParty />
@@ -270,6 +279,11 @@ function App() {
         <Route path="/lrdetails" element={
           <ProtectedRoute page="Lorry Receipt">
             <LRPage />
+          </ProtectedRoute>} />
+
+        <Route path="/salessitevisit" element={
+          <ProtectedRoute page="Sales Site Visit">
+            <SalesSiteVisit />
           </ProtectedRoute>} />
 
         <Route path="/solarnewleads" element={
@@ -314,6 +328,13 @@ function App() {
             <ProtectedRoute page="Lead Contribution Report">
               <LeadContributionReport />
             </ProtectedRoute>
+          }/>
+
+          {/* Lead GEN reports are for admins only */}
+          <Route path="/leadcallreport" element={
+            <AdminOnly>
+              <LeadCallReport />
+            </AdminOnly>
           }/>
 
           <Route path="/ksebpayment" element={

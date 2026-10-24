@@ -601,6 +601,7 @@ export default function EnquiryReport() {
     const [searchTerm, setSearchTerm] = useState("");
     const [showPendingOnly, setShowPendingOnly] = useState(false);
     const [showNegotiationOnly, setShowNegotiationOnly] = useState(false);
+    const [dateFilter, setDateFilter] = useState("");
 
     /* MESSAGES */
     const [errorMessage, setErrorMessage] = useState("");
@@ -899,6 +900,10 @@ export default function EnquiryReport() {
             );
         }
 
+        if (dateFilter) {
+            list = list.filter(item => String(item.enquiry_date || "").slice(0, 10) === dateFilter);
+        }
+
         if (!search) return list;
 
         return list.filter(item =>
@@ -921,7 +926,7 @@ export default function EnquiryReport() {
                 .filter(Boolean)
                 .some(value => String(value).toLowerCase().includes(search))
         );
-    }, [enquiries, deferredSearchTerm, showPendingOnly, showNegotiationOnly]);
+    }, [enquiries, deferredSearchTerm, showPendingOnly, showNegotiationOnly, dateFilter]);
 
     /* =====================================================
        ADD ENQUIRY
@@ -1360,6 +1365,28 @@ export default function EnquiryReport() {
                             />
                             Negotiation rework pending
                         </label>
+
+                        <div className="date-filter">
+                            <label>
+                                Date
+                                <input
+                                    type="date"
+                                    value={dateFilter}
+                                    onChange={e => setDateFilter(e.target.value)}
+                                />
+                            </label>
+
+                            {dateFilter && (
+                                <button
+                                    type="button"
+                                    className="date-filter-clear"
+                                    onClick={() => setDateFilter("")}
+                                    title="Clear date filter"
+                                >
+                                    ×
+                                </button>
+                            )}
+                        </div>
 
                         <div className="enquiry-count">
                             {loading

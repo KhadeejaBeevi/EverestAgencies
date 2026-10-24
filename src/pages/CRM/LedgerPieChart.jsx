@@ -393,8 +393,13 @@ export default function LedgerPieChart() {
     "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"
   ];
 
-  const visibleMonths = allMonths.filter((month) =>
-    filteredRows.some((row) => Number(row[month] || 0) !== 0)
+  // Financial year runs Apr–Mar: always show Apr up to the current month,
+  // plus any later month that already has data.
+  const currentFyMonthIndex = (new Date().getMonth() + 9) % 12;
+  const visibleMonths = allMonths.filter(
+    (month, index) =>
+      index <= currentFyMonthIndex ||
+      filteredRows.some((row) => Number(row[month] || 0) !== 0)
   );
 
 

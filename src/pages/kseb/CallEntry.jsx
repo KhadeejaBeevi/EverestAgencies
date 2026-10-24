@@ -56,9 +56,18 @@ export default function CallEntry() {
 
   // ✅ final data source
   const finalData = location.state || fetchedData;
-  const handleCancel = () => {
-    navigate(-1); // goes back
+  // Return to whichever page opened this form (Directory, Call History, …).
+  // If the form was opened directly (no in-app history), fall back to the
+  // directory.
+  const goBack = () => {
+    if (location.key !== "default") {
+      navigate(-1);
+    } else {
+      navigate("/ksebdirectory");
+    }
   };
+
+  const handleCancel = goBack;
   useEffect(() => {
     if (finalData) {
       setForm((prev) => ({
@@ -147,7 +156,7 @@ export default function CallEntry() {
             contact_designation: "",
           });
 
-          navigate("/ksebdirectory");
+          goBack();
         } else {
           alert("Save failed: " + (data.message || "Unknown error"));
         }
@@ -158,10 +167,6 @@ export default function CallEntry() {
   };
 
 
-  // ⛔ wait for data
-  if (!finalData) {
-    return <p>Loading...</p>;
-  }
   useEffect(() => {
     if (!finalData?.PLACE || !finalData?.AREA) return;
 
@@ -185,6 +190,12 @@ export default function CallEntry() {
       });
 
   }, [finalData]);
+
+  // ⛔ wait for data
+  if (!finalData) {
+    return <p>Loading...</p>;
+  }
+
   return (
     <>
           <Banner />
