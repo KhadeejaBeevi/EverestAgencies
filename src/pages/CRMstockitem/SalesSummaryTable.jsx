@@ -12,12 +12,23 @@ export default function SalesSummaryTable() {
   const [selectedBrand, setSelectedBrand] = useState("All");
   const [selectedAlphabet, setSelectedAlphabet] = useState("");
   const [sortConfig, setSortConfig] = useState([]);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    apiFetch("/serverphp/get_crmsales_summary.php")
+    apiFetch("/serverphp/get_CRMsales_summary.php")
       .then((res) => res.json())
-      .then((data) => setSalesData(data))
-      .catch((err) => console.error("Error fetching sales summary:", err));
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSalesData(data);
+        } else {
+          console.error("Unexpected sales summary response:", data);
+          setLoadError(data?.error || data?.message || "Unexpected response from server.");
+        }
+      })
+      .catch((err) => {
+        console.error("Error fetching sales summary:", err);
+        setLoadError(err.message || "Failed to load sales summary.");
+      });
   }, []);
 
   // Indian number formatting function
@@ -147,13 +158,14 @@ formattedRow['Percentage'] = totalValue ? Number(((totalValue / 223567209.51) * 
 
   // Filtering logic
   let filteredRows = salesData.filter((row) => {
-    const nameMatch = row.StockItemName.toLowerCase().includes(searchTerm.toLowerCase());
+    const itemName = row.StockItemName || "";
+    const nameMatch = itemName.toLowerCase().includes(searchTerm.toLowerCase());
     const categoryMatch = selectedCategory === "All" || row.Category === selectedCategory;
     const parentMatch = selectedParent === "All" || row.Parent === selectedParent;
     const brandMatch = selectedBrand === "All" || row._EveProdBrand === selectedBrand;
     const alphabetMatch =
       selectedAlphabet === "" ||
-      row.StockItemName.toUpperCase().startsWith(selectedAlphabet);
+      itemName.toUpperCase().startsWith(selectedAlphabet);
 
     return nameMatch && categoryMatch && parentMatch && brandMatch && alphabetMatch;
   });
@@ -227,6 +239,12 @@ formattedRow['Percentage'] = totalValue ? Number(((totalValue / 223567209.51) * 
 
   return (
     <div className="p-4">
+      {loadError && (
+        <div className="mb-4 px-4 py-2 bg-red-100 border border-red-400 text-red-700 rounded">
+          {loadError}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-center gap-4">
         {/* Search */}

@@ -1,11 +1,14 @@
 <?php
-require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
 
+$servername = "localhost"; 
+$username = "root";
+$password = "";
+$dbname = "salescollection";
 
-$conn = db_connect("salescollection");
+$conn = new mysqli($servername, $username, $password, $dbname);
 
 if ($conn->connect_error) {
     die(json_encode(["error" => "Connection failed: " . $conn->connect_error]));
@@ -77,6 +80,34 @@ $sql = "SELECT
         FROM newsales_summary_monthlyoct";
 
 $result = $conn->query($sql);
+
+// Fall back to the stock items imported by import_stock_item.php when the
+// monthly summary table is missing or empty (monthly columns then show 0).
+if (!$result || $result->num_rows === 0) {
+    $fallbackSql = "SELECT 
+            StockItemName,
+            Parent,
+            Category,
+            _EveProdBrand,
+            _EveSIMstID,
+            EveCostPrice, 
+            EveSellPrice,
+            OpeningBalance, 
+            OpeningRate, 
+            OpeningValue
+        FROM crm_stock_item";
+
+    $fallback = $conn->query($fallbackSql);
+
+    if ($fallback) {
+        $result = $fallback;
+    } elseif (!$result) {
+        http_response_code(500);
+        echo json_encode(["error" => "Query failed: " . $conn->error]);
+        $conn->close();
+        exit;
+    }
+}
 
 $data = [];
 if ($result && $result->num_rows > 0) {
