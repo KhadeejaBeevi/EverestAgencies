@@ -1,4 +1,3 @@
-
 import Banner from "../../components/Banner/Banner.jsx";
 import "./KsebDirectory.css";
 import * as XLSX from "xlsx";
@@ -61,6 +60,12 @@ export default function KsebDirectory() {
   const [tallyLedgers, setTallyLedgers] = useState([]);
   const [securityDepositLedgers, setSecurityDepositLedgers] = useState([]);
 
+  // Sales CRM percentage per ledger (sales_summary_table4)
+  const [salesPercentMap, setSalesPercentMap] = useState({});
+
+  // Sales status filter: "", "never", "no-sale", "low-sale"
+  const [salesFilter, setSalesFilter] = useState("");
+
   // =========================================================
   // USER ROLE
   // =========================================================
@@ -120,6 +125,9 @@ export default function KsebDirectory() {
           setSecurityDepositLedgers(
             result.securityDepositLedgers || []
           );
+
+          // Sales CRM percentage per ledger (sales_summary_table4)
+          setSalesPercentMap(result.salesPercentMap || {});
         }
       })
       .catch(console.error);
@@ -540,6 +548,7 @@ export default function KsebDirectory() {
       new Date().toISOString().slice(0, 7)
     );
     setSelectedWeek("all");
+    setSalesFilter("");
   };
 
   // =========================================================
@@ -635,6 +644,12 @@ export default function KsebDirectory() {
       });
     }
 
+    if (salesFilter) {
+      temp = temp.filter(
+        (i) => getSalesIndicator(i)?.type === salesFilter
+      );
+    }
+
     if (search) {
       temp = temp.filter((item) =>
         Object.values(item)
@@ -652,7 +667,75 @@ export default function KsebDirectory() {
     contactFilter,
     data,
     callHistorySet,
+    salesFilter,
+    salesPercentMap,
   ]);
+
+  // =========================================================
+  // SALES INDICATOR (same ranges as Sales CRM pie chart)
+  //   no Tally Name  -> Never purchased
+  //   <= 0           -> Lost Clients -> No sale this year
+  //   > 0 and < 0.10 -> Low sale this year
+  // =========================================================
+
+  // Offices that don't buy directly (no Tally ledger expected)
+  const isNonBuyingOffice = (item) => {
+    const area = normalize(item.AREA);
+
+    return (
+      area.includes("distribution") ||
+      area.includes("consumer") ||
+      area.includes("cgrf")
+    );
+  };
+
+  const getSalesIndicator = (item) => {
+    const ledgerName = (item.tally_name || "")
+      .trim()
+      .toLowerCase();
+
+    if (!ledgerName) {
+      if (isNonBuyingOffice(item)) return null;
+
+      return {
+        type: "never",
+        label: "Never Purchased",
+      };
+    }
+
+    if (!(ledgerName in salesPercentMap)) return null;
+
+    const percentage = Number(salesPercentMap[ledgerName]);
+
+    if (Number.isNaN(percentage)) return null;
+
+    if (percentage <= 0) {
+      return {
+        type: "no-sale",
+        label: "No Sale This Year",
+      };
+    }
+
+    if (percentage < 0.1) {
+      return {
+        type: "low-sale",
+        label: "Low Sale This Year",
+      };
+    }
+
+    return null;
+  };
+
+  const salesCounts = data.reduce(
+    (counts, item) => {
+      const type = getSalesIndicator(item)?.type;
+
+      if (type) counts[type] += 1;
+
+      return counts;
+    },
+    { never: 0, "no-sale": 0, "low-sale": 0 }
+  );
 
   // =========================================================
   // USED TALLY NAMES
@@ -1186,6 +1269,30 @@ const handleSave = async () => {
 
       <div className="filters">
         <select
+          className={`sales-filter ${salesFilter}`}
+          value={salesFilter}
+          onChange={(e) =>
+            setSalesFilter(e.target.value)
+          }
+        >
+          <option value="">
+            SALES STATUS
+          </option>
+
+          <option value="never">
+            Never Purchased ({salesCounts.never})
+          </option>
+
+          <option value="no-sale">
+            No Sale This Year ({salesCounts["no-sale"]})
+          </option>
+
+          <option value="low-sale">
+            Low Sale This Year ({salesCounts["low-sale"]})
+          </option>
+        </select>
+
+        <select
           className="region-search"
           value={region}
           onChange={(e) =>
@@ -1496,6 +1603,9 @@ const handleSave = async () => {
               item
             );
 
+          const salesIndicator =
+            getSalesIndicator(item);
+
           return (
             <div
               className="office-card"
@@ -1549,6 +1659,20 @@ const handleSave = async () => {
                 <h2>
                   {item.AREA}
                 </h2>
+
+                {/* SALES INDICATOR (from Sales CRM percentage) */}
+                {salesIndicator && (
+                  <span
+                    className={`sales-indicator ${salesIndicator.type}`}
+                  >
+                    {salesIndicator.type === "never"
+                      ? "🚫"
+                      : salesIndicator.type === "no-sale"
+                        ? "⛔"
+                        : "⚠️"}{" "}
+                    {salesIndicator.label}
+                  </span>
+                )}
 
                 <p>
                   <strong
@@ -1607,7 +1731,7 @@ const handleSave = async () => {
                   <strong>Tally Name:</strong>{" "}
                   {item.tally_name ? (
                     <span style={{ fontWeight: "400" }}>
-                      {item.tally_name} 
+                      {item.tally_name}
                     </span>
                   ) : (
                     <span style={{ color: "#777", fontWeight: "400" }}>
@@ -2009,7 +2133,7 @@ const handleSave = async () => {
   <td>
     {selectedItem?.tally_name ? (
       <span style={{ fontSize: "14px", fontWeight: "400" }}>
-        {selectedItem.tally_name} 
+        {selectedItem.tally_name}
       </span>
     ) : isEditing ? (
       <>
@@ -2344,4 +2468,3 @@ const handleSave = async () => {
     </div>
   );
 }
-

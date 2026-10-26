@@ -1,11 +1,10 @@
 <?php
-require_once __DIR__ . '/db_connect.php';
 require_once __DIR__ . '/api_auth.php';
 
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json");
 
-$conn = db_connect("tally_db");
+$conn = new mysqli("localhost", "root", "", "tally_db");
 
 if ($conn->connect_error) {
     echo json_encode([
@@ -52,7 +51,7 @@ $tallyLedgers = [];
 
 $ledgerQuery = "
     SELECT DISTINCT PartyLedgerName
-    FROM " . db_name("salescollection") . ".salesdatalatest33
+    FROM salescollection.salesdatalatest33
     WHERE `\$_PrimaryParentLed` = 'KSEB'
       AND PartyLedgerName IS NOT NULL
       AND PartyLedgerName <> ''
@@ -82,37 +81,46 @@ while ($row = $ledgerResult->fetch_assoc()) {
 
 
 /* =========================
-   SECURITY DEPOSIT LEDGERS
-   Ledgers starting with "Security Deposit" that mention KSEB
+   SALES PERCENTAGE PER LEDGER
+   Same percentage the Sales CRM pie chart uses
+   (salescollection.sales_summary_table4):
+     <= 0         -> Lost Clients (no sale this year)
+     > 0 and < 0.10 -> low sale this year
 ========================= */
 
-$securityDepositLedgers = [];
+$salesPercentMap = [];
 
-$sdLedgerQuery = "
-    SELECT DISTINCT PartyLedgerName
-    FROM " . db_name("salescollection") . ".salesdatalatest33
-    WHERE PartyLedgerName LIKE 'Security Deposit%'
-      AND PartyLedgerName LIKE '%KSEB%'
-    ORDER BY PartyLedgerName
-";
+$ledgerNames = $tallyLedgers;
 
-$sdLedgerResult = $conn->query($sdLedgerQuery);
-
-if (!$sdLedgerResult) {
-    echo json_encode([
-        "status" => "error",
-        "message" => "Security deposit ledger query failed: " . $conn->error
-    ]);
-    $conn->close();
-    exit;
+foreach ($data as $row) {
+    $name = trim($row["tally_name"] ?? "");
+    if ($name !== "") {
+        $ledgerNames[] = $name;
+    }
 }
 
-while ($row = $sdLedgerResult->fetch_assoc()) {
+$ledgerNames = array_values(array_unique($ledgerNames));
 
-    $ledgerName = trim($row["PartyLedgerName"]);
+if (!empty($ledgerNames)) {
+    $escapedNames = array_map(function ($name) use ($conn) {
+        return "'" . $conn->real_escape_string($name) . "'";
+    }, $ledgerNames);
 
-    if ($ledgerName !== "") {
-        $securityDepositLedgers[] = $ledgerName;
+    $percentResult = $conn->query("
+        SELECT PartyLedgerName,
+               ROUND(AVG(CAST(COALESCE(NULLIF(TRIM(percentage), ''), '0') AS DECIMAL(10,6))), 6) AS percentage
+        FROM salescollection.sales_summary_table4
+        WHERE PartyLedgerName IN (" . implode(",", $escapedNames) . ")
+        GROUP BY PartyLedgerName
+    ");
+
+    if ($percentResult) {
+        while ($row = $percentResult->fetch_assoc()) {
+            // Blank / NULL percentage counts as 0 (Lost Clients),
+            // same as grouped_pie.php
+            $salesPercentMap[strtolower(trim($row["PartyLedgerName"]))] =
+                (float) $row["percentage"];
+        }
     }
 }
 
@@ -125,7 +133,7 @@ echo json_encode([
     "status" => "success",
     "data" => $data,
     "tallyLedgers" => $tallyLedgers,
-    "securityDepositLedgers" => $securityDepositLedgers
+    "salesPercentMap" => $salesPercentMap
 ]);
 
 $conn->close();

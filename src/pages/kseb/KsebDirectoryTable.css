@@ -92,3 +92,86 @@
     white-space: normal;
   }
 }
+
+.not-assigned {
+    color: #777;
+}
+
+.sales-indicator {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.sales-indicator.never {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.sales-indicator.no-sale {
+    background: #ffedd5;
+    color: #9a3412;
+}
+
+.sales-indicator.low-sale {
+    background: #fef9c3;
+    color: #854d0e;
+}
+
+/* Other pages' global .table-container rules (table-layout: fixed,
+   ellipsis) squeeze this wide table, so override them here. */
+.kseb-directory-container .table-container {
+    max-height: calc(100vh - 220px);
+    overflow: auto;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+}
+
+.kseb-directory-container .table-container table.kseb-table {
+    table-layout: auto;
+    width: max-content;
+    min-width: 100%;
+}
+
+.kseb-directory-container .kseb-table th,
+.kseb-directory-container .kseb-table td {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: none;
+    vertical-align: top;
+    text-align: left;
+}
+
+.kseb-directory-container .kseb-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #1f4aa8;
+    color: white;
+}
+
+.kseb-directory-container .kseb-table td.decision-maker-cell {
+    white-space: normal;
+    min-width: 240px;
+    max-width: 280px;
+}
+
+.kseb-directory-container .kseb-table td.wrap-cell {
+    white-space: normal;
+    min-width: 180px;
+    max-width: 240px;
+}
+
+.kseb-directory-container .kseb-table td.status-cell {
+    white-space: normal;
+    min-width: 170px;
+    max-width: 240px;
+}
+
+.kseb-directory-container .sales-indicator {
+    white-space: nowrap;
+}

@@ -34,6 +34,12 @@ export default function KsebDirectoryTable() {
 
     const [contactFilter, setContactFilter] = useState("");
 
+    // Sales CRM percentage per ledger (sales_summary_table4)
+    const [salesPercentMap, setSalesPercentMap] = useState({});
+
+    // Sales status filter: "", "never", "no-sale", "low-sale"
+    const [salesFilter, setSalesFilter] = useState("");
+
     const [selectedMonth, setSelectedMonth] = useState(
         new Date().toISOString().slice(0, 7)
     );
@@ -118,8 +124,9 @@ export default function KsebDirectoryTable() {
             .then((result) => {
 
                 if (result.status === "success") {
-                    setData(result.data);
-                    setFilteredData(result.data);
+                    setData(result.data || []);
+                    setFilteredData(result.data || []);
+                    setSalesPercentMap(result.salesPercentMap || {});
                 }
 
             })
@@ -407,6 +414,15 @@ export default function KsebDirectoryTable() {
         }
 
 
+        if (salesFilter) {
+
+            temp = temp.filter(
+                (i) => getSalesIndicator(i)?.type === salesFilter
+            );
+
+        }
+
+
         if (search) {
 
             temp = temp.filter((item) =>
@@ -427,7 +443,87 @@ export default function KsebDirectoryTable() {
         contactFilter,
         data,
         callHistorySet,
+        salesFilter,
+        salesPercentMap,
     ]);
+
+
+    // Sales indicator (same ranges as Sales CRM pie chart)
+    //   no Tally Name  -> Never purchased
+    //   <= 0           -> No sale this year
+    //   > 0 and < 0.10 -> Low sale this year
+    const isNonBuyingOffice = (item) => {
+
+        const area = normalize(item.AREA);
+
+        return (
+            area.includes("distribution") ||
+            area.includes("consumer") ||
+            area.includes("cgrf")
+        );
+
+    };
+
+    const getSalesIndicator = (item) => {
+
+        const ledgerName = (item.tally_name || "")
+            .trim()
+            .toLowerCase();
+
+        if (!ledgerName) {
+
+            if (isNonBuyingOffice(item)) return null;
+
+            return {
+                type: "never",
+                label: "🚫 Never Purchased",
+            };
+
+        }
+
+        if (!(ledgerName in salesPercentMap)) return null;
+
+        const percentage = Number(salesPercentMap[ledgerName]);
+
+        if (Number.isNaN(percentage)) return null;
+
+        if (percentage <= 0) {
+            return {
+                type: "no-sale",
+                label: "⛔ No Sale This Year",
+            };
+        }
+
+        if (percentage < 0.1) {
+            return {
+                type: "low-sale",
+                label: "⚠️ Low Sale This Year",
+            };
+        }
+
+        return null;
+
+    };
+
+    const salesCounts = data.reduce(
+        (counts, item) => {
+
+            const type = getSalesIndicator(item)?.type;
+
+            if (type) counts[type] += 1;
+
+            return counts;
+
+        },
+        { never: 0, "no-sale": 0, "low-sale": 0 }
+    );
+
+    const formatDate = (value) =>
+        new Date(value).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+        });
 
 
     const handleReset = () => {
@@ -436,6 +532,7 @@ export default function KsebDirectoryTable() {
         setSearch("");
         setAreaFilter("");
         setContactFilter("");
+        setSalesFilter("");
 
         setSelectedMonth(
             new Date().toISOString().slice(0, 7)
@@ -544,6 +641,33 @@ export default function KsebDirectoryTable() {
 
 
             <div className="filters">
+
+
+                <select
+                    className={`sales-filter ${salesFilter}`}
+                    value={salesFilter}
+                    onChange={(e) =>
+                        setSalesFilter(e.target.value)
+                    }
+                >
+
+                    <option value="">
+                        SALES STATUS
+                    </option>
+
+                    <option value="never">
+                        Never Purchased ({salesCounts.never})
+                    </option>
+
+                    <option value="no-sale">
+                        No Sale This Year ({salesCounts["no-sale"]})
+                    </option>
+
+                    <option value="low-sale">
+                        Low Sale This Year ({salesCounts["low-sale"]})
+                    </option>
+
+                </select>
 
 
                 <select
@@ -767,11 +891,20 @@ export default function KsebDirectoryTable() {
                         <tr>
                             <th>Place</th>
                             <th>Area</th>
+                            <th>Sales Status</th>
                             <th>Decision Maker</th>
+                            <th>Tally Name</th>
+                            <th>Security Deposit Ledger</th>
                             <th>Distance</th>
                             <th>Phone</th>
                             <th>Landline</th>
                             <th>Email</th>
+                            <th>Deputy Chief Engineer</th>
+                            <th>Executive Engineer</th>
+                            <th>Assistant Executive Engineer</th>
+                            <th>Assistant Engineer</th>
+                            <th>Sub Regional Store</th>
+                            <th>SRS Assistant Executive Engineer</th>
                             <th>Circle</th>
                             <th>Division</th>
                             <th>Subdivision</th>
@@ -788,6 +921,16 @@ export default function KsebDirectoryTable() {
                             const h =
                                 hierarchyMap[item.id] || {};
 
+                            const salesIndicator =
+                                getSalesIndicator(item);
+
+                            const lastCall =
+                                callHistoryMap[item.id];
+
+                            const lastUpdated =
+                                item.decision_maker_updated_at ||
+                                lastCall?.call_date;
+
                             return (
 
                                 <tr
@@ -798,6 +941,16 @@ export default function KsebDirectoryTable() {
                                     <td>{item.PLACE}</td>
 
                                     <td>{item.AREA}</td>
+
+                                    <td>
+                                        {salesIndicator ? (
+                                            <span
+                                                className={`sales-indicator ${salesIndicator.type}`}
+                                            >
+                                                {salesIndicator.label}
+                                            </span>
+                                        ) : "-"}
+                                    </td>
 
                                     <td className="decision-maker-cell">
 
@@ -814,19 +967,30 @@ export default function KsebDirectoryTable() {
                                         {item.NAME?.trim() && (
                                             <div className="last-updated">
                                                 Last Updated :{" "}
-                                                {callHistoryMap[item.id]?.call_date
-                                                    ? new Date(
-                                                        callHistoryMap[item.id].call_date
-                                                    ).toLocaleDateString("en-IN", {
-                                                        day: "2-digit",
-                                                        month: "short",
-                                                        year: "numeric",
-                                                    })
+                                                {lastUpdated
+                                                    ? formatDate(lastUpdated)
                                                     : "-"}
                                             </div>
                                         )}
 
                                     </td>
+
+                                    <td className="wrap-cell">
+                                        {item.tally_name || (
+                                            <span className="not-assigned">
+                                                Not Assigned
+                                            </span>
+                                        )}
+                                    </td>
+
+                                    <td className="wrap-cell">
+                                        {item.security_deposit_ledger || (
+                                            <span className="not-assigned">
+                                                Not Assigned
+                                            </span>
+                                        )}
+                                    </td>
+
                                     <td>
                                         {userLocation &&
                                             item.latitude &&
@@ -849,6 +1013,18 @@ export default function KsebDirectoryTable() {
                                         {item.MAIL_ID || "-"}
                                     </td>
 
+                                    <td>{item.DEPUTY_CHIEF_ENGINEER_OFF_PER || "-"}</td>
+
+                                    <td>{item.EXECUTIVE_ENGINEER || "-"}</td>
+
+                                    <td>{item.ASSISTANT_EXECUTIVE_ENGINEER || "-"}</td>
+
+                                    <td>{item.ASSISTANT_ENGINEER || "-"}</td>
+
+                                    <td>{item.SUB_REGIONAL_STORE || "-"}</td>
+
+                                    <td>{item.SRS_ASSISTANT_EXECUTIVE_ENGINEER || "-"}</td>
+
                                     <td>{h.circle}</td>
 
                                     <td>{h.division}</td>
@@ -857,10 +1033,28 @@ export default function KsebDirectoryTable() {
 
                                     <td>{h.region}</td>
 
-                                    <td>
-                                        {callHistoryMap[item.id]
-                                            ? "✅ Contacted"
-                                            : "❌ Not Contacted"}
+                                    <td className="status-cell">
+                                        {lastCall ? (
+                                            <>
+                                                ✅ Contacted
+                                                {lastCall.status && (
+                                                    <>: {lastCall.status}</>
+                                                )}
+                                                <div className="last-updated">
+                                                    {new Date(
+                                                        lastCall.month + "-01"
+                                                    ).toLocaleString("default", {
+                                                        month: "long",
+                                                        year: "numeric",
+                                                    })}
+                                                </div>
+                                                {lastCall.remarks && (
+                                                    <div className="last-updated">
+                                                        Remarks: {lastCall.remarks}
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : "❌ Not Contacted"}
                                     </td>
 
                                 </tr>

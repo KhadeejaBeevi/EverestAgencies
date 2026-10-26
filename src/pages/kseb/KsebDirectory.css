@@ -868,3 +868,55 @@ width: fit-content;
   }
 }
 
+
+/* Sales indicator badge (from Sales CRM percentage) */
+.sales-indicator {
+  display: inline-block;
+  margin: 4px 0 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sales-indicator.no-sale {
+  background: #fde2e2;
+  color: #b91c1c;
+  border: 1px solid #f5a5a5;
+}
+
+.sales-indicator.low-sale {
+  background: #fff4d6;
+  color: #a16207;
+  border: 1px solid #f3d38a;
+}
+
+.sales-indicator.never {
+  background: #e5e7eb;
+  color: #374151;
+  border: 1px solid #9ca3af;
+}
+
+/* Sales status filter */
+.sales-filter {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+  background: #fff;
+}
+
+.sales-filter.never {
+  border-color: #6b7280;
+  background: #f3f4f6;
+}
+
+.sales-filter.no-sale {
+  border-color: #f5a5a5;
+  background: #fde2e2;
+}
+
+.sales-filter.low-sale {
+  border-color: #f3d38a;
+  background: #fff4d6;
+}
