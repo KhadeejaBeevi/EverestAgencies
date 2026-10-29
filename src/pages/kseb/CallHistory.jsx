@@ -361,8 +361,14 @@ export default function CallHistory() {
   };
 
   // Calls in the selected month, before the stage filter is applied.
+  // A follow-up date search covers every call, whatever month it was made
+  // in: a call from last month can have its follow-up this month.
   const periodCalls = callHistory.filter((c) => {
     if (!matchesPeopleFilters(c)) return false;
+
+    if (followupFilter) {
+      return dateKeyOf(c.followup_date) === followupFilter;
+    }
 
     const date = parseDate(c.call_date);
     if (
@@ -377,7 +383,7 @@ export default function CallHistory() {
       return false;
     }
 
-    return !followupFilter || dateKeyOf(c.followup_date) === followupFilter;
+    return true;
   });
 
   // Leads whose latest call is a quotation older than the threshold.
@@ -407,7 +413,19 @@ export default function CallHistory() {
 
   // Sections shown in the list: weeks of the month, or one section for
   // pending quotations.
-  const sections = showPendingOnly
+  const sections = followupFilter && !showPendingOnly
+    ? visibleCalls.length
+      ? [
+          {
+            key: "followup",
+            title: `Follow-up on ${formatDate(followupFilter)}`,
+            subtitle: "Calls from any month",
+            places: groupByPlace(visibleCalls),
+            count: visibleCalls.length,
+          },
+        ]
+      : []
+    : showPendingOnly
     ? visibleCalls.length
       ? [
           {
@@ -562,7 +580,9 @@ export default function CallHistory() {
 
   /* ---------------------------- render ----------------------------- */
 
-  const periodLabel = callDateFilter
+  const periodLabel = followupFilter
+    ? `Follow-up ${formatDate(followupFilter)}`
+    : callDateFilter
     ? formatDate(callDateFilter)
     : `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`;
 
@@ -589,9 +609,13 @@ export default function CallHistory() {
 
   const listDescription = showPendingOnly
     ? `${visibleCalls.length} pending quotation${visibleCalls.length === 1 ? "" : "s"}`
+    : followupFilter
+    ? `${visibleCalls.length} call${visibleCalls.length === 1 ? "" : "s"} with follow-up on ${formatDate(followupFilter)}${
+        stageFilter !== "ALL" ? ` · ${activeStage.label}` : ""
+      }`
     : `${visibleCalls.length} call${visibleCalls.length === 1 ? "" : "s"} ${callDateFilter ? "on" : "in"} ${periodLabel}${
         stageFilter !== "ALL" ? ` · ${activeStage.label}` : ""
-      }${followupFilter ? ` · follow-up on ${formatDate(followupFilter)}` : ""}`;
+      }`;
 
   if (loading) {
     return (
@@ -802,7 +826,7 @@ export default function CallHistory() {
                 <select
                   id="ch-month"
                   value={selectedMonth}
-                  disabled={showPendingOnly}
+                  disabled={showPendingOnly || !!followupFilter}
                   onChange={(e) => changeMonth(Number(e.target.value))}
                 >
                   {MONTH_NAMES.map((name, i) => (
@@ -814,7 +838,7 @@ export default function CallHistory() {
                 <select
                   aria-label="Year"
                   value={selectedYear}
-                  disabled={showPendingOnly}
+                  disabled={showPendingOnly || !!followupFilter}
                   onChange={(e) => changeYear(Number(e.target.value))}
                 >
                   {years.map((year) => (
@@ -833,7 +857,7 @@ export default function CallHistory() {
                   id="ch-calldate"
                   type="date"
                   value={callDateFilter}
-                  disabled={showPendingOnly}
+                  disabled={showPendingOnly || !!followupFilter}
                   onChange={(e) => changeCallDate(e.target.value)}
                 />
                 {callDateFilter && (

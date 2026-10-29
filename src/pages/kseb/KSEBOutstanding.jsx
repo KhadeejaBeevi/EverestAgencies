@@ -11,12 +11,27 @@ const API = "/serverphp";
 
   1. Donut (left)      : pending balance by distribution.
   2. Ledger list       : click a distribution to list its ledgers (areas).
+     Receipts list     : "Receipts" lists every receipt allocation of the
+                         distribution, with the bill it was set against.
   3. Ledger report     : click a ledger for a Tally style ledger display —
                          transactions with running balance, ledger summary,
                          pending bills and ageing analysis.
                          "Detailed" (or a click on a row) explodes the
                          voucher like Tally: its other ledgers and the bill
                          allocations of this ledger.
+                         A click on "Opening Balance" shows its break up.
+
+  Opening bills (is_opening, from the Tally XML) are the bill-wise break
+  down of the opening balance: they are listed under pending bills, but
+  not as transactions — the opening balance already holds them. The
+  server also sends them per ledger as opening_breakup (every bill
+  pending on 1st April, and what is left of it now), shown under the
+  Opening Balance row.
+
+  Receipts come from kseb_receipts. That export has the bill date but not
+  the bill number, so the server matches each receipt to the bill of that
+  date; when no bill is found it is listed with the On Account amounts
+  ("bill not identified") and still counts in the net outstanding.
 */
 
 // =========================================================
@@ -41,21 +56,31 @@ const financialYearStart = () => {
     return `${year}-04-01`;
 };
 
+// Zero amounts are left blank, like Tally.
+const isZero = (value) => Math.abs(Number(value || 0)) < 0.005;
+
 const formatAmount = (value) =>
-    "₹" +
-    Number(value || 0).toLocaleString("en-IN", {
-        maximumFractionDigits: 0,
-    });
+    isZero(value)
+        ? ""
+        : "₹" +
+          Number(value).toLocaleString("en-IN", {
+              maximumFractionDigits: 0,
+          });
 
 // Tally style: 4,93,830.00
 const formatTally = (value) =>
-    Number(value || 0).toLocaleString("en-IN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    });
+    isZero(value)
+        ? ""
+        : Number(value).toLocaleString("en-IN", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+          });
 
 const formatDrCr = (value) =>
-    `${formatTally(Math.abs(value))} ${value < 0 ? "Cr" : "Dr"}`;
+    isZero(value) ? "" : `${formatTally(Math.abs(value))} ${value < 0 ? "Cr" : "Dr"}`;
+
+// Amount with its side written after it ("1,000.00 Dr"), blank for zero.
+const withSide = (value, side) => (isZero(value) ? "" : `${formatTally(value)} ${side}`);
 
 // Tally style: 16-Apr-26
 const formatTallyDate = (value) => {
@@ -86,6 +111,30 @@ const isPending = (b) => b.status === "pending" || b.status === "part";
 
 // Same ledger name match as the server (case / extra spaces ignored).
 const ledgerKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+// On Account line: plain On Account, an advance (receipt New Ref), or a
+// receipt whose bill (by bill date) the server could not identify.
+const onAccountParticulars = (l) => {
+    if (l.unmatched) {
+        return l.bill_date
+            ? `Agst Ref (bill of ${formatTallyDate(l.bill_date)} not identified)`
+            : "Agst Ref (bill not identified)";
+    }
+
+    if (l.bill_type === "New Ref") return "New Ref (advance)";
+
+    return "On Account";
+};
+
+// receipts[].adjusted_to -> label / colour
+const ADJUSTED_TO = {
+    bill: { label: "Bill", color: "#166534" },
+    opening: { label: "Opening bill", color: "#166534" },
+    older: { label: "Older bill", color: "#64748B" },
+    advance: { label: "Advance", color: "#7C3AED" },
+    on_account: { label: "On Account", color: "#7C3AED" },
+    not_identified: { label: "Bill not identified", color: "#B45309" },
+};
 
 const DONUT_COLORS = [
     "#F59E0B", "#16A34A", "#2563EB", "#DC2626",
@@ -220,12 +269,15 @@ const tSection = {
     color: "#0B2545",
 };
 
-const tBox = {
-    display: "inline-block",
-    minWidth: "160px",
-    padding: "1px 8px",
-    border: "1px solid #CBD5E1",
-    fontWeight: "700",
+// Section heading inside the ledger report ("Ledger Details" ...),
+// the same as the Ageing Analysis heading.
+const tHeading = {
+    padding: "4px 8px",
+    fontSize: "14px",
+    fontWeight: "800",
+    color: "#1F2937",
+    textAlign: "left",
+    borderBottom: "1px solid #94A3B8",
 };
 
 // Exploded voucher lines (under a ledger row)
@@ -363,7 +415,60 @@ const DistributionDonut = ({ data, selected, onSelect }) => {
   (bank / TDS / round off on receipts, the sales ledger and GST on
   sales) are worked out by the server and shown in grey italics.
 */
+const formatQty = (value) =>
+    Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 3 });
+
+// Stock items of a sales voucher (Tally invoice lines).
+const VoucherItems = ({ items }) => {
+    const total = items.reduce((t, it) => t + it.amount, 0);
+    const head = { ...tDetail, fontWeight: "700", borderBottom: "1px solid #CBD5E1", padding: "2px 8px" };
+    const headRight = { ...head, textAlign: "right" };
+
+    return (
+        <table style={{ borderCollapse: "collapse", margin: "2px 0 6px 24px", minWidth: "640px" }}>
+            <thead>
+                <tr>
+                    <th style={{ ...head, textAlign: "left" }}>Name of Item</th>
+                    <th style={{ ...head, textAlign: "left" }}>HSN</th>
+                    <th style={headRight}>Quantity</th>
+                    <th style={headRight}>Rate</th>
+                    <th style={{ ...head, textAlign: "left" }}>per</th>
+                    <th style={headRight}>Disc %</th>
+                    <th style={headRight}>GST %</th>
+                    <th style={headRight}>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {items.map((it, i) => (
+                    <tr key={i}>
+                        <td style={{ ...tDetail, whiteSpace: "normal", maxWidth: "320px" }}>{it.item}</td>
+                        <td style={{ ...tDetail, color: "#64748B" }}>{it.hsn}</td>
+                        <td style={tDetailRight}>
+                            {it.qty !== null ? `${formatQty(it.qty)}${it.unit ? ` ${it.unit}` : ""}` : ""}
+                        </td>
+                        <td style={tDetailRight}>{it.rate !== null ? formatTally(it.rate) : ""}</td>
+                        <td style={tDetail}>{it.unit}</td>
+                        <td style={tDetailRight}>{it.discount ? formatQty(it.discount) : ""}</td>
+                        <td style={tDetailRight}>{it.gst_rate ? formatQty(it.gst_rate) : ""}</td>
+                        <td style={tDetailRight}>{formatTally(it.amount)}</td>
+                    </tr>
+                ))}
+                {items.length > 1 && (
+                    <tr>
+                        <td colSpan={7} style={{ ...tDetailRight, fontWeight: "700" }}>Items Total</td>
+                        <td style={{ ...tDetailRight, fontWeight: "700", borderTop: "1px solid #94A3B8" }}>
+                            {formatTally(total)}
+                        </td>
+                    </tr>
+                )}
+            </tbody>
+        </table>
+    );
+};
+
 const VoucherDetails = ({ detail }) => (
+    <>
+    {detail.items?.length > 0 && <VoucherItems items={detail.items} />}
     <table style={{ borderCollapse: "collapse", margin: "0 0 6px 0" }}>
         <tbody>
             {detail.others.map((l, i) => (
@@ -376,13 +481,13 @@ const VoucherDetails = ({ detail }) => (
                             fontStyle: l.derived ? "italic" : "normal",
                             color: l.derived ? "#64748B" : "#1F2937",
                         }}
-                        title={l.derived ? "Not in the Tally export - worked out from the voucher total" : ""}
+                        title={l.derived ? "Ledger name not in the Tally export - worked out from the voucher" : ""}
                     >
                         {l.ledger}
                     </td>
                     <td colSpan={3} />
                     <td style={{ ...tDetailRight, color: l.derived ? "#64748B" : "#1F2937" }}>
-                        {formatTally(l.amount)} {l.dr_cr}
+                        {withSide(l.amount, l.dr_cr)}
                     </td>
                 </tr>
             ))}
@@ -395,24 +500,330 @@ const VoucherDetails = ({ detail }) => (
                     </td>
                     <td style={tDetailRight}>{a.credit_days ? `${a.credit_days} Days` : ""}</td>
                     <td style={tDetailRight}>
-                        {formatTally(a.amount)} {a.dr_cr}
+                        {withSide(a.amount, a.dr_cr)}
                     </td>
                     <td colSpan={2} />
                 </tr>
             ))}
         </tbody>
     </table>
+    </>
 );
+
+// =========================================================
+// OPENING BALANCE BREAK UP (Tally XML)
+// =========================================================
+
+/*
+  Every bill pending on 1st April (Tally "LOB Report"), which together
+  make the opening balance, with what is still pending of each now.
+  breakup = opening_breakup[ledger] from the server, or null.
+*/
+const OpeningBreakup = ({ breakup, openingBalance, openingDate, source }) => {
+    const sourceLabel = source.updated
+        ? `Tally LOB Report • ${source.source === "tally" ? "fetched from Tally" : "saved copy"} ${formatTallyDate(
+              source.updated.slice(0, 10)
+          )} ${source.updated.slice(11, 16)}`
+        : "Tally LOB Report";
+
+    if (!breakup || !breakup.bills?.length) {
+        return (
+            <div style={{ fontSize: "12px", color: "#64748B", padding: "6px 8px 10px 24px" }}>
+                No bill-wise break up of the opening balance for this ledger in the Tally XML ({sourceLabel}).
+                Use "Refresh from Tally" to fetch it again.
+            </div>
+        );
+    }
+
+    // Opening balance (salesdatalatest33) the bills should add up to.
+    const difference = openingBalance !== null ? openingBalance - breakup.total : 0;
+
+    return (
+        <div style={{ margin: "2px 0 10px 24px", border: "1px solid #CBD5E1", background: "#F8FAFC" }}>
+            <div
+                style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    justifyContent: "space-between",
+                    gap: "6px",
+                    padding: "4px 8px",
+                    borderBottom: "1px solid #CBD5E1",
+                    fontSize: "12px",
+                }}
+            >
+                <strong>Opening Balance Break Up as on {formatTallyDate(openingDate)}</strong>
+                <span style={{ color: "#64748B" }}>{sourceLabel}</span>
+            </div>
+
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                    <tr>
+                        <th style={{ ...tHead, background: "transparent" }}>Date</th>
+                        <th style={{ ...tHead, background: "transparent" }}>Bill / Invoice Reference No.</th>
+                        <th style={{ ...tHeadRight, background: "transparent" }}>Credit Period</th>
+                        <th style={{ ...tHead, background: "transparent", fontStyle: "italic" }}>Due on</th>
+                        <th style={{ ...tHeadRight, background: "transparent" }}>Opening Amount</th>
+                        <th style={{ ...tHeadRight, background: "transparent" }}>Pending Now</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {breakup.bills.map((b, i) => (
+                        <tr key={`${b.bill_ref}-${i}`}>
+                            <td style={tCellRight}>{formatTallyDate(b.bill_date)}</td>
+                            <td style={{ ...tCell, fontStyle: b.is_on_account ? "italic" : "normal" }}>{b.bill_ref}</td>
+                            <td style={tCellRight}>{!b.is_on_account && b.credit_days ? `${b.credit_days} Days` : ""}</td>
+                            <td style={{ ...tCell, fontStyle: "italic" }}>
+                                {b.is_on_account ? "" : formatTallyDate(b.due_date)}
+                            </td>
+                            <td style={tCellRight}>{formatDrCr(b.amount)}</td>
+                            <td style={{ ...tCellRight, color: b.balance !== null && Math.abs(b.balance) < 1 ? "#166534" : "#1F2937" }}>
+                                {b.balance === null ? "" : Math.abs(b.balance) < 1 ? "Cleared" : formatDrCr(b.balance)}
+                            </td>
+                        </tr>
+                    ))}
+
+                    <tr>
+                        <td style={tCell} />
+                        <td style={{ ...tCell, fontWeight: "800" }}>Total ({breakup.bills.length} entries)</td>
+                        <td style={tCell} />
+                        <td style={tCell} />
+                        <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                            {formatDrCr(breakup.total)}
+                        </td>
+                        <td style={{ ...tCell, borderTop: "1px solid #94A3B8" }} />
+                    </tr>
+                </tbody>
+            </table>
+
+            {Math.abs(difference) >= 1 && (
+                <div style={{ fontSize: "12px", fontWeight: "700", color: "#B45309", padding: "4px 8px 6px" }}>
+                    The bills add up to {formatDrCr(breakup.total)}, the opening balance is {formatDrCr(openingBalance)}{" "}
+                    (difference {formatDrCr(difference)}).
+                </div>
+            )}
+        </div>
+    );
+};
+
+// =========================================================
+// LEDGER SECURITY DEPOSITS (Ledger Details > Security Deposit)
+// =========================================================
+
+/* Deposit entries of one ledger, oldest first: every deposit taken from
+   a KSEB receipt or paid by us (Payment), and every refund. Debit = a
+   deposit held by KSEB, Credit = refunded. */
+const depositEntries = (deposits) =>
+    deposits
+        .flatMap((d) =>
+            (d.lines || []).map((l) => ({
+                date: l.date,
+                deposit_ledger: d.deposit_ledger,
+                bill_ref: d.bill_ref,
+                credit_days: d.credit_days,
+                voucher_type: l.voucher_type,
+                voucher_no: l.voucher_no || "",
+                bill_type: l.bill_type,
+                debit: l.amount > 0 ? l.amount : 0,
+                credit: l.amount < 0 ? -l.amount : 0,
+                ledgers: l.ledgers || [],
+            }))
+        )
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+/*
+  Security deposits in the same layout as the supply chain ledger:
+  Date, Particulars (deposit ledger and reference), Voucher Type / No.,
+  Debit, Credit and running Balance (what KSEB holds). A click explodes
+  the voucher (its ledgers and the deposit's bill allocation).
+  Like the supply chain ledger, entries before fromDate (1st April) are
+  not listed: they make the Opening Balance (deposits still held then).
+*/
+const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
+    const [toggled, setToggled] = useState(() => new Set());
+
+    const toggle = (key) =>
+        setToggled((prev) => {
+            const next = new Set(prev);
+
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+
+            return next;
+        });
+
+    const all = depositEntries(deposits);
+    const opening = all
+        .filter((e) => String(e.date) < fromDate)
+        .reduce((t, e) => t + e.debit - e.credit, 0);
+    const entries = all.filter((e) => String(e.date) >= fromDate);
+    let running = opening;
+    const rows = entries.map((e) => {
+        running += e.debit - e.credit;
+
+        return { ...e, balance: running };
+    });
+    const debits = entries.reduce((t, e) => t + e.debit, 0);
+    const credits = entries.reduce((t, e) => t + e.credit, 0);
+    const closing = opening + debits - credits;
+
+    return (
+        <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
+                <thead>
+                    <tr>
+                        <th style={tHead}>Date</th>
+                        <th style={{ ...tHead, letterSpacing: "3px" }}>Particulars</th>
+                        <th style={tHead}>Voucher Type</th>
+                        <th style={tHead}>Voucher No.</th>
+                        <th style={tHeadRight}>Debit</th>
+                        <th style={tHeadRight}>Credit</th>
+                        <th style={{ ...tHeadRight, letterSpacing: "3px" }}>Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style={tCell}>{formatTallyDate(fromDate)}</td>
+                        <td style={{ ...tCell, fontWeight: "800", letterSpacing: "3px" }}>Opening Balance</td>
+                        <td style={tCell} />
+                        <td style={tCell} />
+                        <td style={{ ...tCellRight, color: "#1D4ED8", fontWeight: "700" }}>
+                            {opening > 0 ? formatTally(opening) : ""}
+                        </td>
+                        <td style={{ ...tCellRight, color: "#1D4ED8", fontWeight: "700" }}>
+                            {opening < 0 ? formatTally(-opening) : ""}
+                        </td>
+                        <td style={tCellRight} />
+                    </tr>
+
+                    {rows.length === 0 && (
+                        <tr>
+                            <td colSpan={7} style={{ ...tCell, padding: "12px 8px", color: "#64748B" }}>
+                                {all.length ? "No security deposit entries in this period." : "No security deposits for this ledger."}
+                            </td>
+                        </tr>
+                    )}
+
+                    {rows.map((e, i) => {
+                        const key = `dep-${i}`;
+                        const expanded = detailed !== toggled.has(key);
+
+                        return (
+                            <React.Fragment key={key}>
+                                <tr
+                                    onClick={() => toggle(key)}
+                                    style={{
+                                        cursor: "pointer",
+                                        background: expanded && !detailed ? "#E2E8F0" : "transparent",
+                                    }}
+                                >
+                                    <td style={tCellRight}>{formatTallyDate(e.date)}</td>
+                                    <td style={{ ...tCell, fontWeight: "700" }}>
+                                        {e.deposit_ledger}
+                                        {e.bill_ref && (
+                                            <span style={{ fontWeight: "400", color: "#64748B", fontSize: "11px", marginLeft: "8px" }}>
+                                                {e.bill_ref}
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td style={tCell}>{e.voucher_type}</td>
+                                    <td style={tCell}>{e.voucher_no}</td>
+                                    <td style={tCellRight}>{formatTally(e.debit)}</td>
+                                    <td style={tCellRight}>{formatTally(e.credit)}</td>
+                                    <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatDrCr(e.balance)}</td>
+                                </tr>
+
+                                {expanded && (
+                                    <tr>
+                                        <td />
+                                        <td colSpan={6} style={{ padding: "0 8px" }}>
+                                            <VoucherDetails
+                                                detail={{
+                                                    items: [],
+                                                    others: e.ledgers.filter(
+                                                        (l) => ledgerKey(l.ledger) !== ledgerKey(e.deposit_ledger)
+                                                    ),
+                                                    allocations: [
+                                                        {
+                                                            bill_type: e.bill_type,
+                                                            bill_ref: e.bill_ref,
+                                                            credit_days: e.credit_days,
+                                                            amount: e.debit || e.credit,
+                                                            dr_cr: e.debit ? "Dr" : "Cr",
+                                                        },
+                                                    ],
+                                                }}
+                                            />
+                                        </td>
+                                    </tr>
+                                )}
+                            </React.Fragment>
+                        );
+                    })}
+                </tbody>
+
+                {all.length > 0 && (
+                    <tfoot>
+                        <tr style={{ borderTop: "1px solid #94A3B8" }}>
+                            <td style={{ ...tCell, paddingTop: "6px" }} />
+                            <td colSpan={6} style={{ ...tCell, ...tSection, paddingTop: "6px" }}>
+                                Ledger Summary
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style={tCell} />
+                            <td style={{ ...tCell, fontWeight: "700" }}>Opening Balance</td>
+                            <td style={tCell} />
+                            <td style={tCell} />
+                            <td style={{ ...tCellRight, fontWeight: "700", color: "#1D4ED8" }}>
+                                {opening > 0 ? formatTally(opening) : ""}
+                            </td>
+                            <td style={{ ...tCellRight, fontWeight: "700", color: "#1D4ED8" }}>
+                                {opening < 0 ? formatTally(-opening) : ""}
+                            </td>
+                            <td style={{ ...tCellRight, fontWeight: "700", color: "#1D4ED8" }}>{formatDrCr(opening)}</td>
+                        </tr>
+                        <tr>
+                            <td style={tCell} />
+                            <td style={{ ...tCell, fontWeight: "700" }}>Debit Total / Credit Total</td>
+                            <td style={tCell} />
+                            <td style={tCell} />
+                            <td style={{ ...tCellRight, fontWeight: "700" }}>{formatTally(debits)}</td>
+                            <td style={{ ...tCellRight, fontWeight: "700" }}>{formatTally(credits)}</td>
+                            <td style={tCellRight} />
+                        </tr>
+                        <tr style={{ borderTop: "1px solid #94A3B8" }}>
+                            <td style={tCell} />
+                            <td style={{ ...tCell, fontWeight: "700" }}>Closing Balance (held by KSEB)</td>
+                            <td style={tCell} />
+                            <td style={tCell} />
+                            <td style={tCellRight} />
+                            <td style={tCellRight} />
+                            <td style={{ ...tCellRight, fontWeight: "800", color: "#0B2545" }}>
+                                {formatDrCr(closing)}
+                            </td>
+                        </tr>
+                    </tfoot>
+                )}
+            </table>
+        </div>
+    );
+};
 
 // =========================================================
 // LEDGER REPORT (Tally Bird-Eye-View style)
 // =========================================================
 
-const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
+const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
     // Detailed = every voucher exploded (Tally Alt+F5). A click on a row
     // flips just that row.
     const [detailed, setDetailed] = useState(false);
     const [toggled, setToggled] = useState(() => new Set());
+    // Opening balance break up shown under the Opening Balance row.
+    const [showOpening, setShowOpening] = useState(false);
+    // Bill-wise details tab: pending / overdue / all.
+    const [billTab, setBillTab] = useState("pending");
+    // Ledger Details tab: supply chain (the ledger) / security deposit.
+    const [ledgerTab, setLedgerTab] = useState("supply");
 
     const toggleRow = (key) =>
         setToggled((prev) => {
@@ -439,25 +850,29 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                 ((l.voucher_no && l.voucher_no === b.voucher_no) ||
                     (l.date === b.bill_date && Math.abs(l.amount - b.bill_amount) < 1));
 
-            const billLine = (b.lines || []).find(isBillLine);
+            // Opening bill: already inside the opening balance, so only
+            // what came against it this year is a transaction.
+            const billLine = b.is_opening ? null : (b.lines || []).find(isBillLine);
             // Actual Tally voucher type (e.g. "GST Sales B2B"), not a fixed "Sales".
             const voucherType = b.voucher_type || billLine?.voucher_type || "Sales";
 
-            entries.push({
-                date: b.bill_date,
-                particulars:
-                    b.particulars || b.sales_ledger || billLine?.particulars || billLine?.ledger || voucherType,
-                voucher_type: voucherType,
-                voucher_no: b.voucher_no || b.bill_ref,
-                sales_id: billLine?.sales_id || "",
-                debit: b.bill_amount,
-                credit: 0,
-                order: 0,
-            });
+            if (!b.is_opening) {
+                entries.push({
+                    date: b.bill_date,
+                    particulars:
+                        b.particulars || b.sales_ledger || billLine?.particulars || billLine?.ledger || voucherType,
+                    voucher_type: voucherType,
+                    voucher_no: b.voucher_no || b.bill_ref,
+                    sales_id: billLine?.sales_id || "",
+                    debit: Math.max(b.bill_amount, 0),
+                    credit: Math.max(-b.bill_amount, 0),
+                    order: 0,
+                });
+            }
 
             (b.lines || []).forEach((l) => {
                 // Skip the bill's own line, it is already listed above.
-                if (isBillLine(l)) return;
+                if (billLine && isBillLine(l)) return;
 
                 entries.push({
                     date: l.date,
@@ -476,19 +891,23 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
         // Lines before the period are already inside the opening balance.
         const inPeriod = (date) => !date || String(date) >= fromDate;
 
-        ledger.onAccountLines.filter((l) => inPeriod(l.date)).forEach((l) => {
-            entries.push({
-                date: l.date,
-                particulars: "On Account",
-                narration: l.narration,
-                voucher_type: l.voucher_type,
-                voucher_no: l.voucher_no,
-                sales_id: l.sales_id || "",
-                debit: l.amount > 0 ? l.amount : 0,
-                credit: l.amount < 0 ? -l.amount : 0,
-                order: 1,
+        // On Account of the opening bills (Tally XML) is part of the
+        // opening balance too, not a transaction.
+        ledger.onAccountLines
+            .filter((l) => inPeriod(l.date) && l.voucher_type !== "Opening Balance")
+            .forEach((l) => {
+                entries.push({
+                    date: l.date,
+                    particulars: onAccountParticulars(l),
+                    narration: l.narration,
+                    voucher_type: l.voucher_type,
+                    voucher_no: l.voucher_no,
+                    sales_id: l.sales_id || "",
+                    debit: l.amount > 0 ? l.amount : 0,
+                    credit: l.amount < 0 ? -l.amount : 0,
+                    order: 1,
+                });
             });
-        });
 
         ledger.older.filter((r) => inPeriod(r.date)).forEach((r) => {
             entries.push({
@@ -562,14 +981,27 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
 
             const others = (v.ledgers || []).filter((l) => ledgerKey(l.ledger) !== own);
             const allocations = (v.allocations || []).filter((a) => ledgerKey(a.ledger) === own);
+            const items = v.items || [];
 
-            if (!others.length && !allocations.length) return;
+            if (!others.length && !allocations.length && !items.length) return;
 
-            e.detail = { others, allocations };
+            e.detail = { others, allocations, items };
 
             if (others.length) {
-                e.particulars = others[0].ledger;
-                e.particularsDetailed = others.length > 1 ? "(as per details)" : others[0].ledger;
+                /* Like Tally, particulars = the ledger on the other side
+                   (the bank on a receipt, the sales ledger on a sale), not
+                   e.g. another KSEB office paid in the same receipt. */
+                const ownSide = e.debit > 0 ? "Dr" : "Cr";
+                const opposite = others.filter((l) => l.dr_cr !== ownSide);
+                const pick =
+                    opposite.find((l) => l.bank) ||
+                    opposite.find((l) => !l.derived) ||
+                    opposite[0] ||
+                    others.find((l) => !l.derived) ||
+                    others[0];
+
+                e.particulars = pick.ledger;
+                e.particularsDetailed = others.length > 1 ? "(as per details)" : pick.ledger;
             }
         });
 
@@ -599,9 +1031,41 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
             e.balance = running;
         });
 
-        const pendingBills = ledger.bills
-            .filter((b) => Math.abs(b.balance) >= 1)
-            .sort((a, b) => String(a.bill_date).localeCompare(String(b.bill_date)));
+        // Every bill (Tally's bill-wise details, cleared ones too) with the
+        // details of its sales voucher (items, ledgers, bill allocations).
+        // Opening bills have no voucher here.
+        const allBills = [...ledger.bills]
+            .sort(
+                (a, b) =>
+                    String(a.bill_date).localeCompare(String(b.bill_date)) ||
+                    String(a.bill_ref).localeCompare(String(b.bill_ref), undefined, { numeric: true })
+            )
+            .map((b) => {
+                const billLine = b.is_opening
+                    ? null
+                    : (b.lines || []).find(
+                          (l) =>
+                              l.amount > 0 &&
+                              l.sales_id &&
+                              ((l.voucher_no && l.voucher_no === b.voucher_no) || l.date === b.bill_date)
+                      );
+                const v = billLine ? vouchers[billLine.sales_id] : null;
+
+                if (!v) return b;
+
+                const detail = {
+                    others: (v.ledgers || []).filter((l) => ledgerKey(l.ledger) !== own),
+                    allocations: (v.allocations || []).filter((a) => ledgerKey(a.ledger) === own),
+                    items: v.items || [],
+                };
+
+                return detail.others.length || detail.allocations.length || detail.items.length
+                    ? { ...b, detail }
+                    : b;
+            });
+
+        // Pending = something still open on the bill (Dr or Cr).
+        const pendingBills = allBills.filter((b) => Math.abs(b.balance) >= 1);
 
         const byBill = AGEING_SLABS.map(() => 0);
         const byDue = AGEING_SLABS.map(() => 0);
@@ -619,9 +1083,11 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
             closing,
             hasOpening,
             unmatched,
+            allBills,
             pendingBills,
-            pendingOpening: pendingBills.reduce((t, b) => t + b.bill_amount, 0),
-            pendingTotal: pendingBills.reduce((t, b) => t + b.balance, 0),
+            // Like Tally's "On Account Details" line: money not set against
+            // a bill, Dr + / Cr - (ledger.onAccount is + = received).
+            onAccount: -ledger.onAccount,
             byBill,
             byDue,
         };
@@ -634,6 +1100,25 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
         (max, b) => (b.overdue_days > (max?.overdue_days || 0) ? b : max),
         null
     );
+
+    /* Bill-wise details of the selected tab:
+       pending = still open (Dr or Cr), overdue = open Dr bills past
+       their due date, all = every bill, cleared ones too (like Tally). */
+    const overdueBills = report.pendingBills.filter((b) => b.balance > 0 && b.overdue_days > 0);
+    const shownBills =
+        billTab === "all" ? report.allBills : billTab === "overdue" ? overdueBills : report.pendingBills;
+    const shownOpening = shownBills.reduce((t, b) => t + b.bill_amount, 0);
+    const shownPending = shownBills.reduce((t, b) => t + b.balance, 0);
+    // On Account is not a bill and never overdue.
+    const showOnAccount = billTab !== "overdue" && Math.abs(report.onAccount) >= 1;
+    const billTabs = [
+        { key: "pending", label: "Pending", count: report.pendingBills.length },
+        { key: "overdue", label: "Overdue", count: overdueBills.length },
+        { key: "all", label: "All", count: report.allBills.length },
+    ];
+
+    // Number of security deposits (deposit ledger + reference).
+    const depositCount = (ledger.deposits || []).length;
 
     const exportLedger = () => {
         const workbook = XLSX.utils.book_new();
@@ -650,23 +1135,38 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                 "Voucher No": e.voucher_no || "",
                 Debit: e.debit || "",
                 Credit: e.credit || "",
-                Balance: report.hasOpening ? e.balance : "",
+                Balance: report.hasOpening && !isZero(e.balance) ? e.balance : "",
                 Narration: e.narration || "",
             });
 
             // Exploded lines go in "Details" so Debit / Credit still total.
             if (expanded) {
+                (e.detail.items || []).forEach((it) => {
+                    ledgerRows.push({
+                        Particulars: `      ${it.item}${it.hsn ? ` (HSN ${it.hsn})` : ""}`,
+                        Details: [
+                            it.qty !== null ? `${formatQty(it.qty)} ${it.unit}`.trim() : "",
+                            it.rate !== null ? `@ ${formatTally(it.rate)}` : "",
+                            it.discount ? `Disc ${it.discount}%` : "",
+                            it.gst_rate ? `GST ${it.gst_rate}%` : "",
+                            `= ${formatTally(it.amount)}`,
+                        ]
+                            .filter(Boolean)
+                            .join(" "),
+                    });
+                });
+
                 e.detail.others.forEach((l) => {
                     ledgerRows.push({
                         Particulars: `    ${l.ledger}${l.derived ? " (not in export)" : ""}`,
-                        Details: `${formatTally(l.amount)} ${l.dr_cr}`,
+                        Details: withSide(l.amount, l.dr_cr),
                     });
                 });
 
                 e.detail.allocations.forEach((a) => {
                     ledgerRows.push({
                         Particulars: `  ${a.bill_type} ${a.bill_ref}${a.credit_days ? ` ${a.credit_days} Days` : ""}`,
-                        Details: `${formatTally(a.amount)} ${a.dr_cr}`,
+                        Details: withSide(a.amount, a.dr_cr),
                     });
                 });
             }
@@ -679,7 +1179,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                     {
                         Date: formatTallyDate(fromDate),
                         Particulars: "Opening Balance",
-                        Balance: report.hasOpening ? report.opening : "",
+                        Balance: report.hasOpening && !isZero(report.opening) ? report.opening : "",
                     },
                     ...ledgerRows,
                 ],
@@ -690,19 +1190,90 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
             "Ledger"
         );
 
+        if (ledger.openingBreakup?.bills?.length) {
+            XLSX.utils.book_append_sheet(
+                workbook,
+                XLSX.utils.json_to_sheet([
+                    ...ledger.openingBreakup.bills.map((b) => ({
+                        Date: formatTallyDate(b.bill_date),
+                        "Bill Ref": b.bill_ref,
+                        "Credit Days": b.is_on_account ? "" : b.credit_days,
+                        "Due On": b.is_on_account ? "" : formatTallyDate(b.due_date),
+                        "Opening Amount": b.amount,
+                        "Pending Now": b.balance === null ? "" : Math.abs(b.balance) < 1 ? "Cleared" : b.balance,
+                    })),
+                    { "Bill Ref": "TOTAL", "Opening Amount": ledger.openingBreakup.total },
+                ]),
+                "Opening Break Up"
+            );
+        }
+
+        // Security deposit entries of this ledger: opening balance as on
+        // fromDate, then this period's entries (same as the screen).
+        if (depositCount) {
+            const all = depositEntries(ledger.deposits || []);
+            let held = all
+                .filter((e) => String(e.date) < fromDate)
+                .reduce((t, e) => t + e.debit - e.credit, 0);
+
+            XLSX.utils.book_append_sheet(
+                workbook,
+                XLSX.utils.json_to_sheet([
+                    {
+                        Date: formatTallyDate(fromDate),
+                        "Security Deposit Ledger": "Opening Balance",
+                        Balance: isZero(held) ? "" : held,
+                    },
+                    ...all
+                        .filter((e) => String(e.date) >= fromDate)
+                        .map((e) => {
+                            held += e.debit - e.credit;
+
+                            return {
+                                Date: formatTallyDate(e.date),
+                                "Security Deposit Ledger": e.deposit_ledger,
+                                Reference: e.bill_ref,
+                                "Voucher Type": e.voucher_type,
+                                "Voucher No": e.voucher_no,
+                                Debit: e.debit || "",
+                                Credit: e.credit || "",
+                                Balance: isZero(held) ? "" : held,
+                            };
+                        }),
+                ]),
+                "Security Deposits"
+            );
+        }
+
+        // Bill-wise details of the selected tab.
+        const pendingRows = shownBills.map((b) => ({
+            Date: formatTallyDate(b.bill_date),
+            "Bill Ref": b.bill_ref,
+            "Opening Amount": b.bill_amount,
+            "Pending Amount": Math.abs(b.balance) < 1 ? "Cleared" : b.balance,
+            "Due On": formatTallyDate(b.due_date),
+            "Days Overdue": b.overdue_days > 0 ? b.overdue_days : "",
+        }));
+
+        if (showOnAccount) {
+            pendingRows.push({
+                Date: formatTallyDate(asOf),
+                "Bill Ref": "On Account Details",
+                "Opening Amount": report.onAccount,
+                "Pending Amount": report.onAccount,
+            });
+        }
+
+        pendingRows.push({
+            "Bill Ref": "TOTALS",
+            "Opening Amount": shownOpening + (showOnAccount ? report.onAccount : 0),
+            "Pending Amount": shownPending + (showOnAccount ? report.onAccount : 0),
+        });
+
         XLSX.utils.book_append_sheet(
             workbook,
-            XLSX.utils.json_to_sheet(
-                report.pendingBills.map((b) => ({
-                    Date: formatTallyDate(b.bill_date),
-                    "Bill Ref": b.bill_ref,
-                    "Opening Amount": b.bill_amount,
-                    "Pending Amount": b.balance,
-                    "Due On": formatTallyDate(b.due_date),
-                    "Days Overdue": b.overdue_days > 0 ? b.overdue_days : "",
-                }))
-            ),
-            "Pending Bills"
+            XLSX.utils.json_to_sheet(pendingRows),
+            `Bill-wise (${billTabs.find((t) => t.key === billTab).label})`
         );
 
         XLSX.writeFile(workbook, `${ledger.party.replace(/[\\/:*?"<>|]/g, "_")}_${asOf}.xlsx`);
@@ -772,6 +1343,38 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
             </div>
 
             {/* TRANSACTIONS */}
+            <div
+                style={{
+                    ...tHeading,
+                    paddingTop: "10px",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    justifyContent: "flex-start",
+                    gap: "14px",
+                }}
+            >
+                <span>Ledger Details</span>
+                <span style={{ display: "flex", gap: "6px" }}>
+                    <button
+                        type="button"
+                        onClick={() => setLedgerTab("supply")}
+                        style={{ ...buttonStyle(ledgerTab === "supply"), padding: "3px 12px", fontSize: "12px" }}
+                    >
+                        Supply Chain
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setLedgerTab("deposits")}
+                        style={{ ...buttonStyle(ledgerTab === "deposits"), padding: "3px 12px", fontSize: "12px" }}
+                    >
+                        Security Deposit{depositCount ? ` (${depositCount})` : ""}
+                    </button>
+                </span>
+            </div>
+            {ledgerTab === "deposits" ? (
+                <LedgerDepositEntries deposits={ledger.deposits || []} detailed={detailed} fromDate={fromDate} />
+            ) : (
             <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
                     <thead>
@@ -787,10 +1390,20 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                     </thead>
                     <tbody>
                         {/* Opening, running and closing balance are left blank until
-                            the real opening balance comes from Tally. */}
-                        <tr>
+                            the real opening balance comes from Tally. A click shows
+                            the bill-wise break up (Tally XML). */}
+                        <tr
+                            onClick={() => setShowOpening((s) => !s)}
+                            title="Click to see the opening balance break up"
+                            style={{ cursor: "pointer", background: showOpening ? "#E2E8F0" : "transparent" }}
+                        >
                             <td style={tCell}>{formatTallyDate(fromDate)}</td>
-                            <td style={{ ...tCell, fontWeight: "800", letterSpacing: "3px" }}>Opening Balance</td>
+                            <td style={{ ...tCell, fontWeight: "800", letterSpacing: "3px" }}>
+                                <span style={{ display: "inline-block", width: "14px", letterSpacing: 0, color: "#64748B" }}>
+                                    {showOpening ? "▾" : "▸"}
+                                </span>
+                                Opening Balance
+                            </td>
                             <td style={tCell} />
                             <td style={tCell} />
                             <td style={{ ...tCellRight, color: "#1D4ED8", fontWeight: "700" }}>
@@ -801,9 +1414,27 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                             </td>
                             <td style={tCellRight} />
                         </tr>
-                        <tr>
-                            <td colSpan={7} style={{ height: "10px" }} />
-                        </tr>
+
+                        {showOpening && (
+                            <tr>
+                                <td colSpan={7} style={{ padding: "0 8px" }}>
+                                    <OpeningBreakup
+                                        breakup={ledger.openingBreakup}
+                                        openingBalance={report.hasOpening ? report.opening : null}
+                                        openingDate={fromDate}
+                                        source={openingSource}
+                                    />
+                                </td>
+                            </tr>
+                        )}
+
+                        {report.entries.length === 0 && (
+                            <tr>
+                                <td colSpan={7} style={{ ...tCell, padding: "6px 8px", color: "#64748B" }}>
+                                    No transactions in this period.
+                                </td>
+                            </tr>
+                        )}
 
                         {report.entries.map((e, i) => {
                             const expanded = isExpanded(e, i);
@@ -853,53 +1484,99 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                             );
                         })}
                     </tbody>
+
+                    {/* LEDGER SUMMARY, like Tally: each amount right aligned under
+                        its own column (same cells as the rows above), the label
+                        in Particulars. */}
+                    <tfoot>
+                        <tr style={{ borderTop: "1px solid #94A3B8" }}>
+                            <td style={{ ...tCell, paddingTop: "6px" }} />
+                            <td colSpan={6} style={{ ...tCell, ...tSection, paddingTop: "6px" }}>
+                                Ledger Summary
+                            </td>
+                        </tr>
+                        {[
+                            {
+                                label: "Opening Balance",
+                                debit: report.hasOpening && report.opening > 0 ? report.opening : 0,
+                                credit: report.hasOpening && report.opening < 0 ? -report.opening : 0,
+                                balance: report.hasOpening ? formatDrCr(report.opening) : "",
+                                color: "#1D4ED8",
+                            },
+                            {
+                                label: "Debit Total / Credit Total",
+                                debit: report.debits,
+                                credit: report.credits,
+                                balance: "",
+                                color: "#1F2937",
+                            },
+                            {
+                                label: "Closing Balance",
+                                debit: 0,
+                                credit: 0,
+                                balance: report.hasOpening ? formatDrCr(report.closing) : "",
+                                color: "#0B2545",
+                                bold: true,
+                            },
+                        ].map((r) => (
+                            <tr
+                                key={r.label}
+                                style={{ borderTop: r.bold ? "1px solid #94A3B8" : "none" }}
+                            >
+                                <td style={tCell} />
+                                <td style={{ ...tCell, fontWeight: "700" }}>{r.label}</td>
+                                <td style={tCell} />
+                                <td style={tCell} />
+                                <td style={{ ...tCellRight, fontWeight: "700", color: r.color }}>{formatTally(r.debit)}</td>
+                                <td style={{ ...tCellRight, fontWeight: "700", color: r.color }}>
+                                    {formatTally(r.credit)}
+                                </td>
+                                <td style={{ ...tCellRight, fontWeight: r.bold ? "800" : "700", color: r.color }}>{r.balance}</td>
+                            </tr>
+                        ))}
+
+                        {Math.abs(report.unmatched) >= 1 && (
+                            <tr>
+                                <td colSpan={7} style={{ ...tCell, whiteSpace: "normal", padding: "4px 8px", fontSize: "12px", fontWeight: "700", color: "#B45309" }}>
+                                    {formatDrCr(report.unmatched)} of the closing balance is not in the bills below
+                                    (opening bills or receipts missing from the data)
+                                </td>
+                            </tr>
+                        )}
+                    </tfoot>
                 </table>
             </div>
+            )}
 
-            {/* LEDGER SUMMARY */}
+            {/* BILL-WISE DETAILS: Pending / Overdue / All */}
             <div
                 style={{
+                    ...tHeading,
+                    paddingTop: "10px",
+                    marginTop: "10px",
                     display: "flex",
                     flexWrap: "wrap",
-                    gap: "10px 24px",
                     alignItems: "center",
-                    padding: "8px 10px",
-                    marginTop: "10px",
-                    borderTop: "1px solid #CBD5E1",
-                    borderBottom: "1px solid #CBD5E1",
-                    fontSize: "13px",
+                    // Tabs right next to the heading.
+                    justifyContent: "flex-start",
+                    gap: "14px",
                 }}
             >
-                <span style={tSection}>Ledger Summary</span>
-                <span>
-                    <strong>Opening Balance </strong>
-                    <span style={{ ...tBox, color: "#1D4ED8", minHeight: "1.2em", verticalAlign: "middle" }}>
-                        {report.hasOpening ? formatDrCr(report.opening) : ""}
-                    </span>
+                <span>Bill-wise Details</span>
+                <span style={{ display: "flex", gap: "6px" }}>
+                    {billTabs.map((t) => (
+                        <button
+                            key={t.key}
+                            type="button"
+                            onClick={() => setBillTab(t.key)}
+                            style={{ ...buttonStyle(billTab === t.key), padding: "3px 12px", fontSize: "12px" }}
+                        >
+                            {t.label}
+                            {t.count ? ` (${t.count})` : ""}
+                        </button>
+                    ))}
                 </span>
-                <span>
-                    <strong>Debits Totals </strong>
-                    <span style={{ ...tBox, color: "#1D4ED8" }}>{formatTally(report.debits)} Dr</span>
-                </span>
-                <span>
-                    <strong>Credits Totals </strong>
-                    <span style={{ ...tBox, color: "#DC2626" }}>{formatTally(report.credits)} Cr</span>
-                </span>
-                <span>
-                    <strong>Closing Balance </strong>
-                    <span style={{ ...tBox, color: "#1D4ED8", minHeight: "1.2em", verticalAlign: "middle" }}>
-                        {report.hasOpening ? formatDrCr(report.closing) : ""}
-                    </span>
-                </span>
-                {Math.abs(report.unmatched) >= 1 && (
-                    <span style={{ fontSize: "12px", fontWeight: "700", color: "#B45309" }}>
-                        {formatDrCr(report.unmatched)} of the closing balance is not in the bills below
-                        (previous-year bills still pending)
-                    </span>
-                )}
             </div>
-
-            {/* PENDING BILLS */}
             <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
                     <thead>
@@ -913,24 +1590,46 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {report.pendingBills.length === 0 && (
+                        {shownBills.length === 0 && (
                             <tr>
                                 <td colSpan={6} style={{ ...tCell, padding: "12px 8px", color: "#64748B" }}>
-                                    No pending bills.
+                                    {billTab === "overdue" ? "No overdue bills." : billTab === "all" ? "No bills." : "No pending bills."}
                                 </td>
                             </tr>
                         )}
 
-                        {report.pendingBills.map((b) => {
+                        {shownBills.map((b) => {
                             const highlight = oldestOverdue && b === oldestOverdue;
                             const overdue = b.overdue_days > 0;
+                            // Cleared bills (All tab) in grey, like Tally's settled bills.
+                            const cleared = Math.abs(b.balance) < 1;
+
+                            // Click a bill to explode its sales voucher.
+                            const key = `bill|${b.bill_ref}`;
+                            const expanded = Boolean(b.detail) && detailed !== toggled.has(key);
 
                             return (
-                                <tr key={b.bill_ref} style={{ background: highlight ? "#FBBF24" : "transparent" }}>
+                                <React.Fragment key={`${b.bill_ref}|${b.bill_date}`}>
+                                <tr
+                                    onClick={b.detail ? () => toggleRow(key) : undefined}
+                                    title={b.detail ? "Click to see the bill details" : ""}
+                                    style={{
+                                        cursor: b.detail ? "pointer" : "default",
+                                        color: cleared ? "#64748B" : "inherit",
+                                        background: highlight ? "#FBBF24" : expanded && !detailed ? "#E2E8F0" : "transparent",
+                                    }}
+                                >
                                     <td style={{ ...tCellRight, fontWeight: overdue ? "700" : "400" }}>
                                         {formatTallyDate(b.bill_date)}
                                     </td>
-                                    <td style={tCell}>{b.bill_ref}</td>
+                                    <td style={tCell}>
+                                        {b.detail && (
+                                            <span style={{ display: "inline-block", width: "14px", color: "#64748B" }}>
+                                                {expanded ? "▾" : "▸"}
+                                            </span>
+                                        )}
+                                        {b.bill_ref}
+                                    </td>
                                     <td style={tCellRight}>{formatDrCr(b.bill_amount)}</td>
                                     <td style={{ ...tCellRight, fontWeight: overdue ? "800" : "400" }}>
                                         {formatDrCr(b.balance)}
@@ -938,17 +1637,54 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                                     <td style={{ ...tCell, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
                                     <td style={{ ...tCellRight, fontStyle: "italic" }}>{overdue ? b.overdue_days : ""}</td>
                                 </tr>
+
+                                {expanded && (
+                                    <tr>
+                                        <td />
+                                        <td colSpan={5} style={{ padding: "0 8px" }}>
+                                            <VoucherDetails detail={b.detail} />
+                                        </td>
+                                    </tr>
+                                )}
+                                </React.Fragment>
                             );
                         })}
+
+                        {showOnAccount && (
+                            <>
+                                <tr>
+                                    <td style={tCell} />
+                                    <td style={{ ...tCell, fontWeight: "700", paddingLeft: "20px" }}>Sub Total</td>
+                                    <td style={{ ...tCellRight, borderTop: "1px solid #94A3B8" }}>
+                                        {formatDrCr(shownOpening)}
+                                    </td>
+                                    <td style={{ ...tCellRight, borderTop: "1px solid #94A3B8" }}>
+                                        {formatDrCr(shownPending)}
+                                    </td>
+                                    <td style={tCell} />
+                                    <td style={tCell} />
+                                </tr>
+                                <tr>
+                                    <td style={{ ...tCellRight, fontWeight: "700", fontStyle: "italic" }}>
+                                        {formatTallyDate(asOf)}
+                                    </td>
+                                    <td style={{ ...tCell, fontStyle: "italic" }}>On Account Details</td>
+                                    <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatDrCr(report.onAccount)}</td>
+                                    <td style={{ ...tCellRight, fontWeight: "800" }}>{formatDrCr(report.onAccount)}</td>
+                                    <td style={tCell} />
+                                    <td style={tCell} />
+                                </tr>
+                            </>
+                        )}
 
                         <tr>
                             <td style={{ ...tCell, paddingTop: "14px" }} />
                             <td style={{ ...tCell, ...tSection, paddingTop: "14px" }}>TOTALS</td>
                             <td style={{ ...tCellRight, paddingTop: "14px", borderTop: "1px solid #94A3B8" }}>
-                                {formatDrCr(report.pendingOpening)}
+                                {formatDrCr(shownOpening + (showOnAccount ? report.onAccount : 0))}
                             </td>
                             <td style={{ ...tCellRight, paddingTop: "14px", fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
-                                {formatDrCr(report.pendingTotal)}
+                                {formatDrCr(shownPending + (showOnAccount ? report.onAccount : 0))}
                             </td>
                             <td style={tCell} />
                             <td style={tCell} />
@@ -964,11 +1700,11 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                         <tr>
                             <th style={{ ...tHead, fontSize: "14px", fontWeight: "800" }}>Ageing Analysis</th>
                             {AGEING_SLABS.map((s) => (
-                                <th key={s.label} style={{ ...tHead, textAlign: "center" }}>
+                                <th key={s.label} style={{ ...tHead, textAlign: "right" }}>
                                     {s.label}
                                 </th>
                             ))}
-                            <th style={{ ...tHead, textAlign: "center" }}>On Account</th>
+                            <th style={{ ...tHead, textAlign: "right" }}>On Account</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -983,12 +1719,12 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                                 {row.values.map((v, i) => (
                                     <td
                                         key={i}
-                                        style={{ ...tCell, textAlign: "center", color: "#1D4ED8", borderBottom: "1px solid #E2E8F0" }}
+                                        style={{ ...tCell, textAlign: "right", color: "#1D4ED8", borderBottom: "1px solid #E2E8F0" }}
                                     >
                                         {Math.abs(v) >= 1 ? formatDrCr(v) : ""}
                                     </td>
                                 ))}
-                                <td style={{ ...tCell, textAlign: "center", color: "#7C3AED", borderBottom: "1px solid #E2E8F0" }}>
+                                <td style={{ ...tCell, textAlign: "right", color: "#7C3AED", borderBottom: "1px solid #E2E8F0" }}>
                                     {ledger.onAccount ? formatDrCr(-ledger.onAccount) : ""}
                                 </td>
                             </tr>
@@ -997,6 +1733,163 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf }) => {
                 </table>
             </div>
         </div>
+    );
+};
+
+// =========================================================
+// RECEIPTS LIST
+// =========================================================
+
+/*
+  Every receipt allocation (newest first) with the bill it was set
+  against. A receipt against several bills shows one row per bill.
+  Click a row for that ledger's report.
+*/
+const ReceiptsTable = ({ receipts, showDistribution, onOpenLedger }) => {
+    const total = receipts.reduce((t, r) => t + r.amount, 0);
+
+    return (
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
+            <thead>
+                <tr>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>KSEB Ledger</th>
+                    {showDistribution && <th style={thStyle}>Distribution</th>}
+                    <th style={thStyle}>Against Bill</th>
+                    <th style={thStyle}>Bill Date</th>
+                    <th style={thStyle}>Adjusted To</th>
+                    <th style={thRight}>Bill Balance</th>
+                    <th style={thRight}>Received</th>
+                </tr>
+            </thead>
+            <tbody>
+                {receipts.map((r, i) => {
+                    const adjusted = ADJUSTED_TO[r.adjusted_to] || { label: r.adjusted_to, color: "#1F2937" };
+
+                    return (
+                        <tr
+                            key={`${r.sales_id}-${r.bill_ref}-${i}`}
+                            onClick={() => onOpenLedger(r.party)}
+                            style={{ cursor: "pointer" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#EFF6FF")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                        >
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(r.date)}</td>
+                            <td style={{ ...tdStyle, fontWeight: "700" }}>
+                                {r.party}
+                                {r.executive && (
+                                    <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{r.executive}</div>
+                                )}
+                            </td>
+                            {showDistribution && <td style={tdStyle}>{r.distribution}</td>}
+                            <td style={tdStyle}>{r.bill_ref}</td>
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(r.bill_date)}</td>
+                            <td style={{ ...tdStyle, color: adjusted.color, fontWeight: "700" }}>
+                                {adjusted.label}
+                                {r.narration && (
+                                    <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{r.narration}</div>
+                                )}
+                            </td>
+                            <td style={tdRight}>
+                                {r.bill_balance === null || r.bill_balance === undefined
+                                    ? ""
+                                    : Math.abs(r.bill_balance) < 1
+                                      ? "Cleared"
+                                      : formatAmount(r.bill_balance)}
+                            </td>
+                            <td style={{ ...tdRight, color: "#166534", fontWeight: "700" }}>{formatAmount(r.amount)}</td>
+                        </tr>
+                    );
+                })}
+
+                <tr style={{ background: "#E2E8F0" }}>
+                    <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
+                    <td style={tdStyle} />
+                    {showDistribution && <td style={tdStyle} />}
+                    <td style={tdStyle} />
+                    <td style={tdStyle} />
+                    <td style={tdStyle} />
+                    <td style={tdRight} />
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>{formatAmount(total)}</td>
+                </tr>
+            </tbody>
+        </table>
+    );
+};
+
+// =========================================================
+// SECURITY DEPOSITS LIST
+// =========================================================
+
+/*
+  Security deposits / retention held by KSEB, one row per KSEB ledger,
+  deposit ledger and reference (LPO): deposited, refunded and the
+  balance still held. Click a row for that ledger's report.
+*/
+const DepositsTable = ({ deposits, showDistribution, onOpenLedger, canOpen }) => {
+    const total = (field) => deposits.reduce((t, d) => t + d[field], 0);
+
+    return (
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
+            <thead>
+                <tr>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>KSEB Ledger</th>
+                    {showDistribution && <th style={thStyle}>Distribution</th>}
+                    <th style={thStyle}>Security Deposit Ledger</th>
+                    <th style={thStyle}>Reference</th>
+                    <th style={thRight}>Credit Period</th>
+                    <th style={thStyle}>Due on</th>
+                    <th style={thRight}>Deposited</th>
+                    <th style={thRight}>Refunded</th>
+                    <th style={thRight}>Balance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {deposits.map((d, i) => {
+                    const clickable = canOpen(d.party);
+
+                    return (
+                        <tr
+                            key={`${d.party}|${d.deposit_ledger}|${d.bill_ref}|${i}`}
+                            onClick={clickable ? () => onOpenLedger(d.party) : undefined}
+                            style={{ cursor: clickable ? "pointer" : "default" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#EFF6FF")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                        >
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(d.date)}</td>
+                            <td style={{ ...tdStyle, fontWeight: "700" }}>
+                                {d.party}
+                                {d.executive && (
+                                    <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{d.executive}</div>
+                                )}
+                            </td>
+                            {showDistribution && <td style={tdStyle}>{d.distribution}</td>}
+                            <td style={tdStyle}>{d.deposit_ledger}</td>
+                            <td style={tdStyle}>{d.bill_ref}</td>
+                            <td style={tdRight}>{d.credit_days ? `${d.credit_days} Days` : ""}</td>
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(d.due_date)}</td>
+                            <td style={tdRight}>{formatAmount(d.deposited)}</td>
+                            <td style={{ ...tdRight, color: "#166534" }}>{formatAmount(d.refunded)}</td>
+                            <td style={{ ...tdRight, fontWeight: "700", color: "#0B2545" }}>{formatAmount(d.balance)}</td>
+                        </tr>
+                    );
+                })}
+
+                <tr style={{ background: "#E2E8F0" }}>
+                    <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
+                    <td style={tdStyle} />
+                    {showDistribution && <td style={tdStyle} />}
+                    <td style={tdStyle} />
+                    <td style={tdStyle} />
+                    <td style={tdRight} />
+                    <td style={tdStyle} />
+                    <td style={{ ...tdRight, fontWeight: "800" }}>{formatAmount(total("deposited"))}</td>
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>{formatAmount(total("refunded"))}</td>
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#0B2545" }}>{formatAmount(total("balance"))}</td>
+                </tr>
+            </tbody>
+        </table>
     );
 };
 
@@ -1011,20 +1904,30 @@ const KSEBOutstanding = () => {
     const [bills, setBills] = useState([]);
     const [onAccount, setOnAccount] = useState([]);
     const [olderReceipts, setOlderReceipts] = useState([]);
+    const [receipts, setReceipts] = useState([]);
     const [openingBalances, setOpeningBalances] = useState({});
+    const [openingBreakup, setOpeningBreakup] = useState({});
+    // Security deposits held by KSEB (deposit ledger + LPO reference).
+    const [securityDeposits, setSecurityDeposits] = useState([]);
     const [vouchers, setVouchers] = useState({});
+    const [warnings, setWarnings] = useState([]);
+    // Where the opening bills (Tally XML) came from, and when.
+    const [openingSource, setOpeningSource] = useState({ source: "", updated: "" });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
 
     const [distribution, setDistribution] = useState("all");
     const [selectedParty, setSelectedParty] = useState(null);
     const [search, setSearch] = useState("");
+    // "ledgers", "receipts" or "deposits" list on the right.
+    const [view, setView] = useState("ledgers");
 
     // =====================================================
     // LOAD
     // =====================================================
 
-    const loadOutstanding = async () => {
+    // refresh = ask Tally again even when the server's saved XML is recent.
+    const loadOutstanding = async (refresh = false) => {
         setLoading(true);
         setError("");
 
@@ -1034,6 +1937,8 @@ const KSEBOutstanding = () => {
                 to_date: asOf,
                 as_of: asOf,
             });
+
+            if (refresh) params.set("refresh", "1");
 
             const response = await apiFetch(
                 `${API}/get_kseb_outstanding.php?${params.toString()}`
@@ -1048,6 +1953,8 @@ const KSEBOutstanding = () => {
             setBills(Array.isArray(result.bills) ? result.bills : []);
             setOnAccount(Array.isArray(result.on_account) ? result.on_account : []);
             setOlderReceipts(Array.isArray(result.older_receipts) ? result.older_receipts : []);
+            // Every receipt allocation (kseb_receipts) with the bill it went to.
+            setReceipts(Array.isArray(result.receipts) ? result.receipts : []);
             // { "<ledger name>": amount } — Dr positive, Cr negative.
             // From salesdatalatest33 Ledger.$OpeningBalance (as on 1st April).
             setOpeningBalances(
@@ -1055,17 +1962,35 @@ const KSEBOutstanding = () => {
                     ? result.opening_balances
                     : {}
             );
+            // { "<ledger name>": { total, xml_total, bills } } — opening
+            // balance break up from the Tally XML (LOB Report).
+            setOpeningBreakup(
+                result.opening_breakup && typeof result.opening_breakup === "object"
+                    ? result.opening_breakup
+                    : {}
+            );
+            setSecurityDeposits(Array.isArray(result.security_deposits) ? result.security_deposits : []);
             // { "<Sales ID>": { ledgers, allocations, ... } } — Tally voucher details.
             setVouchers(
                 result.vouchers && typeof result.vouchers === "object" ? result.vouchers : {}
             );
+            // Missing receipts, Tally offline, opening bills not matching ...
+            setWarnings(Array.isArray(result.warnings) ? result.warnings : []);
+            setOpeningSource({
+                source: result.opening_bills_source || "",
+                updated: result.opening_bills_updated || "",
+            });
         } catch (err) {
             setError(err.message || "Failed to load KSEB outstanding");
             setBills([]);
             setOnAccount([]);
             setOlderReceipts([]);
+            setReceipts([]);
             setOpeningBalances({});
+            setOpeningBreakup({});
+            setSecurityDeposits([]);
             setVouchers({});
+            setWarnings([]);
         } finally {
             setLoading(false);
         }
@@ -1083,8 +2008,16 @@ const KSEBOutstanding = () => {
     const ledgers = useMemo(() => {
         const map = new Map();
 
+        // Break up by ledger key, so a small difference in the name
+        // (case / spaces) still finds it.
+        const breakupByKey = new Map(
+            Object.entries(openingBreakup).map(([name, value]) => [ledgerKey(name), value])
+        );
+
         const getRow = (party, src) => {
             if (!map.has(party)) {
+                const breakup = breakupByKey.get(ledgerKey(party)) || null;
+
                 map.set(party, {
                     party,
                     distribution: src.distribution || "Unassigned",
@@ -1095,14 +2028,24 @@ const KSEBOutstanding = () => {
                     overdue: 0,
                     excess: 0,
                     onAccount: 0,
+                    received: 0,
                     maxOverdue: 0,
                     bills: [],
                     onAccountLines: [],
                     older: [],
+                    // Security deposits held by KSEB for this ledger.
+                    deposits: [],
+                    openingBreakup: breakup,
+                    // salesdatalatest33 first; else the Tally XML total
+                    // (the bills pending on 1st April add up to it).
                     openingBalance: (() => {
                         const value = openingBalances[party] ?? openingBalances[String(party).trim()];
 
-                        return value !== undefined && value !== null ? Number(value) : null;
+                        if (value !== undefined && value !== null) return Number(value);
+
+                        if (breakup) return Number(breakup.xml_total ?? breakup.total);
+
+                        return null;
                     })(),
                 });
             }
@@ -1139,10 +2082,18 @@ const KSEBOutstanding = () => {
             if (map.has(r.party)) map.get(r.party).older.push(r);
         });
 
+        receipts.forEach((r) => {
+            getRow(r.party, r).received += r.amount;
+        });
+
+        securityDeposits.forEach((d) => {
+            getRow(d.party, d).deposits.push(d);
+        });
+
         return [...map.values()]
             .map((r) => ({ ...r, net: r.pending - r.onAccount - r.excess }))
             .sort((a, b) => b.net - a.net || b.billed - a.billed);
-    }, [bills, onAccount, olderReceipts, openingBalances]);
+    }, [bills, onAccount, olderReceipts, receipts, openingBalances, openingBreakup, securityDeposits]);
 
     const donutData = useMemo(() => {
         const totals = new Map();
@@ -1186,12 +2137,32 @@ const KSEBOutstanding = () => {
                 (t, l) => ({
                     pending: t.pending + l.pending,
                     overdue: t.overdue + l.overdue,
+                    received: t.received + l.received,
                     onAccount: t.onAccount + l.onAccount,
                     net: t.net + l.net,
                 }),
-                { pending: 0, overdue: 0, onAccount: 0, net: 0 }
+                { pending: 0, overdue: 0, received: 0, onAccount: 0, net: 0 }
             ),
         [listedLedgers]
+    );
+
+    const listedReceipts = useMemo(() => {
+        const term = search.trim().toLowerCase();
+
+        return receipts.filter(
+            (r) =>
+                (distribution === "all" || r.distribution === distribution) &&
+                (!term || r.party.toLowerCase().includes(term) || String(r.bill_ref).toLowerCase().includes(term))
+        );
+    }, [receipts, distribution, search]);
+
+    // Received this year in the selected distribution (sidebar).
+    const receivedTotal = useMemo(
+        () =>
+            receipts
+                .filter((r) => distribution === "all" || r.distribution === distribution)
+                .reduce((t, r) => t + r.amount, 0),
+        [receipts, distribution]
     );
 
     const ledger = ledgers.find((l) => l.party === selectedParty) || null;
@@ -1200,6 +2171,84 @@ const KSEBOutstanding = () => {
         setDistribution(name);
         setSelectedParty(null);
         setSearch("");
+    };
+
+    const openLedger = (party) => {
+        setSelectedParty(party);
+        window.scrollTo({ top: 0 });
+    };
+
+    const listedDeposits = useMemo(() => {
+        const term = search.trim().toLowerCase();
+
+        return securityDeposits.filter(
+            (d) =>
+                (distribution === "all" || d.distribution === distribution) &&
+                (!term ||
+                    d.party.toLowerCase().includes(term) ||
+                    String(d.deposit_ledger).toLowerCase().includes(term) ||
+                    String(d.bill_ref).toLowerCase().includes(term))
+        );
+    }, [securityDeposits, distribution, search]);
+
+    // A deposit row opens its ledger report when that ledger is listed.
+    const canOpenLedger = (party) => ledgers.some((l) => l.party === party);
+
+    const exportDeposits = () => {
+        const workbook = XLSX.utils.book_new();
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(
+                listedDeposits.map((d) => ({
+                    Date: formatTallyDate(d.date),
+                    "KSEB Ledger": d.party,
+                    Executive: d.executive,
+                    Distribution: d.distribution,
+                    "Security Deposit Ledger": d.deposit_ledger,
+                    Reference: d.bill_ref,
+                    "Credit Days": d.credit_days || "",
+                    "Due On": formatTallyDate(d.due_date),
+                    Deposited: d.deposited || "",
+                    Refunded: d.refunded || "",
+                    Balance: d.balance || "",
+                }))
+            ),
+            "Security Deposits"
+        );
+
+        XLSX.writeFile(
+            workbook,
+            `KSEB_Security_Deposits_${(distribution === "all" ? "All" : distribution).replace(/[\\/:*?"<>|]/g, "_")}_${asOf}.xlsx`
+        );
+    };
+
+    const exportReceipts = () => {
+        const workbook = XLSX.utils.book_new();
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(
+                listedReceipts.map((r) => ({
+                    Date: formatTallyDate(r.date),
+                    "KSEB Ledger": r.party,
+                    Executive: r.executive,
+                    Distribution: r.distribution,
+                    "Against Bill": r.bill_ref,
+                    "Bill Date": formatTallyDate(r.bill_date),
+                    "Adjusted To": ADJUSTED_TO[r.adjusted_to]?.label || r.adjusted_to,
+                    "Bill Balance": r.bill_balance ?? "",
+                    Received: r.amount,
+                    Note: r.narration || "",
+                }))
+            ),
+            "Receipts"
+        );
+
+        XLSX.writeFile(
+            workbook,
+            `KSEB_Receipts_${(distribution === "all" ? "All" : distribution).replace(/[\\/:*?"<>|]/g, "_")}_${asOf}.xlsx`
+        );
     };
 
     // =====================================================
@@ -1262,6 +2311,13 @@ const KSEBOutstanding = () => {
                         </div>
                     </div>
 
+                    <div style={{ marginTop: "12px" }}>
+                        <div style={labelStyle}>RECEIVED SINCE {formatTallyDate(fromDate).toUpperCase()}</div>
+                        <div style={{ fontSize: "22px", fontWeight: "800", marginTop: "4px", color: "#166534" }}>
+                            {formatCompact(receivedTotal)}
+                        </div>
+                    </div>
+
                     <button
                         type="button"
                         onClick={() => selectDistribution("all")}
@@ -1269,10 +2325,27 @@ const KSEBOutstanding = () => {
                     >
                         Overall (All Distributions)
                     </button>
+
+                    <button
+                        type="button"
+                        disabled={loading}
+                        onClick={() => loadOutstanding(true)}
+                        title="Fetch the opening bills (LOB Report) from Tally again"
+                        style={{ ...buttonStyle(false), width: "100%", marginTop: "8px", opacity: loading ? 0.6 : 1 }}
+                    >
+                        {loading ? "Loading..." : "Refresh from Tally"}
+                    </button>
+
+                    {openingSource.updated && (
+                        <div style={{ fontSize: "11px", color: "#64748B", marginTop: "8px", textAlign: "center" }}>
+                            Opening bills: {openingSource.source === "tally" ? "Tally" : "saved copy"},{" "}
+                            {formatTallyDate(openingSource.updated.slice(0, 10))} {openingSource.updated.slice(11, 16)}
+                        </div>
+                    )}
                 </div>
 
                 {/* =============================================
-                    RIGHT: LEDGER LIST  /  LEDGER REPORT
+                    RIGHT: LEDGER / RECEIPTS LIST  /  LEDGER REPORT
                 ============================================== */}
 
                 <div style={{ minWidth: 0 }}>
@@ -1289,6 +2362,26 @@ const KSEBOutstanding = () => {
                             }}
                         >
                             {error}
+                        </div>
+                    )}
+
+                    {warnings.length > 0 && (
+                        <div
+                            style={{
+                                marginBottom: "12px",
+                                padding: "10px 14px",
+                                borderRadius: "8px",
+                                background: "#FEF3C7",
+                                color: "#92400E",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                display: "grid",
+                                gap: "4px",
+                            }}
+                        >
+                            {warnings.map((w) => (
+                                <div key={w}>{w}</div>
+                            ))}
                         </div>
                     )}
 
@@ -1321,7 +2414,7 @@ const KSEBOutstanding = () => {
                                 <strong>{ledger.party}</strong>
                                 <div style={{ flex: 1 }} />
                                 <button type="button" onClick={() => setSelectedParty(null)} style={buttonStyle(false)}>
-                                    ← Back to ledgers
+                                    ← Back to {view === "receipts" ? "receipts" : view === "deposits" ? "security deposits" : "ledgers"}
                                 </button>
                             </>
                         )}
@@ -1335,6 +2428,7 @@ const KSEBOutstanding = () => {
                                 vouchers={vouchers}
                                 fromDate={fromDate}
                                 asOf={asOf}
+                                openingSource={openingSource}
                             />
                         </div>
                     ) : (
@@ -1355,24 +2449,87 @@ const KSEBOutstanding = () => {
                                         {distribution === "all" ? "All Ledgers" : distribution}
                                     </div>
                                     <div style={{ fontSize: "12px", color: "#64748B" }}>
-                                        {listedLedgers.length} ledgers • click a ledger for its ledger report
+                                        {view === "receipts"
+                                            ? `${listedReceipts.length} receipt entries • click one for its ledger report`
+                                            : view === "deposits"
+                                              ? `${listedDeposits.length} security deposits • click one for its ledger report`
+                                              : `${listedLedgers.length} ledgers • click a ledger for its ledger report`}
                                     </div>
                                 </div>
 
-                                <input
-                                    type="text"
-                                    value={search}
-                                    placeholder="Search ledger..."
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    style={{ ...inputStyle, width: "240px" }}
-                                />
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+                                    <button type="button" onClick={() => setView("ledgers")} style={buttonStyle(view === "ledgers")}>
+                                        Ledgers
+                                    </button>
+                                    <button type="button" onClick={() => setView("receipts")} style={buttonStyle(view === "receipts")}>
+                                        Receipts
+                                    </button>
+                                    <button type="button" onClick={() => setView("deposits")} style={buttonStyle(view === "deposits")}>
+                                        Security Deposit
+                                    </button>
+                                    {view === "receipts" && (
+                                        <button
+                                            type="button"
+                                            onClick={exportReceipts}
+                                            disabled={!listedReceipts.length}
+                                            style={buttonStyle(false)}
+                                        >
+                                            Export Excel
+                                        </button>
+                                    )}
+                                    {view === "deposits" && (
+                                        <button
+                                            type="button"
+                                            onClick={exportDeposits}
+                                            disabled={!listedDeposits.length}
+                                            style={buttonStyle(false)}
+                                        >
+                                            Export Excel
+                                        </button>
+                                    )}
+
+                                    <input
+                                        type="text"
+                                        value={search}
+                                        placeholder={
+                                            view === "receipts"
+                                                ? "Search ledger / bill..."
+                                                : view === "deposits"
+                                                  ? "Search ledger / reference..."
+                                                  : "Search ledger..."
+                                        }
+                                        onChange={(e) => setSearch(e.target.value)}
+                                        style={{ ...inputStyle, width: "240px" }}
+                                    />
+                                </div>
                             </div>
 
                             <div style={{ overflow: "auto", maxHeight: "75vh" }}>
                                 {loading ? (
                                     <div style={emptyStyle}>Loading KSEB outstanding...</div>
+                                ) : view === "deposits" ? (
+                                    listedDeposits.length ? (
+                                        <DepositsTable
+                                            deposits={listedDeposits}
+                                            showDistribution={distribution === "all"}
+                                            onOpenLedger={openLedger}
+                                            canOpen={canOpenLedger}
+                                        />
+                                    ) : (
+                                        <div style={emptyStyle}>No security deposits found.</div>
+                                    )
+                                ) : view === "receipts" ? (
+                                    listedReceipts.length ? (
+                                        <ReceiptsTable
+                                            receipts={listedReceipts}
+                                            showDistribution={distribution === "all"}
+                                            onOpenLedger={openLedger}
+                                        />
+                                    ) : (
+                                        <div style={emptyStyle}>No receipts found.</div>
+                                    )
                                 ) : listedLedgers.length ? (
-                                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "820px" }}>
+                                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
                                         <thead>
                                             <tr>
                                                 <th style={thStyle}>KSEB Ledger</th>
@@ -1380,6 +2537,7 @@ const KSEBOutstanding = () => {
                                                 <th style={thRight}>Pending Bills</th>
                                                 <th style={thRight}>Pending</th>
                                                 <th style={thRight}>Overdue</th>
+                                                <th style={thRight}>Received</th>
                                                 <th style={thRight}>On Account</th>
                                                 <th style={thRight}>Net Outstanding</th>
                                                 <th style={thRight}>Oldest Overdue</th>
@@ -1389,10 +2547,7 @@ const KSEBOutstanding = () => {
                                             {listedLedgers.map((l) => (
                                                 <tr
                                                     key={l.party}
-                                                    onClick={() => {
-                                                        setSelectedParty(l.party);
-                                                        window.scrollTo({ top: 0 });
-                                                    }}
+                                                    onClick={() => openLedger(l.party)}
                                                     style={{ cursor: "pointer" }}
                                                     onMouseEnter={(e) => (e.currentTarget.style.background = "#EFF6FF")}
                                                     onMouseLeave={(e) => (e.currentTarget.style.background = "")}
@@ -1406,20 +2561,23 @@ const KSEBOutstanding = () => {
                                                         )}
                                                     </td>
                                                     {distribution === "all" && <td style={tdStyle}>{l.distribution}</td>}
-                                                    <td style={tdRight}>{l.pendingCount}</td>
+                                                    <td style={tdRight}>{l.pendingCount || ""}</td>
                                                     <td style={{ ...tdRight, color: "#B91C1C", fontWeight: "700" }}>
                                                         {formatAmount(l.pending)}
                                                     </td>
                                                     <td style={{ ...tdRight, color: "#EA580C" }}>
-                                                        {l.overdue ? formatAmount(l.overdue) : "-"}
+                                                        {formatAmount(l.overdue)}
+                                                    </td>
+                                                    <td style={{ ...tdRight, color: "#166534" }}>
+                                                        {formatAmount(l.received)}
                                                     </td>
                                                     <td style={{ ...tdRight, color: "#7C3AED" }}>
-                                                        {l.onAccount ? formatAmount(l.onAccount) : "-"}
+                                                        {formatAmount(l.onAccount)}
                                                     </td>
                                                     <td style={{ ...tdRight, fontWeight: "800", color: "#0B2545" }}>
                                                         {formatAmount(l.net)}
                                                     </td>
-                                                    <td style={tdRight}>{l.maxOverdue > 0 ? `${l.maxOverdue} d` : "-"}</td>
+                                                    <td style={tdRight}>{l.maxOverdue > 0 ? `${l.maxOverdue} d` : ""}</td>
                                                 </tr>
                                             ))}
 
@@ -1432,6 +2590,9 @@ const KSEBOutstanding = () => {
                                                 </td>
                                                 <td style={{ ...tdRight, fontWeight: "800", color: "#EA580C" }}>
                                                     {formatAmount(listTotal.overdue)}
+                                                </td>
+                                                <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>
+                                                    {formatAmount(listTotal.received)}
                                                 </td>
                                                 <td style={{ ...tdRight, fontWeight: "800", color: "#7C3AED" }}>
                                                     {formatAmount(listTotal.onAccount)}

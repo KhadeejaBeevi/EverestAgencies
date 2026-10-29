@@ -79,7 +79,7 @@ const [newPO, setNewPO] = useState({
             invoice_image: null,
         },
     ]);
-    
+
 
     useEffect(() => {
 
@@ -211,7 +211,7 @@ const [newPO, setNewPO] = useState({
 
             po_image: null,
 
-         
+
 
         });
 
@@ -808,6 +808,29 @@ const handleAddChange = (e) => {
             .replace(/ /g, " - ");
 
     };
+
+    // Area executive dropdown options: standard executives plus
+    // any names already used on saved POs (typing a new name works too)
+    const executiveOptions = [
+        ...new Set(
+            [
+                "Libin",
+                "Sreelal",
+                "Stanly",
+                "Revathy",
+                "Irfana",
+                ...poList.map(item => (item.area_executive || "").trim()),
+            ].filter(Boolean)
+        ),
+    ].sort((a, b) => a.localeCompare(b));
+
+    const executiveDatalist = (
+        <datalist id="areaExecutiveList">
+            {executiveOptions.map(name => (
+                <option key={name} value={name} />
+            ))}
+        </datalist>
+    );
 
     const filteredPOs =
         poList.filter(item => {
@@ -1463,11 +1486,15 @@ const handleAddChange = (e) => {
 
                                         <input
                                             type="text"
+                                            list="areaExecutiveList"
                                             name="area_executive"
+                                            placeholder="Select or Type Executive Name"
                                             value={newPO.area_executive}
                                             onChange={handleAddChange}
                                             required
                                         />
+
+                                        {executiveDatalist}
 
                                     </div>
                                     <div className="form-group">
@@ -1736,10 +1763,14 @@ const handleAddChange = (e) => {
 
                                     <input
                                         type="text"
+                                        list="areaExecutiveList"
                                         name="area_executive"
+                                        placeholder="Select or Type Executive Name"
                                         value={editData.area_executive}
                                         onChange={handleEditChange}
                                     />
+
+                                    {executiveDatalist}
 
                                 </div>
 
@@ -1897,4 +1928,3 @@ const handleAddChange = (e) => {
 };
 
 export default POEntry;
-

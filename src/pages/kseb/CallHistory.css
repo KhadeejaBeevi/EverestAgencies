@@ -566,6 +566,14 @@
 
 .ch-lead--open { color: #16a34a; }
 .ch-lead--closed { color: #dc2626; }
+.ch-lead--won { color: #15803d; }
+
+.ch-po-note {
+  display: block;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 600;
+}
 
 .ch-followup small {
   display: block;

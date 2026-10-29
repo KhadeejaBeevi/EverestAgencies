@@ -1,5 +1,5 @@
 import Banner from "../../components/Banner/Banner.jsx";
-import React, { useEffect, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import "./TenderDetails.css";
 import { useNavigate } from "react-router-dom";
 
@@ -24,6 +24,7 @@ const TenderDetails = () => {
 
     const [tenders, setTenders] = useState([]);
     const [search, setSearch] = useState("");
+    const deferredSearch = useDeferredValue(search);
 
     const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
@@ -74,13 +75,15 @@ const TenderDetails = () => {
 
     // =========================================================
     // EDIT DATA
+    // Kept in a ref (inputs are uncontrolled) so typing in an
+    // edit field doesn't re-render the whole table.
     // comparison_text = typed comparison (same field the
     // executive page uses). The comparison IMAGE path is in
     // `comparison` and is never sent from this page, so it
     // can't be overwritten here.
     // =========================================================
 
-    const [editData, setEditData] = useState({
+    const editDataRef = useRef({
         tender_info_given_to_gibin: "",
         tender_info_given_date: "",
         rate_given_by_gibin: "",
@@ -220,7 +223,7 @@ const TenderDetails = () => {
         Sreelal: "sreelal.ksebexe2@everestagencies.org",
         Stanly: "stanly.ksebexe3@everestagencies.org",
         Revathy: "renju.kseb@everestagencies.org",
-        Sumi: "renju.kseb@everestagencies.org",
+        Irfana: "renju.kseb@everestagencies.org",
     };
 
     // =========================================================
@@ -305,7 +308,7 @@ const TenderDetails = () => {
 
     const handleEditChange = (e) => {
         const { name, value } = e.target;
-        setEditData((prev) => ({ ...prev, [name]: value }));
+        editDataRef.current = { ...editDataRef.current, [name]: value };
     };
 
     // =========================================================
@@ -384,9 +387,7 @@ const TenderDetails = () => {
 
     const openEdit = (tender) => {
 
-        setEditingId(tender.id);
-
-        setEditData({
+        editDataRef.current = {
             tender_info_given_to_gibin: tender.tender_info_given_to_gibin || "",
             tender_info_given_date: tender.tender_info_given_date || "",
             rate_given_by_gibin: tender.rate_given_by_gibin || "",
@@ -394,7 +395,9 @@ const TenderDetails = () => {
             sku_rate: tender.sku_rate || "",
             order_received_status: tender.order_received_status || "",
             comparison_text: getComparisonText(tender),
-        });
+        };
+
+        setEditingId(tender.id);
     };
 
     // =========================================================
@@ -439,7 +442,7 @@ const TenderDetails = () => {
             const res = await apiFetch(API_ENDPOINTS.UPDATE_TENDER, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id, ...editData }),
+                body: JSON.stringify({ id, ...editDataRef.current }),
             });
 
             const result = await res.json();
@@ -517,7 +520,7 @@ const TenderDetails = () => {
             <textarea
                 className="comparison-edit-box"
                 name="comparison_text"
-                value={editData.comparison_text}
+                defaultValue={editDataRef.current.comparison_text}
                 onChange={handleEditChange}
                 placeholder="Enter comparison details..."
                 rows={4}
@@ -527,98 +530,108 @@ const TenderDetails = () => {
     );
 
     // =========================================================
-    // FILTER
+    // FILTER + GROUP BY MONTH / WEEK (memoized)
+    // Only recomputed when the data or filters change, not on
+    // every keystroke in the add / edit forms.
     // =========================================================
 
-    const filteredTenders = tenders.filter((item) => {
-
-        const matchesSearch = Object.values(item)
-            .join(" ")
-            .toLowerCase()
-            .includes(search.toLowerCase());
-
-        const matchesDate = !filterDate || item.opening_date === filterDate;
-
-        const status = (item.order_received_status || "Active").trim();
-
-        const matchesStatus = statusFilter === "All" ? true : status === statusFilter;
-
-        return matchesSearch && matchesDate && matchesStatus;
-    });
-
-    // =========================================================
-    // GROUP BY MONTH / WEEK
-    // =========================================================
-
-    const groupedTenders = filteredTenders.reduce((acc, tender) => {
-
-        if (!tender.timestamp) return acc;
-
-        const timestampDate = parseTimestamp(tender.timestamp);
-
-        if (isNaN(timestampDate.getTime())) return acc;
-
-        const monthKey = `${timestampDate.getFullYear()}-${String(
-            timestampDate.getMonth() + 1
-        ).padStart(2, "0")}`;
-
-        const monthLabel = timestampDate.toLocaleString("en-US", {
-            month: "long",
-            year: "numeric",
-        });
-
-        const firstDay = new Date(
-            timestampDate.getFullYear(),
-            timestampDate.getMonth(),
-            1
-        );
-
-        const weekNumber = Math.ceil(
-            (timestampDate.getDate() + firstDay.getDay()) / 7
-        );
-
-        const weekKey = `Week ${weekNumber}`;
-
-        if (!acc[monthKey]) {
-            acc[monthKey] = { label: monthLabel, weeks: {} };
-        }
-
-        if (!acc[monthKey].weeks[weekKey]) {
-            acc[monthKey].weeks[weekKey] = [];
-        }
-
-        acc[monthKey].weeks[weekKey].push(tender);
-
-        return acc;
-
-    }, {});
-
-    // =========================================================
-    // SORT MONTHS / WEEKS / TENDERS
-    // =========================================================
-
-    const sortedMonths = Object.entries(groupedTenders).sort(
-        ([monthA], [monthB]) => monthB.localeCompare(monthA)
+    const searchIndex = useMemo(
+        () => new Map(
+            tenders.map((item) => [item, Object.values(item).join(" ").toLowerCase()])
+        ),
+        [tenders]
     );
 
-    sortedMonths.forEach(([, monthData]) => {
+    const filteredTenders = useMemo(() => {
 
-        const sortedWeeks = Object.entries(monthData.weeks).sort(
-            ([weekA], [weekB]) =>
-                parseInt(weekB.replace("Week ", ""), 10) -
-                parseInt(weekA.replace("Week ", ""), 10)
+        const query = deferredSearch.toLowerCase();
+
+        return tenders.filter((item) => {
+
+            const matchesSearch = !query || searchIndex.get(item).includes(query);
+
+            const matchesDate = !filterDate || item.opening_date === filterDate;
+
+            const status = (item.order_received_status || "Active").trim();
+
+            const matchesStatus = statusFilter === "All" ? true : status === statusFilter;
+
+            return matchesSearch && matchesDate && matchesStatus;
+        });
+
+    }, [tenders, searchIndex, deferredSearch, filterDate, statusFilter]);
+
+    const sortedMonths = useMemo(() => {
+
+        const groupedTenders = filteredTenders.reduce((acc, tender) => {
+
+            if (!tender.timestamp) return acc;
+
+            const timestampDate = parseTimestamp(tender.timestamp);
+
+            if (isNaN(timestampDate.getTime())) return acc;
+
+            const monthKey = `${timestampDate.getFullYear()}-${String(
+                timestampDate.getMonth() + 1
+            ).padStart(2, "0")}`;
+
+            const monthLabel = timestampDate.toLocaleString("en-US", {
+                month: "long",
+                year: "numeric",
+            });
+
+            const firstDay = new Date(
+                timestampDate.getFullYear(),
+                timestampDate.getMonth(),
+                1
+            );
+
+            const weekNumber = Math.ceil(
+                (timestampDate.getDate() + firstDay.getDay()) / 7
+            );
+
+            const weekKey = `Week ${weekNumber}`;
+
+            if (!acc[monthKey]) {
+                acc[monthKey] = { label: monthLabel, weeks: {} };
+            }
+
+            if (!acc[monthKey].weeks[weekKey]) {
+                acc[monthKey].weeks[weekKey] = [];
+            }
+
+            acc[monthKey].weeks[weekKey].push(tender);
+
+            return acc;
+
+        }, {});
+
+        const months = Object.entries(groupedTenders).sort(
+            ([monthA], [monthB]) => monthB.localeCompare(monthA)
         );
 
-        monthData.weeks = Object.fromEntries(sortedWeeks);
+        months.forEach(([, monthData]) => {
 
-        Object.values(monthData.weeks).forEach((weekTenders) => {
-            weekTenders.sort(
-                (a, b) =>
-                    parseTimestamp(b.timestamp).getTime() -
-                    parseTimestamp(a.timestamp).getTime()
+            const sortedWeeks = Object.entries(monthData.weeks).sort(
+                ([weekA], [weekB]) =>
+                    parseInt(weekB.replace("Week ", ""), 10) -
+                    parseInt(weekA.replace("Week ", ""), 10)
             );
+
+            monthData.weeks = Object.fromEntries(sortedWeeks);
+
+            Object.values(monthData.weeks).forEach((weekTenders) => {
+                weekTenders.sort(
+                    (a, b) =>
+                        parseTimestamp(b.timestamp).getTime() -
+                        parseTimestamp(a.timestamp).getTime()
+                );
+            });
         });
-    });
+
+        return months;
+
+    }, [filteredTenders]);
 
     // =========================================================
     // DOWNLOAD EXCEL
@@ -691,6 +704,410 @@ const TenderDetails = () => {
     }, []);
 
     // =========================================================
+    // TABLE (memoized)
+    // Typing in the search box / add form no longer re-renders
+    // every row. Handlers used inside only touch state setters
+    // and refs, so reusing them from an earlier render is safe.
+    // =========================================================
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const tableContent = useMemo(() => (
+
+        <div className="tender_table-wrapper">
+
+            {!isMobile ? (
+
+                <table className="tender-table">
+
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Timestamp</th>
+                            <th>KSEB Office</th>
+                            <th>Opening Date</th>
+                            <th>Opening Time</th>
+                            <th>Quotation Notice No</th>
+                            <th>Quotation Date</th>
+                            <th>Everest Quotation No</th>
+                            <th>SKU Rate</th>
+                            <th>Tender Item Data</th>
+                            <th>Submission Last Date</th>
+                            <th>Tender Photo</th>
+                            <th>Executive Name</th>
+                            <th>Everest Executive Email</th>
+                            <th>Tender Dispatched Date</th>
+                            <th>Comparison</th>
+                            <th>Order Received Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+
+                        {sortedMonths.map(([monthKey, monthData]) => (
+
+                            <React.Fragment key={monthKey}>
+
+                                {/* MONTH */}
+
+                                <tr>
+                                    <th
+                                        colSpan={20}
+                                        style={{
+                                            background: "#1e3a8a",
+                                            color: "white",
+                                            fontSize: "22px",
+                                            textAlign: "left",
+                                            padding: "12px",
+                                        }}
+                                    >
+                                        {monthData.label}
+                                    </th>
+                                </tr>
+
+                                {Object.entries(monthData.weeks).map(([week, weekTenders]) => (
+
+                                    <React.Fragment key={week}>
+
+                                        {/* WEEK */}
+
+                                        <tr>
+                                            <th
+                                                colSpan={20}
+                                                style={{
+                                                    background: "#dbeafe",
+                                                    color: "black",
+                                                    fontSize: "18px",
+                                                    textAlign: "left",
+                                                    padding: "10px",
+                                                }}
+                                            >
+                                                {week}
+                                            </th>
+                                        </tr>
+
+                                        {weekTenders.map((item) => (
+
+                                            <tr
+                                                key={item.id}
+                                                className={item.opening_date === today ? "today-row" : ""}
+                                            >
+
+                                                <td>{item.id}</td>
+
+                                                <td>{formatDate(item.timestamp)}</td>
+
+                                                <td>{item.tender_invited_kseb_office}</td>
+
+                                                <td>{formatDate(item.opening_date)}</td>
+
+                                                <td>{formatTime12Hour(item.opening_time)}</td>
+
+                                                <td>{item.quotation_notice_no}</td>
+
+                                                <td>{formatDate(item.quotation_date)}</td>
+
+                                                {/* EVEREST QUOTATION */}
+
+                                                <td>
+                                                    {editingId === item.id ? (
+                                                        <input
+                                                            type="text"
+                                                            name="everest_quotation_no"
+                                                            defaultValue={editDataRef.current.everest_quotation_no}
+                                                            onChange={handleEditChange}
+                                                        />
+                                                    ) : (
+                                                        item.everest_quotation_no 
+                                                    )}
+                                                </td>
+
+                                                {/* SKU RATE */}
+
+                                                <td className="sku-rate-column">
+                                                    {editingId === item.id ? (
+                                                        <textarea
+                                                            className="sku-rate-box"
+                                                            name="sku_rate"
+                                                            defaultValue={editDataRef.current.sku_rate}
+                                                            onChange={handleEditChange}
+                                                            rows={4}
+                                                        />
+                                                    ) : (
+                                                        <div className="sku-rate-text">
+                                                            {item.sku_rate
+                                                                ?.split("\n")
+                                                                .map((line, index) => (
+                                                                    <div key={index}>{line}</div>
+                                                                ))}
+                                                            {!item.sku_rate && "-"}
+                                                        </div>
+                                                    )}
+                                                </td>
+
+                                                {/* TENDER ITEM DATA */}
+
+                                                <td>
+                                                    <ol className="tender-item-list">
+                                                        {item.tender_item_data
+                                                            ?.split("\n")
+                                                            .filter((line) => line.trim() !== "")
+                                                            .map((line, index) => (
+                                                                <li key={index}>{line}</li>
+                                                            ))}
+                                                    </ol>
+                                                </td>
+
+                                                <td>{formatDate(item.quotation_submission_last_date)}</td>
+
+                                                {/* PHOTO */}
+
+                                                <td>
+                                                    {item.tender_photo_url ? (
+                                                        <img
+                                                            src={item.tender_photo_url}
+                                                            alt="view"
+                                                            style={{ cursor: "pointer", maxWidth: "60px" }}
+                                                            onClick={() =>
+                                                                window.open(item.tender_photo_url, "_blank")
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        "-"
+                                                    )}
+                                                </td>
+
+                                                <td>{item.executive_name}</td>
+
+                                                <td>{item.tender_everest_executive_email}</td>
+
+                                                <td>{formatDate(item.tender_dispatched_date)}</td>
+
+                                                {/* COMPARISON (IMAGE + TEXT) */}
+
+                                                <td className="comparison-column">
+                                                    {editingId === item.id
+                                                        ? renderComparisonEditor(item)
+                                                        : (
+                                                            <div className="comparison-display">
+                                                                {renderComparison(item)}
+                                                            </div>
+                                                        )}
+                                                </td>
+
+                                                {/* ORDER STATUS */}
+
+                                                <td>
+                                                    {editingId === item.id ? (
+                                                        <select
+                                                            name="order_received_status"
+                                                            defaultValue={editDataRef.current.order_received_status}
+                                                            onChange={handleEditChange}
+                                                        >
+                                                            <option value="">Select</option>
+                                                            <option value="Active">Active</option>
+                                                            <option value="Won">Won</option>
+                                                            <option value="Lost">Lost</option>
+                                                        </select>
+                                                    ) : (
+                                                        item.order_received_status || "Active"
+                                                    )}
+                                                </td>
+
+                                                {/* ACTION */}
+
+                                                <td>
+                                                    {editingId === item.id ? (
+                                                        <>
+                                                            <button
+                                                                className="tender_save-btn"
+                                                                onClick={() => updateTender(item.id)}
+                                                            >
+                                                                Save
+                                                            </button>
+                                                            <button
+                                                                className="tender_cancel-btn"
+                                                                onClick={() => setEditingId(null)}
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <button
+                                                                className="tender_edit-btn"
+                                                                onClick={() => openEdit(item)}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                className="tender_delete-btn"
+                                                                onClick={() => deleteTender(item.id)}
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </td>
+
+                                            </tr>
+                                        ))}
+
+                                    </React.Fragment>
+                                ))}
+
+                            </React.Fragment>
+                        ))}
+
+                        {filteredTenders.length === 0 && (
+                            <tr>
+                                <td colSpan="20" style={{ textAlign: "center", padding: "30px" }}>
+                                    No Data Found
+                                </td>
+                            </tr>
+                        )}
+
+                    </tbody>
+
+                </table>
+
+            ) : (
+
+                /* MOBILE */
+
+                <div className="mobile-tender-list">
+
+                    {sortedMonths.map(([monthKey, monthData]) => (
+
+                        <React.Fragment key={monthKey}>
+
+                            <div className="mobile-month-header">{monthData.label}</div>
+
+                            {Object.entries(monthData.weeks).map(([week, weekTenders]) => (
+
+                                <React.Fragment key={week}>
+
+                                    <div className="mobile-week-header">{week}</div>
+
+                                    {weekTenders.map((item) => (
+
+                                        <div
+                                            key={item.id}
+                                            className="mobile-tender-card"
+                                            style={{
+                                                backgroundColor: item.opening_date === today ? "#fff3cd" : "",
+                                                border: item.opening_date === today ? "2px solid orange" : "",
+                                            }}
+                                        >
+
+                                            <div className="tender_mobile-card-header">
+                                                <div>
+                                                    <h4>{item.quotation_notice_no}</h4>
+                                                    <span>{item.tender_invited_kseb_office}</span>
+                                                </div>
+                                                <div className="mobile-id">#{item.id}</div>
+                                            </div>
+
+                                            <div className="tender_mobile-card-body">
+
+                                                <p><strong>Quotation Date:</strong> {formatDate(item.quotation_date)}</p>
+
+                                                <p><strong>Opening Date:</strong> {formatDate(item.opening_date)}</p>
+
+                                                <p><strong>Opening Time:</strong> {formatTime12Hour(item.opening_time)}</p>
+
+                                                <p><strong>Executive:</strong> {item.executive_name}</p>
+
+                                                <p><strong>Status:</strong> {item.order_received_status || "Active"}</p>
+
+                                                <p><strong>Quotation No:</strong> {item.everest_quotation_no }</p>
+
+                                                {/* MOBILE COMPARISON (IMAGE + TEXT) */}
+
+                                                <div style={{ marginTop: "10px" }}>
+
+                                                    <strong>Comparison:</strong>
+
+                                                    <div style={{ marginTop: "6px" }}>
+                                                        {editingId === item.id
+                                                            ? renderComparisonEditor(item, { marginTop: "6px" })
+                                                            : (
+                                                                <div className="comparison-display">
+                                                                    {renderComparison(item, "160px")}
+                                                                </div>
+                                                            )}
+                                                    </div>
+
+                                                </div>
+
+                                            </div>
+
+                                            {item.tender_photo_url && (
+                                                <img
+                                                    className="mobile-tender-image"
+                                                    src={item.tender_photo_url}
+                                                    alt="Tender"
+                                                    onClick={() => window.open(item.tender_photo_url, "_blank")}
+                                                />
+                                            )}
+
+                                            <div className="mobile-card-actions">
+                                                {editingId === item.id ? (
+                                                    <>
+                                                        <button
+                                                            className="tender_save-btn"
+                                                            onClick={() => updateTender(item.id)}
+                                                        >
+                                                            Save
+                                                        </button>
+                                                        <button
+                                                            className="tender_cancel-btn"
+                                                            onClick={() => setEditingId(null)}
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <button
+                                                            className="tender_edit-btn"
+                                                            onClick={() => openEdit(item)}
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                        <button
+                                                            className="tender_delete-btn"
+                                                            onClick={() => deleteTender(item.id)}
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                        </div>
+                                    ))}
+
+                                </React.Fragment>
+                            ))}
+
+                        </React.Fragment>
+                    ))}
+
+                    {filteredTenders.length === 0 && (
+                        <div className="no-mobile-data">No Data Found</div>
+                    )}
+
+                </div>
+            )}
+
+        </div>
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    ), [sortedMonths, filteredTenders.length, isMobile, editingId, today]);
+
+    // =========================================================
     // ACCESS CHECK
     // =========================================================
 
@@ -712,8 +1129,6 @@ const TenderDetails = () => {
             </div>
         );
     }
-
-    const today = new Date().toISOString().split("T")[0];
 
     const duplicateInputStyle = {
         border: duplicateTender ? "2px solid #dc2626" : undefined,
@@ -864,395 +1279,7 @@ const TenderDetails = () => {
 
             {/* TABLE */}
 
-            <div className="tender_table-wrapper">
-
-                {!isMobile ? (
-
-                    <table className="tender-table">
-
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Timestamp</th>
-                                <th>KSEB Office</th>
-                                <th>Opening Date</th>
-                                <th>Opening Time</th>
-                                <th>Quotation Notice No</th>
-                                <th>Quotation Date</th>
-                                <th>Everest Quotation No</th>
-                                <th>SKU Rate</th>
-                                <th>Tender Item Data</th>
-                                <th>Submission Last Date</th>
-                                <th>Tender Photo</th>
-                                <th>Executive Name</th>
-                                <th>Everest Executive Email</th>
-                                <th>Tender Dispatched Date</th>
-                                <th>Comparison</th>
-                                <th>Order Received Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-
-                            {sortedMonths.map(([monthKey, monthData]) => (
-
-                                <React.Fragment key={monthKey}>
-
-                                    {/* MONTH */}
-
-                                    <tr>
-                                        <th
-                                            colSpan={20}
-                                            style={{
-                                                background: "#1e3a8a",
-                                                color: "white",
-                                                fontSize: "22px",
-                                                textAlign: "left",
-                                                padding: "12px",
-                                            }}
-                                        >
-                                            {monthData.label}
-                                        </th>
-                                    </tr>
-
-                                    {Object.entries(monthData.weeks).map(([week, weekTenders]) => (
-
-                                        <React.Fragment key={week}>
-
-                                            {/* WEEK */}
-
-                                            <tr>
-                                                <th
-                                                    colSpan={20}
-                                                    style={{
-                                                        background: "#dbeafe",
-                                                        color: "black",
-                                                        fontSize: "18px",
-                                                        textAlign: "left",
-                                                        padding: "10px",
-                                                    }}
-                                                >
-                                                    {week}
-                                                </th>
-                                            </tr>
-
-                                            {weekTenders.map((item) => (
-
-                                                <tr
-                                                    key={item.id}
-                                                    className={item.opening_date === today ? "today-row" : ""}
-                                                >
-
-                                                    <td>{item.id}</td>
-
-                                                    <td>{formatDate(item.timestamp)}</td>
-
-                                                    <td>{item.tender_invited_kseb_office}</td>
-
-                                                    <td>{formatDate(item.opening_date)}</td>
-
-                                                    <td>{formatTime12Hour(item.opening_time)}</td>
-
-                                                    <td>{item.quotation_notice_no}</td>
-
-                                                    <td>{formatDate(item.quotation_date)}</td>
-
-                                                    {/* EVEREST QUOTATION */}
-
-                                                    <td>
-                                                        {editingId === item.id ? (
-                                                            <input
-                                                                type="text"
-                                                                name="everest_quotation_no"
-                                                                value={editData.everest_quotation_no}
-                                                                onChange={handleEditChange}
-                                                            />
-                                                        ) : (
-                                                            item.everest_quotation_no 
-                                                        )}
-                                                    </td>
-
-                                                    {/* SKU RATE */}
-
-                                                    <td className="sku-rate-column">
-                                                        {editingId === item.id ? (
-                                                            <textarea
-                                                                className="sku-rate-box"
-                                                                name="sku_rate"
-                                                                value={editData.sku_rate}
-                                                                onChange={handleEditChange}
-                                                                rows={4}
-                                                            />
-                                                        ) : (
-                                                            <div className="sku-rate-text">
-                                                                {item.sku_rate
-                                                                    ?.split("\n")
-                                                                    .map((line, index) => (
-                                                                        <div key={index}>{line}</div>
-                                                                    ))}
-                                                                {!item.sku_rate && "-"}
-                                                            </div>
-                                                        )}
-                                                    </td>
-
-                                                    {/* TENDER ITEM DATA */}
-
-                                                    <td>
-                                                        <ol className="tender-item-list">
-                                                            {item.tender_item_data
-                                                                ?.split("\n")
-                                                                .filter((line) => line.trim() !== "")
-                                                                .map((line, index) => (
-                                                                    <li key={index}>{line}</li>
-                                                                ))}
-                                                        </ol>
-                                                    </td>
-
-                                                    <td>{formatDate(item.quotation_submission_last_date)}</td>
-
-                                                    {/* PHOTO */}
-
-                                                    <td>
-                                                        {item.tender_photo_url ? (
-                                                            <img
-                                                                src={item.tender_photo_url}
-                                                                alt="view"
-                                                                style={{ cursor: "pointer", maxWidth: "60px" }}
-                                                                onClick={() =>
-                                                                    window.open(item.tender_photo_url, "_blank")
-                                                                }
-                                                            />
-                                                        ) : (
-                                                            "-"
-                                                        )}
-                                                    </td>
-
-                                                    <td>{item.executive_name}</td>
-
-                                                    <td>{item.tender_everest_executive_email}</td>
-
-                                                    <td>{formatDate(item.tender_dispatched_date)}</td>
-
-                                                    {/* COMPARISON (IMAGE + TEXT) */}
-
-                                                    <td className="comparison-column">
-                                                        {editingId === item.id
-                                                            ? renderComparisonEditor(item)
-                                                            : (
-                                                                <div className="comparison-display">
-                                                                    {renderComparison(item)}
-                                                                </div>
-                                                            )}
-                                                    </td>
-
-                                                    {/* ORDER STATUS */}
-
-                                                    <td>
-                                                        {editingId === item.id ? (
-                                                            <select
-                                                                name="order_received_status"
-                                                                value={editData.order_received_status}
-                                                                onChange={handleEditChange}
-                                                            >
-                                                                <option value="">Select</option>
-                                                                <option value="Active">Active</option>
-                                                                <option value="Won">Won</option>
-                                                                <option value="Lost">Lost</option>
-                                                            </select>
-                                                        ) : (
-                                                            item.order_received_status || "Active"
-                                                        )}
-                                                    </td>
-
-                                                    {/* ACTION */}
-
-                                                    <td>
-                                                        {editingId === item.id ? (
-                                                            <>
-                                                                <button
-                                                                    className="tender_save-btn"
-                                                                    onClick={() => updateTender(item.id)}
-                                                                >
-                                                                    Save
-                                                                </button>
-                                                                <button
-                                                                    className="tender_cancel-btn"
-                                                                    onClick={() => setEditingId(null)}
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <button
-                                                                    className="tender_edit-btn"
-                                                                    onClick={() => openEdit(item)}
-                                                                >
-                                                                    Edit
-                                                                </button>
-                                                                <button
-                                                                    className="tender_delete-btn"
-                                                                    onClick={() => deleteTender(item.id)}
-                                                                >
-                                                                    Delete
-                                                                </button>
-                                                            </>
-                                                        )}
-                                                    </td>
-
-                                                </tr>
-                                            ))}
-
-                                        </React.Fragment>
-                                    ))}
-
-                                </React.Fragment>
-                            ))}
-
-                            {filteredTenders.length === 0 && (
-                                <tr>
-                                    <td colSpan="20" style={{ textAlign: "center", padding: "30px" }}>
-                                        No Data Found
-                                    </td>
-                                </tr>
-                            )}
-
-                        </tbody>
-
-                    </table>
-
-                ) : (
-
-                    /* MOBILE */
-
-                    <div className="mobile-tender-list">
-
-                        {sortedMonths.map(([monthKey, monthData]) => (
-
-                            <React.Fragment key={monthKey}>
-
-                                <div className="mobile-month-header">{monthData.label}</div>
-
-                                {Object.entries(monthData.weeks).map(([week, weekTenders]) => (
-
-                                    <React.Fragment key={week}>
-
-                                        <div className="mobile-week-header">{week}</div>
-
-                                        {weekTenders.map((item) => (
-
-                                            <div
-                                                key={item.id}
-                                                className="mobile-tender-card"
-                                                style={{
-                                                    backgroundColor: item.opening_date === today ? "#fff3cd" : "",
-                                                    border: item.opening_date === today ? "2px solid orange" : "",
-                                                }}
-                                            >
-
-                                                <div className="tender_mobile-card-header">
-                                                    <div>
-                                                        <h4>{item.quotation_notice_no}</h4>
-                                                        <span>{item.tender_invited_kseb_office}</span>
-                                                    </div>
-                                                    <div className="mobile-id">#{item.id}</div>
-                                                </div>
-
-                                                <div className="tender_mobile-card-body">
-
-                                                    <p><strong>Quotation Date:</strong> {formatDate(item.quotation_date)}</p>
-
-                                                    <p><strong>Opening Date:</strong> {formatDate(item.opening_date)}</p>
-
-                                                    <p><strong>Opening Time:</strong> {formatTime12Hour(item.opening_time)}</p>
-
-                                                    <p><strong>Executive:</strong> {item.executive_name}</p>
-
-                                                    <p><strong>Status:</strong> {item.order_received_status || "Active"}</p>
-
-                                                    <p><strong>Quotation No:</strong> {item.everest_quotation_no }</p>
-
-                                                    {/* MOBILE COMPARISON (IMAGE + TEXT) */}
-
-                                                    <div style={{ marginTop: "10px" }}>
-
-                                                        <strong>Comparison:</strong>
-
-                                                        <div style={{ marginTop: "6px" }}>
-                                                            {editingId === item.id
-                                                                ? renderComparisonEditor(item, { marginTop: "6px" })
-                                                                : (
-                                                                    <div className="comparison-display">
-                                                                        {renderComparison(item, "160px")}
-                                                                    </div>
-                                                                )}
-                                                        </div>
-
-                                                    </div>
-
-                                                </div>
-
-                                                {item.tender_photo_url && (
-                                                    <img
-                                                        className="mobile-tender-image"
-                                                        src={item.tender_photo_url}
-                                                        alt="Tender"
-                                                        onClick={() => window.open(item.tender_photo_url, "_blank")}
-                                                    />
-                                                )}
-
-                                                <div className="mobile-card-actions">
-                                                    {editingId === item.id ? (
-                                                        <>
-                                                            <button
-                                                                className="tender_save-btn"
-                                                                onClick={() => updateTender(item.id)}
-                                                            >
-                                                                Save
-                                                            </button>
-                                                            <button
-                                                                className="tender_cancel-btn"
-                                                                onClick={() => setEditingId(null)}
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <button
-                                                                className="tender_edit-btn"
-                                                                onClick={() => openEdit(item)}
-                                                            >
-                                                                Edit
-                                                            </button>
-                                                            <button
-                                                                className="tender_delete-btn"
-                                                                onClick={() => deleteTender(item.id)}
-                                                            >
-                                                                Delete
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                </div>
-
-                                            </div>
-                                        ))}
-
-                                    </React.Fragment>
-                                ))}
-
-                            </React.Fragment>
-                        ))}
-
-                        {filteredTenders.length === 0 && (
-                            <div className="no-mobile-data">No Data Found</div>
-                        )}
-
-                    </div>
-                )}
-
-            </div>
+            {tableContent}
 
             {/* COMPARISON IMAGE PREVIEW */}
 
@@ -1471,7 +1498,7 @@ const TenderDetails = () => {
                                         <option value="Sreelal" />
                                         <option value="Stanly" />
                                         <option value="Revathy" />
-                                        <option value="Sumi" />
+                                        <option value="Irfana" />
                                     </datalist>
                                 </div>
 

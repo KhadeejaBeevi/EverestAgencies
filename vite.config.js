@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/serverphp/, "/everest/serverphp"),
       },
+      // WhatsApp agent service (whatsapp-agent/), run with `npm start` there.
+      "/whatsapp-agent": {
+        target: "http://localhost:4100",
+        rewrite: (path) => path.replace(/^\/whatsapp-agent/, ""),
+      },
     },
   },
   // removes the ~250 console.log calls from production builds automatically

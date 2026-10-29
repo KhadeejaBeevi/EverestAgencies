@@ -72,5 +72,5 @@ serverphp/chat.php
 zip
 
 
-# WhatsApp Cloud API access token and secrets
-serverphp/whatsapp_config.php
+# WhatsApp agent: login keys and downloaded media
+whatsapp-agent/data/
