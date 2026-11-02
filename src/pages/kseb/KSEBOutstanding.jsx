@@ -13,6 +13,8 @@ const API = "/serverphp";
   2. Ledger list       : click a distribution to list its ledgers (areas).
      Receipts list     : "Receipts" lists every receipt allocation of the
                          distribution, with the bill it was set against.
+     Security Deposit  : one row per KSEB ledger + security deposit
+                         ledger; click it for its deposits (references).
   3. Ledger report     : click a ledger for a Tally style ledger display —
                          transactions with running balance, ledger summary,
                          pending bills and ageing analysis.
@@ -59,13 +61,21 @@ const financialYearStart = () => {
 // Zero amounts are left blank, like Tally.
 const isZero = (value) => Math.abs(Number(value || 0)) < 0.005;
 
-const formatAmount = (value) =>
-    isZero(value)
-        ? ""
-        : "₹" +
-          Number(value).toLocaleString("en-IN", {
-              maximumFractionDigits: 0,
-          });
+// Whole rupees without decimals; paise shown (2 digits) only when present.
+const formatAmount = (value) => {
+    if (isZero(value)) return "";
+
+    const amount = Number(value);
+    const digits = Math.abs(amount - Math.round(amount)) >= 0.005 ? 2 : 0;
+
+    return (
+        "₹" +
+        amount.toLocaleString("en-IN", {
+            minimumFractionDigits: digits,
+            maximumFractionDigits: digits,
+        })
+    );
+};
 
 // Tally style: 4,93,830.00
 const formatTally = (value) =>
@@ -341,7 +351,7 @@ const DistributionDonut = ({ data, selected, onSelect }) => {
         <div style={{ display: "grid", gap: "12px", justifyItems: "center" }}>
             <div style={{ width: size, height: size, maxWidth: "100%" }}>
                 <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%">
-                    {slices.map((item) => (
+                    {slices.filter((item) => item.value > 0).map((item) => (
                         <path
                             key={item.name}
                             d={item.d}
@@ -393,7 +403,7 @@ const DistributionDonut = ({ data, selected, onSelect }) => {
                             <span>
                                 <strong style={{ fontSize: "13px" }}>{item.name}</strong>
                                 <span style={{ display: "block", color: "#64748B", fontSize: "12px", marginTop: "2px" }}>
-                                    {formatAmount(item.value)} • {item.ledgers} ledgers
+                                    {formatAmount(item.value) || "₹0"} • {item.ledgers} {item.ledgers === 1 ? "ledger" : "ledgers"}
                                 </span>
                             </span>
                             <strong style={{ fontSize: "13px" }}>{item.percentage}%</strong>
@@ -631,15 +641,65 @@ const depositEntries = (deposits) =>
         .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
 /*
+  Opening balance of a ledger's security deposits as on fromDate, per
+  deposit ledger, like the ledgers' opening balance: the deposit
+  ledger's own opening balance (salesdatalatest33), its break up from
+  the Tally XML (bills). Vouchers before fromDate are not used.
+  openings = deposit_opening_breakup rows of this KSEB ledger.
+  Returns { opening, parts: [{ ledger, amount, fromTable, bills }] }.
+*/
+const depositOpeningOf = (deposits, openings, fromDate) => {
+    const parts = new Map();
+
+    (openings || []).forEach((o) => {
+        const bills = Array.isArray(o.bills) ? o.bills : [];
+        const hasOpening = o.opening_balance !== null && o.opening_balance !== undefined;
+
+        // salesdatalatest33 first; else the Tally XML total.
+        if (hasOpening || bills.length) {
+            parts.set(ledgerKey(o.ledger), {
+                ledger: o.ledger,
+                amount: hasOpening ? Number(o.opening_balance) : Number(o.total || 0),
+                fromTable: hasOpening,
+                bills,
+            });
+        }
+    });
+
+    // Receipts / payments since fromDate, per deposit ledger.
+    depositEntries(deposits)
+        .filter((e) => String(e.date) >= fromDate)
+        .forEach((e) => {
+            const key = ledgerKey(e.deposit_ledger);
+
+            if (!parts.has(key)) {
+                parts.set(key, { ledger: e.deposit_ledger, amount: 0, fromTable: false, bills: [] });
+            }
+
+            const part = parts.get(key);
+            part.entries = [...(part.entries || []), { ...e, amount: e.debit - e.credit, sales_id: e.voucher_no }];
+        });
+
+    const list = [...parts.values()]
+        .map((p) => ({ ...p, entries: p.entries || [] }))
+        .filter((p) => !isZero(p.amount) || p.entries.length);
+
+    return { opening: list.reduce((t, p) => t + p.amount, 0), parts: list };
+};
+
+/*
   Security deposits in the same layout as the supply chain ledger:
   Date, Particulars (deposit ledger and reference), Voucher Type / No.,
   Debit, Credit and running Balance (what KSEB holds). A click explodes
   the voucher (its ledgers and the deposit's bill allocation).
   Like the supply chain ledger, entries before fromDate (1st April) are
-  not listed: they make the Opening Balance (deposits still held then).
+  not listed. The Opening Balance is the deposit ledgers' own opening
+  balance (salesdatalatest33), one line per deposit ledger under it; a
+  click on that line shows its Tally XML break up (LPO references).
 */
-const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
+const LedgerDepositEntries = ({ deposits, openings, detailed, fromDate, openingSource }) => {
     const [toggled, setToggled] = useState(() => new Set());
+    const [showOpening, setShowOpening] = useState(false);
 
     const toggle = (key) =>
         setToggled((prev) => {
@@ -652,9 +712,7 @@ const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
         });
 
     const all = depositEntries(deposits);
-    const opening = all
-        .filter((e) => String(e.date) < fromDate)
-        .reduce((t, e) => t + e.debit - e.credit, 0);
+    const { opening, parts: openingParts } = depositOpeningOf(deposits, openings, fromDate);
     const entries = all.filter((e) => String(e.date) >= fromDate);
     let running = opening;
     const rows = entries.map((e) => {
@@ -681,9 +739,21 @@ const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
+                    {/* A click shows the opening balance break up: every
+                        deposit ledger's opening balance and its LPO
+                        references (Tally XML). */}
+                    <tr
+                        onClick={() => setShowOpening((v) => !v)}
+                        title="Click to see the opening balance break up"
+                        style={{ cursor: "pointer", background: showOpening ? "#E2E8F0" : "transparent" }}
+                    >
                         <td style={tCell}>{formatTallyDate(fromDate)}</td>
-                        <td style={{ ...tCell, fontWeight: "800", letterSpacing: "3px" }}>Opening Balance</td>
+                        <td style={{ ...tCell, fontWeight: "800", letterSpacing: "3px" }}>
+                            <span style={{ display: "inline-block", width: "14px", letterSpacing: 0, color: "#64748B" }}>
+                                {showOpening ? "▾" : "▸"}
+                            </span>
+                            Opening Balance
+                        </td>
                         <td style={tCell} />
                         <td style={tCell} />
                         <td style={{ ...tCellRight, color: "#1D4ED8", fontWeight: "700" }}>
@@ -692,13 +762,38 @@ const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
                         <td style={{ ...tCellRight, color: "#1D4ED8", fontWeight: "700" }}>
                             {opening < 0 ? formatTally(-opening) : ""}
                         </td>
-                        <td style={tCellRight} />
+                        <td style={{ ...tCellRight, color: "#1D4ED8", fontWeight: "700" }}>{formatDrCr(opening)}</td>
                     </tr>
+
+                    {showOpening && (
+                        <tr>
+                            <td colSpan={7} style={{ padding: "0 8px" }}>
+                                {/* Same break up as the supply chain opening balance:
+                                    the deposit ledgers' LPO references in the Tally XML. */}
+                                <OpeningBreakup
+                                    breakup={(() => {
+                                        const bills = openingParts.flatMap((p) =>
+                                            p.bills.map((b) => ({ ...b, is_on_account: false }))
+                                        );
+
+                                        return bills.length
+                                            ? { bills, total: bills.reduce((t, b) => t + Number(b.amount || 0), 0) }
+                                            : null;
+                                    })()}
+                                    openingBalance={opening}
+                                    openingDate={fromDate}
+                                    source={openingSource}
+                                />
+                            </td>
+                        </tr>
+                    )}
 
                     {rows.length === 0 && (
                         <tr>
                             <td colSpan={7} style={{ ...tCell, padding: "12px 8px", color: "#64748B" }}>
-                                {all.length ? "No security deposit entries in this period." : "No security deposits for this ledger."}
+                                {all.length || openingParts.length
+                                    ? "No security deposit entries in this period."
+                                    : "No security deposits for this ledger."}
                             </td>
                         </tr>
                     )}
@@ -761,7 +856,7 @@ const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
                     })}
                 </tbody>
 
-                {all.length > 0 && (
+                {(all.length > 0 || openingParts.length > 0) && (
                     <tfoot>
                         <tr style={{ borderTop: "1px solid #94A3B8" }}>
                             <td style={{ ...tCell, paddingTop: "6px" }} />
@@ -813,7 +908,7 @@ const LedgerDepositEntries = ({ deposits, detailed, fromDate }) => {
 // LEDGER REPORT (Tally Bird-Eye-View style)
 // =========================================================
 
-const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
+const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initialTab = "supply" }) => {
     // Detailed = every voucher exploded (Tally Alt+F5). A click on a row
     // flips just that row.
     const [detailed, setDetailed] = useState(false);
@@ -823,7 +918,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
     // Bill-wise details tab: pending / overdue / all.
     const [billTab, setBillTab] = useState("pending");
     // Ledger Details tab: supply chain (the ledger) / security deposit.
-    const [ledgerTab, setLedgerTab] = useState("supply");
+    const [ledgerTab, setLedgerTab] = useState(initialTab);
 
     const toggleRow = (key) =>
         setToggled((prev) => {
@@ -1096,7 +1191,63 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
     const rowKey = (e, i) => e.sales_id || `row-${i}`;
     const isExpanded = (e, i) => Boolean(e.detail) && detailed !== toggled.has(rowKey(e, i));
 
-    const oldestOverdue = report.pendingBills.reduce(
+    /* Bill-wise details and ageing of the security deposits, in the same
+       shape as the supply chain report: one "bill" per deposit ledger +
+       reference (LPO), amount = deposited (or refunded when nothing was
+       deposited here), pending = still held by KSEB, due on = deposit
+       date + credit period. Opening balance of a deposit ledger that
+       has no LPO-wise break up takes the On Account place. */
+    const depositReport = useMemo(() => {
+        const allBills = (ledger.deposits || [])
+            .map((g) => {
+                const overdue = g.due_date && g.balance > 0 ? daysBetween(g.due_date, asOf) : 0;
+
+                return {
+                    key: `${g.deposit_ledger}|${g.bill_ref}|${g.date}`,
+                    bill_ref: g.bill_ref || "(no reference)",
+                    deposit_ledger: g.deposit_ledger,
+                    bill_date: g.date,
+                    bill_amount: g.deposited > 0 ? g.deposited : -g.refunded,
+                    balance: g.balance,
+                    due_date: g.due_date,
+                    overdue_days: overdue > 0 ? overdue : 0,
+                    detail: null,
+                };
+            })
+            .sort((a, b) => String(a.bill_date).localeCompare(String(b.bill_date)));
+
+        const pendingBills = allBills.filter((b) => Math.abs(b.balance) >= 1);
+
+        // Opening balance not broken up into references (Tally XML).
+        const { parts } = depositOpeningOf(ledger.deposits || [], ledger.depositOpenings, fromDate);
+        const notBrokenUp = parts
+            .filter((p) => p.fromTable)
+            .reduce((t, p) => t + p.amount - p.bills.reduce((s, b) => s + Number(b.amount || 0), 0), 0);
+
+        const byBill = AGEING_SLABS.map(() => 0);
+        const byDue = AGEING_SLABS.map(() => 0);
+
+        pendingBills.forEach((b) => {
+            byBill[slabIndex(Math.max(0, daysBetween(b.bill_date, asOf)))] += b.balance;
+            byDue[slabIndex(Math.max(0, b.overdue_days || 0))] += b.balance;
+        });
+
+        return {
+            allBills,
+            pendingBills,
+            onAccount: Math.abs(notBrokenUp) >= 1 ? notBrokenUp : 0,
+            byBill,
+            byDue,
+        };
+    }, [ledger, fromDate, asOf]);
+
+    // Bill-wise details and ageing follow the Ledger Details tab.
+    const isDeposits = ledgerTab === "deposits";
+    const active = isDeposits ? depositReport : report;
+    const onAccountLabel = isDeposits ? "Opening Balance (no reference break up)" : "On Account Details";
+    const onAccountHeader = isDeposits ? "Opening (no break up)" : "On Account";
+
+    const oldestOverdue = active.pendingBills.reduce(
         (max, b) => (b.overdue_days > (max?.overdue_days || 0) ? b : max),
         null
     );
@@ -1104,17 +1255,17 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
     /* Bill-wise details of the selected tab:
        pending = still open (Dr or Cr), overdue = open Dr bills past
        their due date, all = every bill, cleared ones too (like Tally). */
-    const overdueBills = report.pendingBills.filter((b) => b.balance > 0 && b.overdue_days > 0);
+    const overdueBills = active.pendingBills.filter((b) => b.balance > 0 && b.overdue_days > 0);
     const shownBills =
-        billTab === "all" ? report.allBills : billTab === "overdue" ? overdueBills : report.pendingBills;
+        billTab === "all" ? active.allBills : billTab === "overdue" ? overdueBills : active.pendingBills;
     const shownOpening = shownBills.reduce((t, b) => t + b.bill_amount, 0);
     const shownPending = shownBills.reduce((t, b) => t + b.balance, 0);
     // On Account is not a bill and never overdue.
-    const showOnAccount = billTab !== "overdue" && Math.abs(report.onAccount) >= 1;
+    const showOnAccount = billTab !== "overdue" && Math.abs(active.onAccount) >= 1;
     const billTabs = [
-        { key: "pending", label: "Pending", count: report.pendingBills.length },
+        { key: "pending", label: "Pending", count: active.pendingBills.length },
         { key: "overdue", label: "Overdue", count: overdueBills.length },
-        { key: "all", label: "All", count: report.allBills.length },
+        { key: "all", label: "All", count: active.allBills.length },
     ];
 
     // Number of security deposits (deposit ledger + reference).
@@ -1210,11 +1361,9 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
 
         // Security deposit entries of this ledger: opening balance as on
         // fromDate, then this period's entries (same as the screen).
-        if (depositCount) {
+        if (depositCount || ledger.depositOpenings?.length) {
             const all = depositEntries(ledger.deposits || []);
-            let held = all
-                .filter((e) => String(e.date) < fromDate)
-                .reduce((t, e) => t + e.debit - e.credit, 0);
+            let { opening: held } = depositOpeningOf(ledger.deposits || [], ledger.depositOpenings, fromDate);
 
             XLSX.utils.book_append_sheet(
                 workbook,
@@ -1249,6 +1398,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
         const pendingRows = shownBills.map((b) => ({
             Date: formatTallyDate(b.bill_date),
             "Bill Ref": b.bill_ref,
+            ...(isDeposits ? { "Security Deposit Ledger": b.deposit_ledger } : {}),
             "Opening Amount": b.bill_amount,
             "Pending Amount": Math.abs(b.balance) < 1 ? "Cleared" : b.balance,
             "Due On": formatTallyDate(b.due_date),
@@ -1258,22 +1408,22 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
         if (showOnAccount) {
             pendingRows.push({
                 Date: formatTallyDate(asOf),
-                "Bill Ref": "On Account Details",
-                "Opening Amount": report.onAccount,
-                "Pending Amount": report.onAccount,
+                "Bill Ref": onAccountLabel,
+                "Opening Amount": active.onAccount,
+                "Pending Amount": active.onAccount,
             });
         }
 
         pendingRows.push({
             "Bill Ref": "TOTALS",
-            "Opening Amount": shownOpening + (showOnAccount ? report.onAccount : 0),
-            "Pending Amount": shownPending + (showOnAccount ? report.onAccount : 0),
+            "Opening Amount": shownOpening + (showOnAccount ? active.onAccount : 0),
+            "Pending Amount": shownPending + (showOnAccount ? active.onAccount : 0),
         });
 
         XLSX.utils.book_append_sheet(
             workbook,
             XLSX.utils.json_to_sheet(pendingRows),
-            `Bill-wise (${billTabs.find((t) => t.key === billTab).label})`
+            `${isDeposits ? "SD " : ""}Bill-wise (${billTabs.find((t) => t.key === billTab).label})`
         );
 
         XLSX.writeFile(workbook, `${ledger.party.replace(/[\\/:*?"<>|]/g, "_")}_${asOf}.xlsx`);
@@ -1373,7 +1523,13 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                 </span>
             </div>
             {ledgerTab === "deposits" ? (
-                <LedgerDepositEntries deposits={ledger.deposits || []} detailed={detailed} fromDate={fromDate} />
+                <LedgerDepositEntries
+                    deposits={ledger.deposits || []}
+                    openings={ledger.depositOpenings || []}
+                    detailed={detailed}
+                    fromDate={fromDate}
+                    openingSource={openingSource}
+                />
             ) : (
             <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
@@ -1562,7 +1718,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                     gap: "14px",
                 }}
             >
-                <span>Bill-wise Details</span>
+                <span>{isDeposits ? "Security Deposit Bill-wise Details" : "Bill-wise Details"}</span>
                 <span style={{ display: "flex", gap: "6px" }}>
                     {billTabs.map((t) => (
                         <button
@@ -1582,9 +1738,11 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                     <thead>
                         <tr>
                             <th style={tHead}>Date</th>
-                            <th style={{ ...tHead, letterSpacing: "3px" }}>Bill / Invoice Reference No.</th>
-                            <th style={tHeadRight}>Opening Amount</th>
-                            <th style={{ ...tHeadRight, fontWeight: "800" }}>Pending Amount</th>
+                            <th style={{ ...tHead, letterSpacing: "3px" }}>
+                                {isDeposits ? "Reference (LPO)" : "Bill / Invoice Reference No."}
+                            </th>
+                            <th style={tHeadRight}>{isDeposits ? "Deposited" : "Opening Amount"}</th>
+                            <th style={{ ...tHeadRight, fontWeight: "800" }}>{isDeposits ? "Held by KSEB" : "Pending Amount"}</th>
                             <th style={{ ...tHead, fontStyle: "italic" }}>Due on</th>
                             <th style={{ ...tHeadRight, fontStyle: "italic" }}>Days Overdue</th>
                         </tr>
@@ -1593,7 +1751,15 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                         {shownBills.length === 0 && (
                             <tr>
                                 <td colSpan={6} style={{ ...tCell, padding: "12px 8px", color: "#64748B" }}>
-                                    {billTab === "overdue" ? "No overdue bills." : billTab === "all" ? "No bills." : "No pending bills."}
+                                    {isDeposits
+                                        ? billTab === "overdue"
+                                            ? "No overdue security deposits."
+                                            : "No security deposits."
+                                        : billTab === "overdue"
+                                          ? "No overdue bills."
+                                          : billTab === "all"
+                                            ? "No bills."
+                                            : "No pending bills."}
                                 </td>
                             </tr>
                         )}
@@ -1609,7 +1775,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                             const expanded = Boolean(b.detail) && detailed !== toggled.has(key);
 
                             return (
-                                <React.Fragment key={`${b.bill_ref}|${b.bill_date}`}>
+                                <React.Fragment key={b.key || `${b.bill_ref}|${b.bill_date}`}>
                                 <tr
                                     onClick={b.detail ? () => toggleRow(key) : undefined}
                                     title={b.detail ? "Click to see the bill details" : ""}
@@ -1629,6 +1795,11 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                                             </span>
                                         )}
                                         {b.bill_ref}
+                                        {b.deposit_ledger && (
+                                            <span style={{ color: "#64748B", fontSize: "11px", marginLeft: "8px" }}>
+                                                {b.deposit_ledger}
+                                            </span>
+                                        )}
                                     </td>
                                     <td style={tCellRight}>{formatDrCr(b.bill_amount)}</td>
                                     <td style={{ ...tCellRight, fontWeight: overdue ? "800" : "400" }}>
@@ -1668,9 +1839,9 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                                     <td style={{ ...tCellRight, fontWeight: "700", fontStyle: "italic" }}>
                                         {formatTallyDate(asOf)}
                                     </td>
-                                    <td style={{ ...tCell, fontStyle: "italic" }}>On Account Details</td>
-                                    <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatDrCr(report.onAccount)}</td>
-                                    <td style={{ ...tCellRight, fontWeight: "800" }}>{formatDrCr(report.onAccount)}</td>
+                                    <td style={{ ...tCell, fontStyle: "italic" }}>{onAccountLabel}</td>
+                                    <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatDrCr(active.onAccount)}</td>
+                                    <td style={{ ...tCellRight, fontWeight: "800" }}>{formatDrCr(active.onAccount)}</td>
                                     <td style={tCell} />
                                     <td style={tCell} />
                                 </tr>
@@ -1681,10 +1852,10 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                             <td style={{ ...tCell, paddingTop: "14px" }} />
                             <td style={{ ...tCell, ...tSection, paddingTop: "14px" }}>TOTALS</td>
                             <td style={{ ...tCellRight, paddingTop: "14px", borderTop: "1px solid #94A3B8" }}>
-                                {formatDrCr(shownOpening + (showOnAccount ? report.onAccount : 0))}
+                                {formatDrCr(shownOpening + (showOnAccount ? active.onAccount : 0))}
                             </td>
                             <td style={{ ...tCellRight, paddingTop: "14px", fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
-                                {formatDrCr(shownPending + (showOnAccount ? report.onAccount : 0))}
+                                {formatDrCr(shownPending + (showOnAccount ? active.onAccount : 0))}
                             </td>
                             <td style={tCell} />
                             <td style={tCell} />
@@ -1704,13 +1875,13 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                                     {s.label}
                                 </th>
                             ))}
-                            <th style={{ ...tHead, textAlign: "right" }}>On Account</th>
+                            <th style={{ ...tHead, textAlign: "right" }}>{onAccountHeader}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {[
-                            { label: "--- By Bill Date", values: report.byBill },
-                            { label: "--- By Due Date", values: report.byDue },
+                            { label: "--- By Bill Date", values: active.byBill },
+                            { label: "--- By Due Date", values: active.byDue },
                         ].map((row) => (
                             <tr key={row.label}>
                                 <td style={{ ...tCellRight, fontWeight: "800", fontStyle: "italic", borderBottom: "1px solid #E2E8F0" }}>
@@ -1725,7 +1896,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource }) => {
                                     </td>
                                 ))}
                                 <td style={{ ...tCell, textAlign: "right", color: "#7C3AED", borderBottom: "1px solid #E2E8F0" }}>
-                                    {ledger.onAccount ? formatDrCr(-ledger.onAccount) : ""}
+                                    {Math.abs(active.onAccount) >= 1 ? formatDrCr(active.onAccount) : ""}
                                 </td>
                             </tr>
                         ))}
@@ -1802,7 +1973,7 @@ const ReceiptsTable = ({ receipts, showDistribution, onOpenLedger }) => {
                     );
                 })}
 
-                <tr style={{ background: "#E2E8F0" }}>
+                <tr className="kseb-total-row" style={{ background: "#E2E8F0" }}>
                     <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
                     <td style={tdStyle} />
                     {showDistribution && <td style={tdStyle} />}
@@ -1818,80 +1989,524 @@ const ReceiptsTable = ({ receipts, showDistribution, onOpenLedger }) => {
 };
 
 // =========================================================
-// SECURITY DEPOSITS LIST
+// SECURITY DEPOSITS LIST (ledger wise)
 // =========================================================
 
 /*
-  Security deposits / retention held by KSEB, one row per KSEB ledger,
-  deposit ledger and reference (LPO): deposited, refunded and the
-  balance still held. Click a row for that ledger's report.
+  Security deposits / retention held by KSEB, one row per KSEB ledger +
+  security deposit ledger: number of deposits, deposited, refunded and
+  the balance still held. A click on a ledger opens its deposits, one
+  row per reference (LPO), and "Ledger report" opens that KSEB ledger's
+  report on its Security Deposit tab.
+  expandAll = open every ledger (while searching).
 */
-const DepositsTable = ({ deposits, showDistribution, onOpenLedger, canOpen }) => {
-    const total = (field) => deposits.reduce((t, d) => t + d[field], 0);
+const DepositsTable = ({ deposits, showDistribution, onOpenLedger, canOpen, expandAll }) => {
+    const [expanded, setExpanded] = useState(() => new Set());
+
+    const toggle = (key) =>
+        setExpanded((prev) => {
+            const next = new Set(prev);
+
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+
+            return next;
+        });
+
+    const groups = useMemo(() => {
+        const map = new Map();
+
+        deposits.forEach((d) => {
+            const key = `${ledgerKey(d.party)}|${ledgerKey(d.deposit_ledger)}`;
+
+            if (!map.has(key)) {
+                map.set(key, {
+                    key,
+                    party: d.party,
+                    executive: d.executive,
+                    distribution: d.distribution,
+                    deposit_ledger: d.deposit_ledger,
+                    items: [],
+                    deposited: 0,
+                    refunded: 0,
+                    balance: 0,
+                    held: 0,
+                });
+            }
+
+            const g = map.get(key);
+
+            g.items.push(d);
+            g.deposited += Number(d.deposited || 0);
+            g.refunded += Number(d.refunded || 0);
+            g.balance += Number(d.balance || 0);
+
+            if (Math.abs(Number(d.balance || 0)) >= 1) g.held++;
+        });
+
+        return [...map.values()]
+            .map((g) => ({
+                ...g,
+                items: [...g.items].sort((a, b) => String(a.date).localeCompare(String(b.date))),
+            }))
+            .sort((a, b) => b.balance - a.balance || String(a.party).localeCompare(String(b.party)));
+    }, [deposits]);
+
+    const total = (field) => groups.reduce((t, g) => t + g[field], 0);
+    const columns = showDistribution ? 9 : 8;
 
     return (
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
             <thead>
                 <tr>
-                    <th style={thStyle}>Date</th>
                     <th style={thStyle}>KSEB Ledger</th>
                     {showDistribution && <th style={thStyle}>Distribution</th>}
                     <th style={thStyle}>Security Deposit Ledger</th>
-                    <th style={thStyle}>Reference</th>
-                    <th style={thRight}>Credit Period</th>
-                    <th style={thStyle}>Due on</th>
+                    <th style={thRight}>Deposits</th>
+                    <th style={thRight}>Still Held</th>
                     <th style={thRight}>Deposited</th>
                     <th style={thRight}>Refunded</th>
                     <th style={thRight}>Balance</th>
+                    <th style={thStyle} />
                 </tr>
             </thead>
             <tbody>
-                {deposits.map((d, i) => {
-                    const clickable = canOpen(d.party);
+                {groups.map((g) => {
+                    const open = expandAll || expanded.has(g.key);
+                    const clickable = canOpen(g.party);
 
                     return (
-                        <tr
-                            key={`${d.party}|${d.deposit_ledger}|${d.bill_ref}|${i}`}
-                            onClick={clickable ? () => onOpenLedger(d.party) : undefined}
-                            style={{ cursor: clickable ? "pointer" : "default" }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = "#EFF6FF")}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
-                        >
-                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(d.date)}</td>
-                            <td style={{ ...tdStyle, fontWeight: "700" }}>
-                                {d.party}
-                                {d.executive && (
-                                    <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{d.executive}</div>
-                                )}
-                            </td>
-                            {showDistribution && <td style={tdStyle}>{d.distribution}</td>}
-                            <td style={tdStyle}>{d.deposit_ledger}</td>
-                            <td style={tdStyle}>{d.bill_ref}</td>
-                            <td style={tdRight}>{d.credit_days ? `${d.credit_days} Days` : ""}</td>
-                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(d.due_date)}</td>
-                            <td style={tdRight}>{formatAmount(d.deposited)}</td>
-                            <td style={{ ...tdRight, color: "#166534" }}>{formatAmount(d.refunded)}</td>
-                            <td style={{ ...tdRight, fontWeight: "700", color: "#0B2545" }}>{formatAmount(d.balance)}</td>
-                        </tr>
+                        <React.Fragment key={g.key}>
+                            <tr
+                                onClick={() => toggle(g.key)}
+                                title="Click to see the security deposits of this ledger"
+                                style={{ cursor: "pointer", background: open ? "#EFF6FF" : "" }}
+                            >
+                                <td style={{ ...tdStyle, fontWeight: "700" }}>
+                                    <span style={{ display: "inline-block", width: "16px", color: "#64748B" }}>
+                                        {open ? "▾" : "▸"}
+                                    </span>
+                                    {g.party}
+                                    {g.executive && (
+                                        <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500", marginLeft: "16px" }}>
+                                            {g.executive}
+                                        </div>
+                                    )}
+                                </td>
+                                {showDistribution && <td style={tdStyle}>{g.distribution}</td>}
+                                <td style={tdStyle}>{g.deposit_ledger}</td>
+                                <td style={tdRight}>{g.items.length}</td>
+                                <td style={tdRight}>{g.held || ""}</td>
+                                <td style={tdRight}>{formatAmount(g.deposited)}</td>
+                                <td style={{ ...tdRight, color: "#166534" }}>{formatAmount(g.refunded)}</td>
+                                <td style={{ ...tdRight, fontWeight: "700", color: "#0B2545" }}>{formatAmount(g.balance)}</td>
+                                <td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                                    {clickable && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onOpenLedger(g.party);
+                                            }}
+                                            title="Open the ledger report of this KSEB ledger"
+                                            style={{ ...linkStyle, fontSize: "12px", fontWeight: "700" }}
+                                        >
+                                            Ledger report ›
+                                        </button>
+                                    )}
+                                </td>
+                            </tr>
+
+                            {open && (
+                                <tr>
+                                    <td colSpan={columns} style={{ padding: 0, borderBottom: "1px solid #E2E8F0" }}>
+                                        <div style={{ margin: "2px 0 8px 24px", border: "1px solid #CBD5E1", background: "#F8FAFC" }}>
+                                            <div
+                                                style={{
+                                                    padding: "4px 8px",
+                                                    borderBottom: "1px solid #CBD5E1",
+                                                    fontSize: "12px",
+                                                    fontWeight: "700",
+                                                }}
+                                            >
+                                                {g.deposit_ledger} • {g.items.length}{" "}
+                                                {g.items.length === 1 ? "security deposit" : "security deposits"}
+                                            </div>
+                                            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                                <thead>
+                                                    <tr>
+                                                        <th style={{ ...tHead, background: "transparent" }}>Date</th>
+                                                        <th style={{ ...tHead, background: "transparent" }}>Reference (LPO)</th>
+                                                        <th style={{ ...tHeadRight, background: "transparent" }}>Credit Period</th>
+                                                        <th style={{ ...tHead, background: "transparent", fontStyle: "italic" }}>Due on</th>
+                                                        <th style={{ ...tHeadRight, background: "transparent" }}>Deposited</th>
+                                                        <th style={{ ...tHeadRight, background: "transparent" }}>Refunded</th>
+                                                        <th style={{ ...tHeadRight, background: "transparent" }}>Balance</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {g.items.map((d, i) => {
+                                                        const refunded = Math.abs(Number(d.balance || 0)) < 1;
+
+                                                        return (
+                                                            <tr
+                                                                key={`${d.bill_ref}|${d.date}|${i}`}
+                                                                style={{ color: refunded ? "#64748B" : "inherit" }}
+                                                            >
+                                                                <td style={tCellRight}>{formatTallyDate(d.date)}</td>
+                                                                <td style={tCell}>{d.bill_ref}</td>
+                                                                <td style={tCellRight}>
+                                                                    {d.credit_days ? `${d.credit_days} Days` : ""}
+                                                                </td>
+                                                                <td style={{ ...tCell, fontStyle: "italic" }}>
+                                                                    {formatTallyDate(d.due_date)}
+                                                                </td>
+                                                                <td style={tCellRight}>{formatTally(d.deposited)}</td>
+                                                                <td style={{ ...tCellRight, color: "#166534" }}>
+                                                                    {formatTally(d.refunded)}
+                                                                </td>
+                                                                <td style={{ ...tCellRight, fontWeight: refunded ? "400" : "700" }}>
+                                                                    {refunded ? "Refunded" : formatTally(d.balance)}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    <tr>
+                                                        <td style={tCell} />
+                                                        <td style={{ ...tCell, fontWeight: "800" }}>Total</td>
+                                                        <td style={tCell} />
+                                                        <td style={tCell} />
+                                                        <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                                                            {formatTally(g.deposited)}
+                                                        </td>
+                                                        <td
+                                                            style={{
+                                                                ...tCellRight,
+                                                                fontWeight: "800",
+                                                                borderTop: "1px solid #94A3B8",
+                                                                color: "#166534",
+                                                            }}
+                                                        >
+                                                            {formatTally(g.refunded)}
+                                                        </td>
+                                                        <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                                                            {formatTally(g.balance)}
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </React.Fragment>
                     );
                 })}
 
-                <tr style={{ background: "#E2E8F0" }}>
+                <tr className="kseb-total-row" style={{ background: "#E2E8F0" }}>
                     <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
-                    <td style={tdStyle} />
                     {showDistribution && <td style={tdStyle} />}
                     <td style={tdStyle} />
-                    <td style={tdStyle} />
-                    <td style={tdRight} />
-                    <td style={tdStyle} />
+                    <td style={{ ...tdRight, fontWeight: "800" }}>{deposits.length}</td>
+                    <td style={{ ...tdRight, fontWeight: "800" }}>{total("held") || ""}</td>
                     <td style={{ ...tdRight, fontWeight: "800" }}>{formatAmount(total("deposited"))}</td>
                     <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>{formatAmount(total("refunded"))}</td>
                     <td style={{ ...tdRight, fontWeight: "800", color: "#0B2545" }}>{formatAmount(total("balance"))}</td>
+                    <td style={tdStyle} />
                 </tr>
             </tbody>
         </table>
     );
 };
+
+// =========================================================
+// SECURITY DEPOSIT OPENING BALANCE
+// =========================================================
+
+/*
+  Receipts and payments of one deposit ledger since 1st April, with the
+  running balance from its opening balance: Payment = deposit made (Dr),
+  Receipt = refund (Cr). entries = deposit_opening_breakup[].entries.
+*/
+const DepositVoucherList = ({ entries, opening, openingDate }) => {
+    let running = opening;
+    const payments = entries.reduce((t, e) => t + (e.amount > 0 ? e.amount : 0), 0);
+    const receipts = entries.reduce((t, e) => t + (e.amount < 0 ? -e.amount : 0), 0);
+
+    return (
+        <div style={{ margin: "0 0 10px 24px", border: "1px solid #CBD5E1", background: "#FFFFFF" }}>
+            <div style={{ padding: "4px 8px", borderBottom: "1px solid #CBD5E1", fontSize: "12px", fontWeight: "700" }}>
+                Receipts and Payments since {formatTallyDate(openingDate)}
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                    <tr>
+                        <th style={{ ...tHead, background: "transparent" }}>Date</th>
+                        <th style={{ ...tHead, background: "transparent" }}>Reference (LPO)</th>
+                        <th style={{ ...tHead, background: "transparent" }}>Voucher Type</th>
+                        <th style={{ ...tHeadRight, background: "transparent" }}>Debit (Payment)</th>
+                        <th style={{ ...tHeadRight, background: "transparent" }}>Credit (Receipt)</th>
+                        <th style={{ ...tHeadRight, background: "transparent" }}>Balance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style={tCellRight}>{formatTallyDate(openingDate)}</td>
+                        <td style={{ ...tCell, fontWeight: "700" }}>Opening Balance</td>
+                        <td style={tCell} />
+                        <td style={tCellRight} />
+                        <td style={tCellRight} />
+                        <td style={{ ...tCellRight, fontWeight: "700" }}>{formatDrCr(opening)}</td>
+                    </tr>
+                    {entries.length === 0 && (
+                        <tr>
+                            <td />
+                            <td colSpan={5} style={{ ...tCell, color: "#64748B" }}>
+                                No receipts or payments since {formatTallyDate(openingDate)}.
+                            </td>
+                        </tr>
+                    )}
+                    {entries.map((e, i) => {
+                        running += e.amount;
+
+                        return (
+                            <tr key={`${e.sales_id}-${i}`}>
+                                <td style={tCellRight}>{formatTallyDate(e.date)}</td>
+                                <td style={tCell}>{e.bill_ref}</td>
+                                <td style={tCell}>
+                                    {e.voucher_type}
+                                    {e.voucher_no ? ` ${e.voucher_no}` : ""}
+                                </td>
+                                <td style={tCellRight}>{e.amount > 0 ? formatTally(e.amount) : ""}</td>
+                                <td style={{ ...tCellRight, color: "#166534" }}>{e.amount < 0 ? formatTally(-e.amount) : ""}</td>
+                                <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatDrCr(running)}</td>
+                            </tr>
+                        );
+                    })}
+                    <tr>
+                        <td style={tCell} />
+                        <td style={{ ...tCell, fontWeight: "800" }}>Closing Balance</td>
+                        <td style={tCell} />
+                        <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>{formatTally(payments)}</td>
+                        <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8", color: "#166534" }}>
+                            {formatTally(receipts)}
+                        </td>
+                        <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                            {formatDrCr(opening + payments - receipts)}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+/*
+  Security deposits KSEB held on 1st April, one row per deposit ledger
+  (group SECURITY DEPOSITS KSEB): its opening balance (salesdatalatest33)
+  and the break up of it in the Tally XML. Click a row for the LPO
+  references of that break up, with what was refunded of each since.
+  rows = deposit_opening_breakup entries with their ledger name added.
+*/
+const DepositOpeningTable = ({ rows, showDistribution, openingDate }) => {
+    const [expanded, setExpanded] = useState(() => new Set());
+
+    const toggle = (ledger) =>
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            next.has(ledger) ? next.delete(ledger) : next.add(ledger);
+            return next;
+        });
+
+    const total = (field) => rows.reduce((t, r) => t + Number(r[field] || 0), 0);
+    const columns = showDistribution ? 10 : 9;
+
+    return (
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
+            <thead>
+                <tr>
+                    <th style={thStyle}>KSEB Ledger</th>
+                    {showDistribution && <th style={thStyle}>Distribution</th>}
+                    <th style={thStyle}>Security Deposit Ledger</th>
+                    <th style={thRight}>Opening Balance</th>
+                    <th style={thRight}>Break Up (Tally XML)</th>
+                    <th style={thRight}>Difference</th>
+                    <th style={thRight}>Payments</th>
+                    <th style={thRight}>Receipts</th>
+                    <th style={thRight}>Closing</th>
+                    <th style={thStyle} />
+                </tr>
+            </thead>
+            <tbody>
+                {rows.map((r) => {
+                    const open = expanded.has(r.ledger);
+
+                    return (
+                        <React.Fragment key={r.ledger}>
+                            <tr
+                                onClick={() => toggle(r.ledger)}
+                                style={{ cursor: "pointer", background: open ? "#EFF6FF" : "" }}
+                            >
+                                <td style={{ ...tdStyle, fontWeight: "700" }}>
+                                    {r.party || <span style={{ color: "#94A3B8" }}>Not found</span>}
+                                    {r.executive && (
+                                        <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{r.executive}</div>
+                                    )}
+                                </td>
+                                {showDistribution && <td style={tdStyle}>{r.distribution}</td>}
+                                <td style={tdStyle}>{r.ledger}</td>
+                                <td style={{ ...tdRight, fontWeight: "700" }}>
+                                    {/* Zero / no opening balance: blank, like Tally. */}
+                                    {formatAmount(r.opening_balance)}
+                                </td>
+                                <td style={tdRight}>
+                                    {r.has_breakup ? formatAmount(r.total) : ""}
+                                </td>
+                                <td
+                                    style={{
+                                        ...tdRight,
+                                        color: r.difference !== null && Math.abs(r.difference) >= 1 ? "#B45309" : "#1F2937",
+                                        fontWeight: r.difference !== null && Math.abs(r.difference) >= 1 ? "700" : "400",
+                                    }}
+                                >
+                                    {r.difference === null ? "" : Math.abs(r.difference) < 1 ? "Matches" : formatAmount(r.difference)}
+                                </td>
+                                <td style={tdRight}>{formatAmount(r.payments)}</td>
+                                <td style={{ ...tdRight, color: "#166534" }}>{formatAmount(r.receipts)}</td>
+                                <td style={{ ...tdRight, fontWeight: "700", color: "#0B2545" }}>{formatAmount(r.closing)}</td>
+                                <td style={{ ...tdStyle, color: "#64748B", width: "20px" }}>{open ? "▾" : "▸"}</td>
+                            </tr>
+
+                            {open && (
+                                <tr>
+                                    <td colSpan={columns} style={{ padding: 0, borderBottom: "1px solid #E2E8F0" }}>
+                                        {r.bills.length ? (
+                                            <div style={{ margin: "2px 0 6px 24px", border: "1px solid #CBD5E1", background: "#F8FAFC" }}>
+                                                <div
+                                                    style={{
+                                                        padding: "4px 8px",
+                                                        borderBottom: "1px solid #CBD5E1",
+                                                        fontSize: "12px",
+                                                        fontWeight: "700",
+                                                    }}
+                                                >
+                                                    Opening Balance Break Up as on {formatTallyDate(openingDate)} (Tally LOB Report)
+                                                </div>
+                                                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                                    <thead>
+                                                        <tr>
+                                                            <th style={{ ...tHead, background: "transparent" }}>Date</th>
+                                                            <th style={{ ...tHead, background: "transparent" }}>Reference (LPO)</th>
+                                                            <th style={{ ...tHeadRight, background: "transparent" }}>Credit Period</th>
+                                                            <th style={{ ...tHead, background: "transparent", fontStyle: "italic" }}>Due on</th>
+                                                            <th style={{ ...tHeadRight, background: "transparent" }}>Opening Amount</th>
+                                                            <th style={{ ...tHeadRight, background: "transparent" }}>Refunded</th>
+                                                            <th style={{ ...tHeadRight, background: "transparent" }}>Still Held</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {r.bills.map((b, i) => (
+                                                            <tr key={`${b.bill_ref}-${i}`}>
+                                                                <td style={tCellRight}>{formatTallyDate(b.bill_date)}</td>
+                                                                <td style={tCell}>{b.bill_ref}</td>
+                                                                <td style={tCellRight}>{b.credit_days ? `${b.credit_days} Days` : ""}</td>
+                                                                <td style={{ ...tCell, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
+                                                                <td style={tCellRight}>{formatTally(b.amount)}</td>
+                                                                <td style={{ ...tCellRight, color: "#166534" }}>
+                                                                    {formatTally(b.refunded)}
+                                                                    {b.lines?.length > 0 && (
+                                                                        <div style={{ fontSize: "11px", color: "#64748B" }}>
+                                                                            {b.lines
+                                                                                .map((l) => `${l.voucher_type} ${formatTallyDate(l.date)}`)
+                                                                                .join(", ")}
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                                <td
+                                                                    style={{
+                                                                        ...tCellRight,
+                                                                        color: Math.abs(b.balance) < 1 ? "#166534" : "#1F2937",
+                                                                    }}
+                                                                >
+                                                                    {Math.abs(b.balance) < 1 ? "Refunded" : formatTally(b.balance)}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                        <tr>
+                                                            <td style={tCell} />
+                                                            <td style={{ ...tCell, fontWeight: "800" }}>
+                                                                Total ({r.bills.length} entries)
+                                                            </td>
+                                                            <td style={tCell} />
+                                                            <td style={tCell} />
+                                                            <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                                                                {formatTally(r.total)}
+                                                            </td>
+                                                            <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                                                                {formatTally(r.refunded - r.refunded_not_in_breakup)}
+                                                            </td>
+                                                            <td style={{ ...tCellRight, fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
+                                                                {formatTally(r.balance)}
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                                {Math.abs(Number(r.difference || 0)) >= 1 && (
+                                                    <div style={{ fontSize: "12px", fontWeight: "700", color: "#B45309", padding: "4px 8px 6px" }}>
+                                                        The references add up to {formatTally(r.total)}, the opening balance is{" "}
+                                                        {formatTally(r.opening_balance)} (difference {formatTally(r.difference)}).
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: "12px", color: "#64748B", padding: "6px 8px 10px 24px" }}>
+                                                No break up of this ledger in the Tally XML: add the SECURITY DEPOSITS KSEB group to the
+                                                LOB Report and use "Refresh from Tally".
+                                            </div>
+                                        )}
+                                        <DepositVoucherList
+                                            entries={r.entries || []}
+                                            opening={Number(r.opening_balance || 0)}
+                                            openingDate={openingDate}
+                                        />
+                                    </td>
+                                </tr>
+                            )}
+                        </React.Fragment>
+                    );
+                })}
+
+                <tr className="kseb-total-row" style={{ background: "#E2E8F0" }}>
+                    <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
+                    {showDistribution && <td style={tdStyle} />}
+                    <td style={tdStyle} />
+                    <td style={{ ...tdRight, fontWeight: "800" }}>{formatAmount(total("opening_balance"))}</td>
+                    <td style={{ ...tdRight, fontWeight: "800" }}>{formatAmount(total("total"))}</td>
+                    <td style={tdRight} />
+                    <td style={{ ...tdRight, fontWeight: "800" }}>{formatAmount(total("payments"))}</td>
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>{formatAmount(total("receipts"))}</td>
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#0B2545" }}>{formatAmount(total("closing"))}</td>
+                    <td style={tdStyle} />
+                </tr>
+            </tbody>
+        </table>
+    );
+};
+
+// Heading of a section inside the Security Deposit view.
+const DepositSectionTitle = ({ title, note }) => (
+    <div
+        style={{
+            padding: "10px 14px 6px",
+            background: "#F8FAFC",
+            borderBottom: "1px solid #E2E8F0",
+            borderTop: "1px solid #E2E8F0",
+        }}
+    >
+        <div style={{ fontSize: "13px", fontWeight: "800", color: "#0B2545" }}>{title}</div>
+        {note && <div style={{ fontSize: "11px", color: "#64748B" }}>{note}</div>}
+    </div>
+);
 
 // =========================================================
 // PAGE
@@ -1909,6 +2524,9 @@ const KSEBOutstanding = () => {
     const [openingBreakup, setOpeningBreakup] = useState({});
     // Security deposits held by KSEB (deposit ledger + LPO reference).
     const [securityDeposits, setSecurityDeposits] = useState([]);
+    // { "<deposit ledger>": { opening_balance, total, bills, ... } } —
+    // deposits held on 1st April and their Tally XML break up.
+    const [depositOpening, setDepositOpening] = useState({});
     const [vouchers, setVouchers] = useState({});
     const [warnings, setWarnings] = useState([]);
     // Where the opening bills (Tally XML) came from, and when.
@@ -1970,6 +2588,11 @@ const KSEBOutstanding = () => {
                     : {}
             );
             setSecurityDeposits(Array.isArray(result.security_deposits) ? result.security_deposits : []);
+            setDepositOpening(
+                result.deposit_opening_breakup && typeof result.deposit_opening_breakup === "object"
+                    ? result.deposit_opening_breakup
+                    : {}
+            );
             // { "<Sales ID>": { ledgers, allocations, ... } } — Tally voucher details.
             setVouchers(
                 result.vouchers && typeof result.vouchers === "object" ? result.vouchers : {}
@@ -1989,6 +2612,7 @@ const KSEBOutstanding = () => {
             setOpeningBalances({});
             setOpeningBreakup({});
             setSecurityDeposits([]);
+            setDepositOpening({});
             setVouchers({});
             setWarnings([]);
         } finally {
@@ -2035,6 +2659,8 @@ const KSEBOutstanding = () => {
                     older: [],
                     // Security deposits held by KSEB for this ledger.
                     deposits: [],
+                    // Opening balance of its deposit ledgers (deposit_opening_breakup).
+                    depositOpenings: [],
                     openingBreakup: breakup,
                     // salesdatalatest33 first; else the Tally XML total
                     // (the bills pending on 1st April add up to it).
@@ -2086,14 +2712,27 @@ const KSEBOutstanding = () => {
             getRow(r.party, r).received += r.amount;
         });
 
+        // Only deposits of a KSEB ledger make / join a ledger row: a
+        // refund received straight into the bank must not list the bank.
+        const isKsebLedger = (name) => ledgerKey(name).startsWith("kseb");
+
         securityDeposits.forEach((d) => {
-            getRow(d.party, d).deposits.push(d);
+            if (isKsebLedger(d.party)) {
+                getRow(d.party, d).deposits.push(d);
+            }
+        });
+
+        // Opening balance of each deposit ledger, under its KSEB ledger.
+        Object.entries(depositOpening).forEach(([ledger, o]) => {
+            if (o && isKsebLedger(o.party)) {
+                getRow(o.party, o).depositOpenings.push({ ...o, ledger });
+            }
         });
 
         return [...map.values()]
             .map((r) => ({ ...r, net: r.pending - r.onAccount - r.excess }))
             .sort((a, b) => b.net - a.net || b.billed - a.billed);
-    }, [bills, onAccount, olderReceipts, receipts, openingBalances, openingBreakup, securityDeposits]);
+    }, [bills, onAccount, olderReceipts, receipts, openingBalances, openingBreakup, securityDeposits, depositOpening]);
 
     const donutData = useMemo(() => {
         const totals = new Map();
@@ -2108,11 +2747,12 @@ const KSEBOutstanding = () => {
 
         const colorOrder = [...totals.keys()].sort();
 
+        // Every distribution is listed, also one with nothing pending
+        // (it only gets no slice in the donut).
         return [...totals.entries()]
-            .filter(([, t]) => t.value > 0)
             .map(([name, t]) => ({
                 name,
-                value: t.value,
+                value: Math.max(0, t.value),
                 ledgers: t.ledgers,
                 fill: DONUT_COLORS[colorOrder.indexOf(name) % DONUT_COLORS.length],
             }))
@@ -2191,11 +2831,121 @@ const KSEBOutstanding = () => {
         );
     }, [securityDeposits, distribution, search]);
 
+    // Number of KSEB ledger + security deposit ledger rows in the list.
+    const listedDepositLedgers = useMemo(
+        () => new Set(listedDeposits.map((d) => `${ledgerKey(d.party)}|${ledgerKey(d.deposit_ledger)}`)).size,
+        [listedDeposits]
+    );
+
+    // Deposit ledgers with their opening balance, same filters as the list.
+    const listedDepositOpening = useMemo(() => {
+        const term = search.trim().toLowerCase();
+
+        return Object.entries(depositOpening)
+            .map(([ledger, value]) => ({ ...value, ledger, bills: Array.isArray(value.bills) ? value.bills : [] }))
+            .filter(
+                (r) =>
+                    (distribution === "all" || r.distribution === distribution) &&
+                    (!term ||
+                        String(r.party).toLowerCase().includes(term) ||
+                        r.ledger.toLowerCase().includes(term) ||
+                        r.bills.some((b) => String(b.bill_ref).toLowerCase().includes(term)))
+            );
+    }, [depositOpening, distribution, search]);
+
     // A deposit row opens its ledger report when that ledger is listed.
     const canOpenLedger = (party) => ledgers.some((l) => l.party === party);
 
     const exportDeposits = () => {
         const workbook = XLSX.utils.book_new();
+
+        // Opening balance per deposit ledger, then its break up (XML).
+        if (listedDepositOpening.length) {
+            const rows = [];
+
+            listedDepositOpening.forEach((r) => {
+                rows.push({
+                    "KSEB Ledger": r.party,
+                    Distribution: r.distribution,
+                    "Security Deposit Ledger": r.ledger,
+                    Reference: "OPENING BALANCE",
+                    Date: "",
+                    "Opening Amount": r.opening_balance ?? "",
+                    "Break Up (Tally XML)": r.has_breakup ? r.total : "",
+                    Difference: r.difference ?? "",
+                    Payments: r.payments || "",
+                    Receipts: r.receipts || "",
+                    Closing: r.closing || "",
+                });
+
+                r.bills.forEach((b) =>
+                    rows.push({
+                        "KSEB Ledger": r.party,
+                        Distribution: r.distribution,
+                        "Security Deposit Ledger": r.ledger,
+                        Reference: b.bill_ref,
+                        Date: formatTallyDate(b.bill_date),
+                        "Opening Amount": b.amount,
+                        "Break Up (Tally XML)": "",
+                        Difference: "",
+                        Payments: "",
+                        Receipts: b.refunded || "",
+                        Closing: b.balance || "",
+                    })
+                );
+
+                (r.entries || []).forEach((e) =>
+                    rows.push({
+                        "KSEB Ledger": r.party,
+                        Distribution: r.distribution,
+                        "Security Deposit Ledger": r.ledger,
+                        Reference: `${e.voucher_type}: ${e.bill_ref || ""}`,
+                        Date: formatTallyDate(e.date),
+                        "Opening Amount": "",
+                        "Break Up (Tally XML)": "",
+                        Difference: "",
+                        Payments: e.amount > 0 ? e.amount : "",
+                        Receipts: e.amount < 0 ? -e.amount : "",
+                        Closing: "",
+                    })
+                );
+            });
+
+            XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Opening Balance");
+        }
+
+        // Ledger wise summary (same rows as the screen).
+        const summary = new Map();
+
+        listedDeposits.forEach((d) => {
+            const key = `${ledgerKey(d.party)}|${ledgerKey(d.deposit_ledger)}`;
+
+            if (!summary.has(key)) {
+                summary.set(key, {
+                    "KSEB Ledger": d.party,
+                    Executive: d.executive,
+                    Distribution: d.distribution,
+                    "Security Deposit Ledger": d.deposit_ledger,
+                    Deposits: 0,
+                    Deposited: 0,
+                    Refunded: 0,
+                    Balance: 0,
+                });
+            }
+
+            const s = summary.get(key);
+
+            s.Deposits++;
+            s.Deposited += Number(d.deposited || 0);
+            s.Refunded += Number(d.refunded || 0);
+            s.Balance += Number(d.balance || 0);
+        });
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet([...summary.values()]),
+            "Ledger Wise"
+        );
 
         XLSX.utils.book_append_sheet(
             workbook,
@@ -2263,6 +3013,15 @@ const KSEBOutstanding = () => {
                 @media (max-width: 1000px) {
                     .kseb-os-layout { grid-template-columns: 1fr !important; }
                     .kseb-os-sidebar { position: static !important; }
+                }
+
+                /* TOTAL row stays visible at the bottom of the scrolling list. */
+                .kseb-total-row td {
+                    position: sticky;
+                    bottom: 0;
+                    z-index: 1;
+                    background: #E2E8F0;
+                    box-shadow: inset 0 2px 0 #94A3B8;
                 }
             `}</style>
 
@@ -2429,6 +3188,8 @@ const KSEBOutstanding = () => {
                                 fromDate={fromDate}
                                 asOf={asOf}
                                 openingSource={openingSource}
+                                // Opened from the Security Deposit list: start on its tab.
+                                initialTab={view === "deposits" ? "deposits" : "supply"}
                             />
                         </div>
                     ) : (
@@ -2452,7 +3213,7 @@ const KSEBOutstanding = () => {
                                         {view === "receipts"
                                             ? `${listedReceipts.length} receipt entries • click one for its ledger report`
                                             : view === "deposits"
-                                              ? `${listedDeposits.length} security deposits • click one for its ledger report`
+                                              ? `${listedDepositLedgers} ledgers • ${listedDeposits.length} security deposits • click a ledger for its deposits`
                                               : `${listedLedgers.length} ledgers • click a ledger for its ledger report`}
                                     </div>
                                 </div>
@@ -2481,7 +3242,7 @@ const KSEBOutstanding = () => {
                                         <button
                                             type="button"
                                             onClick={exportDeposits}
-                                            disabled={!listedDeposits.length}
+                                            disabled={!listedDeposits.length && !listedDepositOpening.length}
                                             style={buttonStyle(false)}
                                         >
                                             Export Excel
@@ -2508,16 +3269,39 @@ const KSEBOutstanding = () => {
                                 {loading ? (
                                     <div style={emptyStyle}>Loading KSEB outstanding...</div>
                                 ) : view === "deposits" ? (
-                                    listedDeposits.length ? (
-                                        <DepositsTable
-                                            deposits={listedDeposits}
-                                            showDistribution={distribution === "all"}
-                                            onOpenLedger={openLedger}
-                                            canOpen={canOpenLedger}
+                                    <>
+                                        <DepositSectionTitle
+                                            title={`Opening Balance as on ${formatTallyDate(fromDate)}`}
+                                            note="Opening balance of each security deposit ledger (salesdatalatest33) and its break up from the Tally XML • click a ledger for its references"
                                         />
-                                    ) : (
-                                        <div style={emptyStyle}>No security deposits found.</div>
-                                    )
+                                        {listedDepositOpening.length ? (
+                                            <DepositOpeningTable
+                                                rows={listedDepositOpening}
+                                                showDistribution={distribution === "all"}
+                                                openingDate={fromDate}
+                                            />
+                                        ) : (
+                                            <div style={emptyStyle}>
+                                                No security deposit opening balances found (salesdatalatest33 / Tally XML).
+                                            </div>
+                                        )}
+
+                                        <DepositSectionTitle
+                                            title="All Security Deposits (Ledger wise)"
+                                            note="One row per KSEB ledger and security deposit ledger (group SECURITY DEPOSITS KSEB) • click a ledger for its deposits by reference • “Ledger report” opens its ledger report"
+                                        />
+                                        {listedDeposits.length ? (
+                                            <DepositsTable
+                                                deposits={listedDeposits}
+                                                showDistribution={distribution === "all"}
+                                                onOpenLedger={openLedger}
+                                                canOpen={canOpenLedger}
+                                                expandAll={Boolean(search.trim())}
+                                            />
+                                        ) : (
+                                            <div style={emptyStyle}>No security deposits found.</div>
+                                        )}
+                                    </>
                                 ) : view === "receipts" ? (
                                     listedReceipts.length ? (
                                         <ReceiptsTable
@@ -2581,7 +3365,7 @@ const KSEBOutstanding = () => {
                                                 </tr>
                                             ))}
 
-                                            <tr style={{ background: "#E2E8F0" }}>
+                                            <tr className="kseb-total-row" style={{ background: "#E2E8F0" }}>
                                                 <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
                                                 {distribution === "all" && <td style={tdStyle} />}
                                                 <td style={tdRight} />

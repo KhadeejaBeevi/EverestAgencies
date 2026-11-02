@@ -98,10 +98,66 @@ const REMARK_OPTIONS = [
     "Customer Not Responding",
     "Price Issue",
     "Requirement Not Clear",
+    "Technical Clarification",
     "Duplicate Enquiry",
     "Not Required"
-   
 ];
+
+/* Enquiries waiting for a technical clarification (from the customer
+   or the technical team) before the quotation can be made. */
+const TECHNICAL_CLARIFICATION_REMARK = "Technical Clarification";
+
+/* =========================================================
+   PERIOD FILTER (day / week / month)
+   Weeks run Monday to Sunday. Keys are built from the
+   enquiry_date string ("YYYY-MM-DD") so time zones never
+   shift an enquiry into the wrong day.
+========================================================= */
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function parseDateKey(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return null;
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+function toDateKey(date) {
+    return date.toISOString().slice(0, 10);
+}
+
+/* Today's date in the user's own time zone, "YYYY-MM-DD". */
+function getTodayKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function getMonthKey(value) {
+    const date = parseDateKey(value);
+    return date ? toDateKey(date).slice(0, 7) : "";
+}
+
+/* Week key = the Monday that starts the week, "YYYY-MM-DD". */
+function getWeekKey(value) {
+    const date = parseDateKey(value);
+    if (!date) return "";
+    const offset = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - offset);
+    return toDateKey(date);
+}
+
+function formatMonthKey(key) {
+    const [year, month] = key.split("-");
+    return `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+}
+
+function formatWeekKey(key) {
+    const start = parseDateKey(key);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 6);
+    const part = date => `${String(date.getUTCDate()).padStart(2, "0")} ${MONTH_NAMES[date.getUTCMonth()]}`;
+    return `${part(start)} – ${part(end)} ${end.getUTCFullYear()}`;
+}
 
 /* =========================================================
    NEGOTIATION
@@ -460,8 +516,8 @@ const EnquiryRow = memo(function EnquiryRow({ item, slNo, timerState, timerLabel
                 {formatDate(item.enquiry_date)}
             </td>
 
-            {/* CUSTOMER */}
-            <td style={rowCellStyle}>
+            {/* CUSTOMER (sticky left) */}
+            <td style={rowCellStyle} className="sticky-customer">
                 <strong>{formatText(item.customer_name)}</strong>
             </td>
 
@@ -601,7 +657,12 @@ export default function EnquiryReport() {
     const [searchTerm, setSearchTerm] = useState("");
     const [showPendingOnly, setShowPendingOnly] = useState(false);
     const [showNegotiationOnly, setShowNegotiationOnly] = useState(false);
-    const [dateFilter, setDateFilter] = useState("");
+    const [showTechnicalOnly, setShowTechnicalOnly] = useState(false);
+    const [broughtByFilter, setBroughtByFilter] = useState("");
+
+    /* PERIOD FILTER: "" (all) | "day" | "week" | "month" */
+    const [periodType, setPeriodType] = useState("");
+    const [periodValue, setPeriodValue] = useState("");
 
     /* MESSAGES */
     const [errorMessage, setErrorMessage] = useState("");
@@ -900,8 +961,26 @@ export default function EnquiryReport() {
             );
         }
 
-        if (dateFilter) {
-            list = list.filter(item => String(item.enquiry_date || "").slice(0, 10) === dateFilter);
+        if (showTechnicalOnly) {
+            list = list.filter(item =>
+                String(item.remarks || "").trim() === TECHNICAL_CLARIFICATION_REMARK
+            );
+        }
+
+        if (broughtByFilter) {
+            const wanted = broughtByFilter.toLowerCase();
+            list = list.filter(item =>
+                String(item.brought_by || "").trim().toLowerCase() === wanted
+            );
+        }
+
+        if (periodType && periodValue) {
+            list = list.filter(item => {
+                if (periodType === "day") return String(item.enquiry_date || "").slice(0, 10) === periodValue;
+                if (periodType === "week") return getWeekKey(item.enquiry_date) === periodValue;
+                if (periodType === "month") return getMonthKey(item.enquiry_date) === periodValue;
+                return true;
+            });
         }
 
         if (!search) return list;
@@ -926,7 +1005,54 @@ export default function EnquiryReport() {
                 .filter(Boolean)
                 .some(value => String(value).toLowerCase().includes(search))
         );
-    }, [enquiries, deferredSearchTerm, showPendingOnly, showNegotiationOnly, dateFilter]);
+    }, [
+        enquiries,
+        deferredSearchTerm,
+        showPendingOnly,
+        showNegotiationOnly,
+        showTechnicalOnly,
+        broughtByFilter,
+        periodType,
+        periodValue
+    ]);
+
+    /* Dropdown options built from the loaded enquiries. */
+    const broughtByOptions = useMemo(() => {
+        const names = new Map();
+        enquiries.forEach(item => {
+            const name = String(item.brought_by || "").trim();
+            if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+        });
+        return [...names.values()].sort((a, b) => a.localeCompare(b));
+    }, [enquiries]);
+
+    const weekOptions = useMemo(() => {
+        const keys = new Set([getWeekKey(getTodayKey())]);
+        enquiries.forEach(item => {
+            const key = getWeekKey(item.enquiry_date);
+            if (key) keys.add(key);
+        });
+        return [...keys].sort().reverse();
+    }, [enquiries]);
+
+    const monthOptions = useMemo(() => {
+        const keys = new Set([getTodayKey().slice(0, 7)]);
+        enquiries.forEach(item => {
+            const key = getMonthKey(item.enquiry_date);
+            if (key) keys.add(key);
+        });
+        return [...keys].sort().reverse();
+    }, [enquiries]);
+
+    /* Switching day/week/month starts on the current period. */
+    function handlePeriodTypeChange(type) {
+        setPeriodType(type);
+        const today = getTodayKey();
+        if (type === "day") setPeriodValue(today);
+        else if (type === "week") setPeriodValue(getWeekKey(today));
+        else if (type === "month") setPeriodValue(today.slice(0, 7));
+        else setPeriodValue("");
+    }
 
     /* =====================================================
        ADD ENQUIRY
@@ -1366,22 +1492,74 @@ export default function EnquiryReport() {
                             Negotiation rework pending
                         </label>
 
-                        <div className="date-filter">
+                        <label className="pending-filter">
+                            <input
+                                type="checkbox"
+                                checked={showTechnicalOnly}
+                                onChange={e => setShowTechnicalOnly(e.target.checked)}
+                            />
+                            Technical clarification
+                        </label>
+
+                        <div className="toolbar-filter">
                             <label>
-                                Date
-                                <input
-                                    type="date"
-                                    value={dateFilter}
-                                    onChange={e => setDateFilter(e.target.value)}
-                                />
+                                Brought By
+                                <select
+                                    value={broughtByFilter}
+                                    onChange={e => setBroughtByFilter(e.target.value)}
+                                >
+                                    <option value="">All</option>
+                                    {broughtByOptions.map(name => (
+                                        <option key={name} value={name}>{name}</option>
+                                    ))}
+                                </select>
+                            </label>
+                        </div>
+
+                        <div className="toolbar-filter">
+                            <label>
+                                Period
+                                <select
+                                    value={periodType}
+                                    onChange={e => handlePeriodTypeChange(e.target.value)}
+                                >
+                                    <option value="">All dates</option>
+                                    <option value="day">Day</option>
+                                    <option value="week">Week</option>
+                                    <option value="month">Month</option>
+                                </select>
                             </label>
 
-                            {dateFilter && (
+                            {periodType === "day" && (
+                                <input
+                                    type="date"
+                                    value={periodValue}
+                                    onChange={e => setPeriodValue(e.target.value)}
+                                />
+                            )}
+
+                            {periodType === "week" && (
+                                <select value={periodValue} onChange={e => setPeriodValue(e.target.value)}>
+                                    {weekOptions.map(key => (
+                                        <option key={key} value={key}>{formatWeekKey(key)}</option>
+                                    ))}
+                                </select>
+                            )}
+
+                            {periodType === "month" && (
+                                <select value={periodValue} onChange={e => setPeriodValue(e.target.value)}>
+                                    {monthOptions.map(key => (
+                                        <option key={key} value={key}>{formatMonthKey(key)}</option>
+                                    ))}
+                                </select>
+                            )}
+
+                            {periodType && (
                                 <button
                                     type="button"
-                                    className="date-filter-clear"
-                                    onClick={() => setDateFilter("")}
-                                    title="Clear date filter"
+                                    className="toolbar-filter-clear"
+                                    onClick={() => handlePeriodTypeChange("")}
+                                    title="Clear period filter"
                                 >
                                     ×
                                 </button>
@@ -1429,7 +1607,7 @@ export default function EnquiryReport() {
                                     <th>Assigned To</th>
                                     <th>Bought By</th>
                                     <th>Date</th>
-                                    <th>Customer Name</th>
+                                    <th className="sticky-customer">Customer Name</th>
                                     <th className="address-column">Address</th>
                                     <th>Phone No</th>
                                     <th className="description-column">Description</th>

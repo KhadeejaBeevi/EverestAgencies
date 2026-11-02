@@ -865,7 +865,7 @@ console.log("LR DATA:", data);
             
             {openPopup && (
 
-                <div className="fixed inset-0 bg-white z-[9999] overflow-y-auto">
+                <div className="fixed inset-0 bg-white z-[100000] overflow-y-auto">
 
                     <div className="sticky top-0 bg-white border-b px-5 py-4 flex items-center justify-between z-50 shadow-sm">
 
@@ -1336,7 +1336,7 @@ console.log("LR DATA:", data);
 
             {cameraOn && (
 
-                <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-[9999] p-4">
+                <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-[100001] p-4">
 
                     <div className="bg-white rounded-3xl p-4 w-full max-w-md relative">
 

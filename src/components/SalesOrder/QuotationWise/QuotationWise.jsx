@@ -2123,6 +2123,10 @@ const QuotationWise = () => {
     };
 
 
+    // Phones show each quotation as a card (like Tender Details) and the
+    // page scrolls normally instead of the fixed-height table.
+    const isMobile = screenWidth <= 768;
+
     // Column widths as a share of the screen, so the whole table fits
     // small desktops without sideways scrolling. Admins have one extra column.
     const colWidth = isAdminUser
@@ -2183,9 +2187,10 @@ const QuotationWise = () => {
     return (
         <>
             <style>{`
+                ${isMobile ? "" : `
                 html, body, #root {
                     overflow: hidden;
-                }
+                }`}
 
                 @keyframes followupBlink {
                     0%, 100% { opacity: 1; transform: scale(1); }
@@ -2274,7 +2279,7 @@ const QuotationWise = () => {
                 <div
                     ref={filterHeaderRef}
                     style={{
-                        position: "sticky",
+                        position: isMobile ? "static" : "sticky",
                         top: "65px",
                         zIndex: 100,
                         background: "#fff",
@@ -3159,18 +3164,18 @@ const QuotationWise = () => {
                     filteredData.length >
                     0 && (
                         <div
-                            className="quotation-table-container"
+                            className={`quotation-table-container${isMobile ? " qw-mobile-cards" : ""}`}
                             ref={tableContainerRef}
-                            onScroll={handleTableScroll}
+                            onScroll={isMobile ? undefined : handleTableScroll}
                             style={{
                                 width: "100%",
                                 maxWidth: "100%",
-                                overflowX: "auto",
-                                overflowY: "auto",
+                                overflowX: isMobile ? "visible" : "auto",
+                                overflowY: isMobile ? "visible" : "auto",
                                 marginTop: "10px",
-                                height: `${tableHeight}px`,
-                                minHeight: "250px",
-                                maxHeight: `${tableHeight}px`,
+                                height: isMobile ? "auto" : `${tableHeight}px`,
+                                minHeight: isMobile ? 0 : "250px",
+                                maxHeight: isMobile ? "none" : `${tableHeight}px`,
                                 boxSizing: "border-box",
                                 position: "relative"
                             }}
@@ -3186,7 +3191,9 @@ const QuotationWise = () => {
                                         0,
                                     // Smaller text on small desktops so every column fits.
                                     fontSize:
-                                        screenWidth < 700
+                                        isMobile
+                                            ? "13px"
+                                            : screenWidth < 700
                                             ? "9px"
                                             : screenWidth < 1100
                                                 ? "10px"
@@ -3290,7 +3297,7 @@ const QuotationWise = () => {
                                                         MAIN ROW
                                                     ======================================= */}
 
-                                                    <tr
+                                                    <tr className="qw-main-row"
                                                         style={{
                                                             "--quotation-party-bg":
                                                                 groupedDisplayData.colors.get(row) ||
@@ -3299,7 +3306,7 @@ const QuotationWise = () => {
                                                     >
                                                         {/* S.NO */}
 
-                                                        <td
+                                                        <td data-label="S.No"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign:
@@ -3325,7 +3332,7 @@ const QuotationWise = () => {
                                                             {/* LONG-TERM CLIENT */}
 
                                                         {isAdminUser && (
-                                                        <td
+                                                        <td data-label="Long-Term Client"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign: "center",
@@ -3390,7 +3397,7 @@ const QuotationWise = () => {
 
                                                         {/* DATE */}
 
-                                                        <td
+                                                        <td data-label="Date"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign:
@@ -3406,7 +3413,7 @@ const QuotationWise = () => {
                                                         </td>
 
                                                         {/* REFERENCE DETAILS */}
-                                                        <td
+                                                        <td data-label="Reference Details"
                                                             style={{
                                                                 ...tdStyle,
                                                                 whiteSpace: "normal",
@@ -3519,7 +3526,7 @@ const QuotationWise = () => {
 
                                                         {/* PARTY NAME + MAILING ADDRESS */}
 
-                                                        <td
+                                                        <td data-label="Party Name"
                                                             style={{
                                                                 ...tdStyle,
                                                                 fontWeight: "600",
@@ -3845,7 +3852,7 @@ const QuotationWise = () => {
 
                                                         {/* QUOTATION AMOUNT */}
 
-                                                        <td
+                                                        <td data-label="Quotation Amount"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign:
@@ -3859,7 +3866,7 @@ const QuotationWise = () => {
 
                                                         {/* BILLED AMOUNT */}
 
-                                                        <td
+                                                        <td data-label="Billed Amount"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign: "right",
@@ -3879,7 +3886,7 @@ const QuotationWise = () => {
 
                                                         {/* INVOICE */}
 
-                                                        <td
+                                                        <td data-label="Invoice No"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign: "left",
@@ -3949,7 +3956,7 @@ const QuotationWise = () => {
 
                                                         {/* BILLED PARTY + ADDRESS */}
 
-                                                        <td
+                                                        <td data-label="Billed Party"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign: "left",
@@ -4090,7 +4097,7 @@ const QuotationWise = () => {
                                                         </td>
 
                                                         {/* SALES & FOLLOW-UP */}
-                                                        <td
+                                                        <td data-label="Sales & Follow-up"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign: "left",
@@ -4253,7 +4260,7 @@ const QuotationWise = () => {
 
                                                         {/* STATUS */}
 
-                                                        <td
+                                                        <td data-label="Status"
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign:
@@ -4274,7 +4281,7 @@ const QuotationWise = () => {
                                                         </td>
 
                                                         {/* NOTES */}
-                                                        <td
+                                                        <td data-label="Notes"
                                                             style={{
                                                                 textAlign: "center",
                                                                 borderBottom: "1px solid #eee"
@@ -4319,7 +4326,7 @@ const QuotationWise = () => {
                                                     {isExpanded &&
                                                         items.length >
                                                         0 && (
-                                                            <tr>
+                                                            <tr className="qw-detail-row">
                                                                 <td
                                                                     colSpan={
                                                                         isAdminUser ? 12 : 11
@@ -4592,7 +4599,7 @@ const QuotationWise = () => {
                                                         status === "billed" &&
                                                         Array.isArray(row.bills) &&
                                                         row.bills.length > 0 && (
-                                                            <tr>
+                                                            <tr className="qw-detail-row">
                                                                 <td
                                                                     colSpan={isAdminUser ? 12 : 11}
                                                                     style={{
@@ -4615,7 +4622,7 @@ const QuotationWise = () => {
                                     )}
 
                                     {groupedDisplayData.rows.length > visibleRowCount && (
-                                        <tr>
+                                        <tr className="qw-more-row">
                                             <td
                                                 colSpan={isAdminUser ? 12 : 11}
                                                 style={{
@@ -4627,7 +4634,7 @@ const QuotationWise = () => {
                                                     color: "#555"
                                                 }}
                                             >
-                                                Showing {visibleRowCount} of {groupedDisplayData.rows.length} quotations. Scroll down for more, or{" "}
+                                                Showing {visibleRowCount} of {groupedDisplayData.rows.length} quotations.{isMobile ? " " : " Scroll down for more, or "}
                                                 <button
                                                     type="button"
                                                     onClick={showMoreRows}

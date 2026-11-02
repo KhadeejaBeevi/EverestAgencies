@@ -37,12 +37,63 @@ if (!is_dir($uploadDir)) {
 
 
 /* =========================
-   IMAGE UPLOAD FUNCTION
+   ALLOWED FILE TYPES
+   Images + common documents.
+   Scripts (.php etc.) are never allowed.
+   Keep in sync with add_po.php and FILE_ACCEPT in POEntry.jsx
 ========================= */
 
-function uploadImage($field, $oldFile, $uploadDir)
+$allowedExtensions = [
+    // images
+    "jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "tif", "tiff",
+    // documents
+    "pdf", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx", "txt", "odt", "ods"
+];
+
+
+/* =========================
+   CHECK FILE TYPES FIRST
+   (tell the user instead of silently keeping the old file)
+========================= */
+
+$fileLabels = [
+    "quotation_image" => "Quotation file",
+    "po_image"        => "PO file",
+    "invoice_image"   => "Invoice file"
+];
+
+foreach ($fileLabels as $field => $label) {
+
+    if (
+        isset($_FILES[$field]) &&
+        $_FILES[$field]["error"] === UPLOAD_ERR_OK
+    ) {
+
+        $ext = strtolower(
+            pathinfo($_FILES[$field]["name"], PATHINFO_EXTENSION)
+        );
+
+        if (!in_array($ext, $allowedExtensions)) {
+
+            echo json_encode([
+                "success" => false,
+                "message" => "$label: .$ext files are not allowed. Allowed types: " .
+                             implode(", ", $allowedExtensions)
+            ]);
+
+            exit;
+        }
+    }
+}
+
+
+/* =========================
+   FILE UPLOAD FUNCTION
+========================= */
+
+function uploadImage($field, $oldFile, $uploadDir, $allowedExtensions)
 {
-    // No new image selected
+    // No new file selected
     if (
         !isset($_FILES[$field]) ||
         $_FILES[$field]["error"] !== UPLOAD_ERR_OK
@@ -56,14 +107,6 @@ function uploadImage($field, $oldFile, $uploadDir)
             PATHINFO_EXTENSION
         )
     );
-
-    $allowedExtensions = [
-        "jpg",
-        "jpeg",
-        "png",
-        "webp",
-        "pdf"
-    ];
 
     if (!in_array($extension, $allowedExtensions)) {
         return $oldFile;
@@ -83,7 +126,7 @@ function uploadImage($field, $oldFile, $uploadDir)
         )
     ) {
 
-        // Delete old image only after new image is successfully uploaded
+        // Delete old file only after new file is successfully uploaded
         if (
             !empty($oldFile) &&
             file_exists($uploadDir . $oldFile)
@@ -232,25 +275,28 @@ $invoice_amount =
 
 
 /* =========================
-   IMAGES
+   FILES
 ========================= */
 
 $quotation_image = uploadImage(
     "quotation_image",
     $oldData["quotation_image"],
-    $uploadDir
+    $uploadDir,
+    $allowedExtensions
 );
 
 $po_image = uploadImage(
     "po_image",
     $oldData["po_image"],
-    $uploadDir
+    $uploadDir,
+    $allowedExtensions
 );
 
 $invoice_image = uploadImage(
     "invoice_image",
     $oldData["invoice_image"],
-    $uploadDir
+    $uploadDir,
+    $allowedExtensions
 );
 
 

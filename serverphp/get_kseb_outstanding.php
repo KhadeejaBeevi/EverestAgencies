@@ -168,11 +168,19 @@ try {
 |                   named from the voucher.
 |   On Account receipts -> On Account.
 |
-| Security deposits: the deposit / retention lines of those vouchers
-| ("Security Deposit with KSEB ..." ledgers, New Ref with the LPO as
-| reference), deposits we paid (Payment vouchers of a deposit ledger)
-| and their refunds, returned as security_deposits, one row
-| per KSEB ledger + deposit ledger + reference: deposited, refunded and
+| ParentGroup / GrandParentGroup (read as LedgerParent /
+| LedgerGrandParent): Tally group of the line's ledger
+| and the group above it ($EveIsBelongsToParent /
+| $EveIsBelongsToGrandParent of the export).
+|
+| Security deposits: every line of a ledger in the Tally group
+| "SECURITY DEPOSITS KSEB" (ParentGroup), e.g. "Security Deposit with
+| KSEB ED Mananthavady": deposits taken from a KSEB receipt (New Ref
+| with the LPO as reference), deposits we paid (Payment) and their
+| refunds (Receipt, also when the party is the bank). Rows imported
+| before ParentGroup existed fall back to the ledger name
+| (deposit / retention). Returned as security_deposits, one row per
+| KSEB ledger + deposit ledger + reference: deposited, refunded and
 | balance (still held). Earlier years count too (no 1st April limit).
 |
 | ---- Balance ---------------------------------------------------------
@@ -231,6 +239,9 @@ try {
 |
 |--------------------------------------------------------------------------
 */
+
+/* Tally group of the security deposit ledgers ($EveIsBelongsToParent). */
+define("DEPOSIT_GROUP", "SECURITY DEPOSITS KSEB");
 
 function validDate($value): bool
 {
@@ -707,24 +718,97 @@ function voucherDetails(string $salesId, array $rows): array
 }
 
 /* Security deposit / retention ledger ("Security Deposit with KSEB ED
-   Mananthavady"). */
+   Mananthavady"), by its name. */
 function isDepositLedger(string $name): bool
 {
     return preg_match('/deposit|retention/i', $name) === 1;
 }
 
 /*
+  Security deposit line of kseb_receipts: its ledger is in the Tally
+  group "SECURITY DEPOSITS KSEB" (ParentGroup = $EveIsBelongsToParent).
+  Rows imported before that column existed fall back to the ledger name.
+*/
+function isDepositRow(array $row, string $ledger): bool
+{
+    $parent = cleanValue($row["LedgerParent"] ?? "");
+
+    if ($parent !== "") {
+        return strcasecmp($parent, DEPOSIT_GROUP) === 0;
+    }
+
+    return isDepositLedger($ledger);
+}
+
+/*
   Office part of a ledger name, to find the KSEB ledger a deposit ledger
   belongs to: "Security Deposit with KSEB ED Mananthavady" and
   "KSEB- ED- Mananthavady C/o Sreelal" are both "ksebedmananthavady".
+  Spellings differ between the two ledgers ("Vadasserikara" /
+  "Vadasserikkara", "Harippad" / "Haripad", "Koothu" / "Kuthu"), so
+  double letters count once, oo = u and ee = i.
 */
 function officeKey(string $name): string
 {
     $text = strtolower($name);
     $text = preg_replace('/\bc\s*\/\s*o\b.*$/', '', $text);
     $text = preg_replace('/security\s*deposit|deposit|retention|\bwith\b|\bsd\b/', '', $text);
+    // "WithKSEB" written without a space.
+    $text = preg_replace('/with\s*(?=kseb)/', '', $text);
+    // "Sub Stat." / "Sub Station" / "S/S" = "Substation".
+    $text = preg_replace('/\bsub[\s.\-]*stat(ion)?\b\.?|\bs\s*\/\s*s\b/', 'substation', $text);
+    $text = preg_replace('/[^a-z0-9]/', '', $text);
+    $text = str_replace(['oo', 'ee'], ['u', 'i'], $text);
 
-    return preg_replace('/[^a-z0-9]/', '', $text);
+    return preg_replace('/(.)\1+/', '$1', $text);
+}
+
+/*
+  KSEB ledger of a deposit ledger: the one with the same office key,
+  else the one office key that is one letter away ("Venjaramood" /
+  "Venjaramoodu", "Pattanakkad" / "PATTANAKKD"; two letters would join
+  different offices, e.g. Kattappana / Kattakada). The
+  office type must be the same (the first 7 letters: "ksebed" Kollam
+  is never "ksebec" Kollam), and only one ledger may be that close.
+  $offices = [office key => KSEB ledger name]. "" when none is found.
+*/
+function officeLedgerFor(array $offices, string $depositLedger): string
+{
+    $key = officeKey($depositLedger);
+
+    if ($key === "") {
+        return "";
+    }
+
+    if (isset($offices[$key])) {
+        return $offices[$key];
+    }
+
+    if (strlen($key) < 10) {
+        return "";
+    }
+
+    $best = null;
+    $bestDistance = 2;
+    $ties = 0;
+
+    foreach ($offices as $officeKey => $ledger) {
+        if (strncmp($officeKey, $key, 7) !== 0) {
+            continue;
+        }
+
+        $distance = levenshtein($officeKey, $key);
+
+        if ($distance < $bestDistance) {
+            $best = $ledger;
+            $bestDistance = $distance;
+            $ties = 1;
+        } elseif ($distance === $bestDistance) {
+            $ties++;
+        }
+    }
+
+    return $best !== null && $ties === 1 ? $best : "";
 }
 
 /*
@@ -847,9 +931,10 @@ function receiptVoucher(string $masterId, array $rows): array
             return false;
         }
 
-        // A deposit ledger ("Security Deposit with KSEB ...") is not a
-        // KSEB office, also when it is the voucher's party.
-        if (isDepositLedger($ledgerOf($row))) {
+        // A deposit ledger ("Security Deposit with KSEB ...", group
+        // SECURITY DEPOSITS KSEB) is not a KSEB office, also when it is
+        // the voucher's party.
+        if (isDepositRow($row, $ledgerOf($row))) {
             return false;
         }
 
@@ -896,12 +981,12 @@ function receiptVoucher(string $masterId, array $rows): array
         // bank: the line Tally shows as particulars of a receipt.
         $isBank = ["bank" => (bool)intval($row["IsBankLedger"])];
 
-        /* Security deposit / retention line, by its ledger name: a
-           deposit taken from a KSEB receipt, a deposit we paid (Payment
-           with the deposit ledger as party) or its refund. */
+        /* Security deposit / retention line (group SECURITY DEPOSITS
+           KSEB): a deposit taken from a KSEB receipt, a deposit we paid
+           (Payment with the deposit ledger as party) or its refund. */
         $captured = false;
 
-        if (!intval($row["IsBankLedger"]) && isDepositLedger($ledgerOf($row))) {
+        if (!intval($row["IsBankLedger"]) && isDepositRow($row, $ledgerOf($row))) {
             $depositLines[$ledgerOf($row)][] = $row;
             $captured = true;
             $others[] = drCrLine($ledgerOf($row), $amount) + $isBank;
@@ -988,6 +1073,8 @@ function receiptVoucher(string $masterId, array $rows): array
         foreach ($source as $row) {
             $deposits[] = [
                 "ledger" => (string)$name,
+                // Tally group of the deposit ledger (SECURITY DEPOSITS KSEB).
+                "ledger_group" => cleanValue($row["LedgerParent"] ?? ""),
                 "bill_ref" => $billNameOf($row),
                 "bill_date" => cleanValue($row["BillDate"]),
                 "bill_type" => cleanValue($row["BillType"]),
@@ -1310,6 +1397,162 @@ function parseOutstanding(array $items): array
     return $parties;
 }
 
+/*
+  Ask Tally for the security deposit break up: the pending references
+  (LPO) of every ledger in the group SECURITY DEPOSITS KSEB as on the
+  day before 1st April. Settings (env, or the defaults):
+    TALLY_DEPOSIT_REPORT  report to export (default "Group Outstandings",
+                          Tally's own bill-wise report of a group)
+  The group goes as GROUPNAME. A copy of the LOB Report for the deposit
+  group works too (its LOB* tags are read the same way).
+  Returns the raw XML, or null (with $error set).
+*/
+function fetchDepositsFromTally(string $toDate, ?string &$error): ?string
+{
+    $tallyUrl = getenv("TALLY_URL") ?: "http://117.221.70.147:14151";
+    $company = getenv("TALLY_COMPANY") ?: "";
+    $report = getenv("TALLY_DEPOSIT_REPORT") ?: "Group Outstandings";
+
+    $esc = function ($value) {
+        return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, "UTF-8");
+    };
+
+    $xmlRequest = '
+    <ENVELOPE>
+        <HEADER>
+            <TALLYREQUEST>Export Data</TALLYREQUEST>
+        </HEADER>
+        <BODY>
+            <EXPORTDATA>
+                <REQUESTDESC>
+                    <REPORTNAME>' . $esc($report) . '</REPORTNAME>
+                    <STATICVARIABLES>
+                        <SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
+                        ' . ($company !== "" ? "<SVCURRENTCOMPANY>" . $esc($company) . "</SVCURRENTCOMPANY>" : "") . '
+                        <SVFROMDATE>$BooksFrom:Company:##SVCurrentCompany</SVFROMDATE>
+                        <SVTODATE>' . $esc(date("Ymd", strtotime($toDate))) . '</SVTODATE>
+                        <GROUPNAME>' . $esc(DEPOSIT_GROUP) . '</GROUPNAME>
+                        <EXPLODEFLAG>Yes</EXPLODEFLAG>
+                    </STATICVARIABLES>
+                </REQUESTDESC>
+            </EXPORTDATA>
+        </BODY>
+    </ENVELOPE>';
+
+    $ch = curl_init($tallyUrl);
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $xmlRequest,
+        CURLOPT_HTTPHEADER => ["Content-Type: application/xml", "Expect:"],
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_0,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 60
+    ]);
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+    curl_close($ch);
+
+    if ($response === false || $curlError !== "") {
+        $error = "Tally not reachable (" . $curlError . ")";
+        return null;
+    }
+
+    if ($httpCode !== 200 || trim($response) === "") {
+        $error = "Tally returned HTTP " . $httpCode;
+        return null;
+    }
+
+    return $response;
+}
+
+/*
+  Deposit report XML -> parties with their pending bills, the same
+  shape as parseOutstanding. Two layouts are read:
+    - LOB* tags (a copy of the LOB Report): parseOutstanding.
+    - Tally's own bill-wise export:
+        <BILLFIXED><BILLDATE/><BILLREF/><BILLPARTY/></BILLFIXED>
+        <BILLCL>amount</BILLCL><BILLDUE>due date</BILLDUE> ...
+      one block per pending bill, BILLPARTY = the ledger.
+*/
+function parseDepositReport(string $raw): array
+{
+    if (stripos($raw, "<LOBNAME>") !== false || stripos($raw, "L\0O\0B\0N\0A\0M\0E") !== false) {
+        return parseOutstanding(decodeOutstandingXml($raw));
+    }
+
+    if (strncmp($raw, "\xFF\xFE", 2) === 0) {
+        $raw = mb_convert_encoding(substr($raw, 2), "UTF-8", "UTF-16LE");
+    } elseif (strncmp($raw, "\xFE\xFF", 2) === 0) {
+        $raw = mb_convert_encoding(substr($raw, 2), "UTF-8", "UTF-16BE");
+    } elseif (strncmp($raw, "\xEF\xBB\xBF", 3) === 0) {
+        $raw = substr($raw, 3);
+    }
+
+    $raw = preg_replace('/<\?xml[^>]*\?>/i', '', $raw, 1);
+    $raw = preg_replace_callback('/&#(x[0-9a-f]+|\d+);/i', function ($m) {
+        $code = stripos($m[1], "x") === 0 ? hexdec(substr($m[1], 1)) : intval($m[1]);
+
+        return $code < 32 && !in_array($code, [9, 10, 13], true) ? "" : $m[0];
+    }, $raw);
+    $raw = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $raw);
+
+    $xml = simplexml_load_string($raw, "SimpleXMLElement", LIBXML_NOCDATA | LIBXML_PARSEHUGE);
+
+    if ($xml === false) {
+        throw new RuntimeException("Deposit report XML could not be parsed.");
+    }
+
+    if (isset($xml->LINEERROR)) {
+        throw new RuntimeException("Tally error: " . cleanValue((string)$xml->LINEERROR));
+    }
+
+    $parties = [];
+    $bill = null;
+
+    $flush = function () use (&$bill, &$parties) {
+        if ($bill !== null && $bill["party"] !== "" && $bill["amount"] !== null) {
+            $parties[$bill["party"]]["name"] = $bill["party"];
+            $parties[$bill["party"]]["total"] = null;
+            $parties[$bill["party"]]["bills"][] = [
+                "ref" => $bill["ref"],
+                "date" => $bill["date"],
+                "period" => $bill["period"],
+                "amount" => $bill["amount"]
+            ];
+        }
+        $bill = null;
+    };
+
+    foreach ($xml->xpath('//*[BILLFIXED]') ?: [] as $container) {
+        foreach ($container->children() as $child) {
+            $tag = strtoupper($child->getName());
+
+            if ($tag === "BILLFIXED") {
+                $flush();
+                $bill = [
+                    "party" => preg_replace('/\s+/', ' ', cleanValue((string)$child->BILLPARTY)),
+                    "ref" => cleanValue((string)$child->BILLREF),
+                    "date" => cleanValue((string)$child->BILLDATE),
+                    "period" => "",
+                    "amount" => null
+                ];
+            } elseif ($bill !== null && $tag === "BILLCL") {
+                $bill["amount"] = tallyAmount((string)$child);
+            } elseif ($bill !== null && $tag === "BILLDUE") {
+                $bill["period"] = cleanValue((string)$child);
+            }
+        }
+        $flush();
+    }
+
+    return array_values($parties);
+}
+
 try {
 
     /* =========================================================
@@ -1362,6 +1605,15 @@ try {
     ========================================================= */
 
     $directory = [];
+    // Ledger names as written in the directory, to find the KSEB
+    // ledger of a security deposit ledger by its office.
+    $directoryNames = [];
+    /* The Security Deposit ledger of a KSEB card: the card's
+       security_deposit_ledger (chosen on the KSEB Directory page), or a
+       deposit ledger written in its tally_name. The card's KSEB ledger
+       (tally_name) is that deposit ledger's KSEB ledger, whatever the
+       spelling. Deposit ledger key -> KSEB ledger. */
+    $directoryDepositLedger = [];
     $warnings = [];
 
     try {
@@ -1382,14 +1634,30 @@ try {
             $directoryTable = "tally_db.kseb_directory";
         }
 
-        $dirResult = $tallyPdo->query("
-            SELECT id, tally_name, PARENT_AREA
-            FROM {$directoryTable}
-            WHERE TRIM(COALESCE(tally_name, '')) <> ''
-            ORDER BY id ASC
-        ");
+        /* security_deposit_ledger: the Security Deposit ledger chosen
+           for the KSEB card on the KSEB Directory page (update_kseb.php).
+           Older directories without that column are read without it. */
+        try {
+            $dirResult = $tallyPdo->query("
+                SELECT id, tally_name, PARENT_AREA, security_deposit_ledger
+                FROM {$directoryTable}
+                WHERE TRIM(COALESCE(tally_name, '')) <> ''
+                   OR TRIM(COALESCE(security_deposit_ledger, '')) <> ''
+                ORDER BY id ASC
+            ");
+        } catch (Throwable $e) {
+            $dirResult = $tallyPdo->query("
+                SELECT id, tally_name, PARENT_AREA, NULL AS security_deposit_ledger
+                FROM {$directoryTable}
+                WHERE TRIM(COALESCE(tally_name, '')) <> ''
+                ORDER BY id ASC
+            ");
+        }
 
         while ($dir = $dirResult->fetch()) {
+
+            $rowKseb = "";
+            $rowDeposits = [];
 
             foreach (explode(",", (string)$dir["tally_name"]) as $name) {
 
@@ -1397,6 +1665,35 @@ try {
 
                 if ($key !== "" && !isset($directory[$key])) {
                     $directory[$key] = cleanValue($dir["PARENT_AREA"]);
+                    $directoryNames[$key] = preg_replace('/\s+/', ' ', cleanValue($name));
+                }
+
+                if (isDepositLedger($name)) {
+                    $rowDeposits[] = $key;
+                } elseif ($rowKseb === "" && strpos($key, "kseb") === 0) {
+                    $rowKseb = preg_replace('/\s+/', ' ', cleanValue($name));
+                }
+            }
+
+            // Security Deposit ledger chosen for this KSEB card.
+            $cardDeposit = cleanValue($dir["security_deposit_ledger"] ?? "");
+
+            if ($cardDeposit !== "") {
+                $cardKey = ledgerKey($cardDeposit);
+
+                // The card's choice wins over a name in tally_name.
+                if ($rowKseb !== "") {
+                    $directoryDepositLedger[$cardKey] = $rowKseb;
+                }
+
+                if (!isset($directory[$cardKey])) {
+                    $directory[$cardKey] = cleanValue($dir["PARENT_AREA"]);
+                }
+            }
+
+            foreach ($rowDeposits as $depositKey) {
+                if ($rowKseb !== "" && !isset($directoryDepositLedger[$depositKey])) {
+                    $directoryDepositLedger[$depositKey] = $rowKseb;
                 }
             }
         }
@@ -1419,10 +1716,16 @@ try {
        on every row of the ledger: one value per ledger (MAX),
        never a SUM. If it cannot be read, the page shows the
        opening / closing boxes blank.
+
+       Security deposit ledgers ("Security Deposit with KSEB ED
+       Adoor") are read too, into $depositOpeningByKey: the deposits
+       KSEB held on 1st April, Dr positive.
     ========================================================= */
 
     $openingByKey = [];
     $openingNames = [];
+    $depositOpeningByKey = [];
+    $depositOpeningNames = [];
 
     try {
         $openResult = $pdo->query("
@@ -1431,7 +1734,14 @@ try {
                 MAX(`Ledger.\$OpeningBalance`) AS opening_balance
             FROM salesdatalatest33
             WHERE
-                LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'kseb%'
+                (
+                    LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'kseb%'
+                    -- Security Deposit with KSEB ... only: other deposit
+                    -- ledgers (Earnest Money Deposit -KSEB, Dealership
+                    -- Deposit ...) are not KSEB security deposits.
+                    OR LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'security deposit%kseb%'
+                    OR LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'retention%kseb%'
+                )
                 AND TRIM(COALESCE(`Ledger.\$OpeningBalance`, '')) <> ''
             GROUP BY TRIM(PartyLedgerName)
         ");
@@ -1441,7 +1751,14 @@ try {
             $amount = tallyBalance($open["opening_balance"]);
             $key = ledgerKey($open["party"]);
 
-            if ($amount !== null && $key !== "") {
+            if ($amount === null || $key === "") {
+                continue;
+            }
+
+            if (isDepositLedger($open["party"])) {
+                $depositOpeningByKey[$key] = round($amount, 2);
+                $depositOpeningNames[$key] = preg_replace('/\s+/', ' ', cleanValue($open["party"]));
+            } else {
                 $openingByKey[$key] = round($amount, 2);
                 $openingNames[$key] = cleanValue($open["party"]);
             }
@@ -1453,6 +1770,73 @@ try {
         error_log("KSEB OUTSTANDING OPENING BALANCE ERROR: " . $e->getMessage());
         $warnings[] = "Opening balances (salesdatalatest33) could not be read.";
     }
+
+    /* Security deposit ledgers by their Tally group: every ledger whose
+       Ledger.$Parent is SECURITY DEPOSITS KSEB, whatever its name
+       ("Security Deposit with KSEB EC ,Kollam" ...). When the table has
+       no Ledger.$Name / Ledger.$Parent columns, the deposit ledgers
+       found by name above are kept. Ledgers with a zero opening balance
+       are left out. */
+    try {
+        /* import_ledgers.php stores Ledger.$Name as PartyLedgerName;
+           the group column keeps its Excel name (Ledger.$Parent), or
+           $Parent without the prefix. */
+        $columns = array_column($pdo->query("SHOW COLUMNS FROM salesdatalatest33")->fetchAll(), "Field");
+        $parentColumn = null;
+
+        foreach (['Ledger.$Parent', '$Parent', 'Parent', 'ParentLedgerName'] as $candidate) {
+            if (in_array($candidate, $columns, true)) {
+                $parentColumn = $candidate;
+                break;
+            }
+        }
+
+        if ($parentColumn === null) {
+            throw new RuntimeException("salesdatalatest33 has no Ledger.\$Parent column");
+        }
+
+        $groupResult = $pdo->prepare("
+            SELECT
+                TRIM(PartyLedgerName) AS ledger,
+                MAX(`Ledger.\$OpeningBalance`) AS opening_balance
+            FROM salesdatalatest33
+            WHERE
+                TRIM(COALESCE(`{$parentColumn}`, '')) = :deposit_group
+                AND TRIM(COALESCE(PartyLedgerName, '')) <> ''
+            GROUP BY TRIM(PartyLedgerName)
+        ");
+
+        $groupResult->execute([":deposit_group" => DEPOSIT_GROUP]);
+
+        $byGroup = [];
+        $byGroupNames = [];
+
+        while ($open = $groupResult->fetch()) {
+
+            $amount = tallyBalance($open["opening_balance"]);
+            $key = ledgerKey($open["ledger"]);
+
+            if ($amount !== null && abs($amount) >= 0.005 && $key !== "") {
+                $byGroup[$key] = round($amount, 2);
+                $byGroupNames[$key] = preg_replace('/\s+/', ' ', cleanValue($open["ledger"]));
+            }
+        }
+
+        $groupResult->closeCursor();
+
+        if ($byGroup) {
+            $depositOpeningByKey = $byGroup;
+            $depositOpeningNames = $byGroupNames;
+        }
+
+    } catch (Throwable $e) {
+        error_log("KSEB OUTSTANDING DEPOSIT GROUP OPENING BALANCE: " . $e->getMessage());
+    }
+
+    // Name match finds zero balances too: leave them out like above.
+    $depositOpeningByKey = array_filter($depositOpeningByKey, function ($amount) {
+        return abs($amount) >= 0.005;
+    });
 
     /* =========================================================
        1c. OPENING BILLS - FETCH XML FROM TALLY (optional)
@@ -1538,6 +1922,74 @@ try {
         }
     }
 
+    /* =========================================================
+       1c-2. SECURITY DEPOSIT BREAK UP (Tally, optional)
+
+       When the LOB Report has no Security Deposit ledgers, their
+       pending references (LPO) as on the day before 1st April are
+       asked from Tally separately (TALLY_DEPOSIT_REPORT), saved to
+       kseb_deposits.xml (KSEB_DEPOSITS_XML env) and reused like the
+       LOB Report. Anything going wrong only gives a warning.
+    ========================================================= */
+
+    $hasXmlDeposits = false;
+
+    foreach ($xmlParties as $p) {
+        if (isDepositLedger((string)$p["name"]) && stripos((string)$p["name"], "kseb") !== false) {
+            $hasXmlDeposits = true;
+            break;
+        }
+    }
+
+    if (!$hasXmlDeposits) {
+        $depositXmlPath = getenv("KSEB_DEPOSITS_XML") ?: __DIR__ . "/kseb_deposits.xml";
+        $depositParties = [];
+        $depositError = null;
+
+        $depositFresh = !$refresh
+            && is_file($depositXmlPath)
+            && time() - filemtime($depositXmlPath) < $cacheMinutes * 60;
+
+        try {
+            if (!$depositFresh && strtolower(cleanValue($input["source"] ?? "")) !== "file") {
+                $live = fetchDepositsFromTally(
+                    date("Y-m-d", strtotime($openingDate . " -1 day")),
+                    $depositError
+                );
+
+                if ($live !== null) {
+                    $depositParties = parseDepositReport($live);
+
+                    if ($depositParties) {
+                        @file_put_contents($depositXmlPath, $live);
+                    } else {
+                        $depositError = "Tally returned no security deposit bills";
+                    }
+                }
+            }
+
+            if (!$depositParties && is_file($depositXmlPath)) {
+                $depositParties = parseDepositReport((string)file_get_contents($depositXmlPath));
+            }
+        } catch (Throwable $e) {
+            $depositError = $e->getMessage();
+            $depositParties = [];
+        }
+
+        // Only the security deposit ledgers of KSEB.
+        $depositParties = array_values(array_filter($depositParties, function ($p) {
+            return isDepositLedger((string)$p["name"]) && stripos((string)$p["name"], "kseb") !== false;
+        }));
+
+        if ($depositParties) {
+            $xmlParties = array_merge($xmlParties, $depositParties);
+        } elseif ($depositError !== null) {
+            error_log("KSEB OUTSTANDING DEPOSIT REPORT: " . $depositError);
+            $warnings[] = "Security deposit break up could not be fetched from Tally ("
+                . mb_substr($depositError, 0, 150) . ").";
+        }
+    }
+
     $openingBills = [];
     $openingParty = [];
     $openingMismatch = [];
@@ -1545,10 +1997,51 @@ try {
     // Party total of the XML (<LOBAMT> after the party), page sign.
     $openingXmlTotal = [];
 
+    /* Security deposit ledgers of the XML ("Security Deposit with KSEB
+       ED Adoor"): their pending references (LPO) are the deposits KSEB
+       held on 1st April. kseb_receipts starts on 1st April, so without
+       them a refund of an older deposit has nothing to settle. */
+    $openingDeposits = [];
+
+    // Party total of each deposit ledger in the XML, page sign.
+    $openingDepositTotal = [];
+
     foreach ($xmlParties as $p) {
 
         $party = preg_replace('/\s+/', ' ', cleanValue($p["name"]));
         $partyKey = ledgerKey($party);
+
+        if (isDepositLedger($party) && strpos($partyKey, "kseb") !== false) {
+            $openingDepositTotal[$party] = $p["total"] !== null ? round(-$p["total"], 2) : null;
+
+            foreach ($p["bills"] as $b) {
+
+                if ($b["amount"] === null || abs($b["amount"]) < 0.005) {
+                    continue;
+                }
+
+                $billDate = tallyDate($b["date"]);
+                $billDate = $billDate !== "" ? $billDate : $openingDate;
+
+                $openingDeposits[] = [
+                    "ledger" => $party,
+                    "ledger_group" => DEPOSIT_GROUP,
+                    "bill_ref" => strcasecmp(cleanValue($b["ref"]), "On Account") === 0 ? "" : cleanValue($b["ref"]),
+                    "bill_date" => $billDate,
+                    "bill_type" => "Opening Balance",
+                    "credit_days" => billCreditDays($billDate, $b["period"]),
+                    // Tally sign (Dr -) -> page sign (+ = held by KSEB).
+                    "amount" => round(-$b["amount"], 2),
+                    "master_id" => "",
+                    "date" => $billDate,
+                    "voucher_type" => "Opening Balance",
+                    "voucher_no" => "",
+                    "party" => $party,
+                    "ledgers" => []
+                ];
+            }
+            continue;
+        }
 
         if (strpos($partyKey, "kseb") !== 0) {
             continue;
@@ -1617,65 +2110,93 @@ try {
        vouchers, salesdata receipts / payments are left out below
        (kseb_receipts is their source).
 
-       Security deposits: deposit / retention lines of those
-       vouchers (e.g. "Security Deposit with KSEB ED Mananthavady",
-       New Ref 540 days, with the LPO as reference), deposits we
-       paid (Payment of a deposit ledger) and their refunds. A
-       deposit stays held until it is refunded, so earlier years
-       count too: no 1st April limit for them.
+       Security deposits: every voucher with a line of the Tally
+       group SECURITY DEPOSITS KSEB (ParentGroup), e.g. "Security
+       Deposit with KSEB ED Mananthavady", New Ref 540 days, with
+       the LPO as reference: deposits taken from KSEB receipts,
+       deposits we paid (Payment) and their refunds (also when the
+       party is the bank). A deposit stays held until it is
+       refunded, so earlier years count too: no 1st April limit.
     ========================================================= */
 
     $receiptVouchers = [];
-    $depositEntries = [];
+    // Deposits held on 1st April (XML) first, then this year's entries.
+    $depositEntries = $openingDeposits;
 
     try {
-        // A join on the voucher ids is much faster than IN (SELECT ...).
-        $receiptStmt = $pdo->prepare("
-            SELECT
-                r.id,
-                r.MasterId,
-                r.VoucherTypeName,
-                r.`Date`,
-                r.VoucherNumber,
-                r.Reference,
-                r.PartyLedgerName,
-                r.LedgerName,
-                r.Amount,
-                r.BillDate,
-                r.BillType,
-                r.BillCreditPeriod,
-                r.IsBankLedger,
-                r.BillName
-            FROM kseb_receipts r
-            JOIN (
-                SELECT DISTINCT MasterId
-                FROM kseb_receipts
-                WHERE
-                    `Date` <= :as_of_ids
-                    AND (
-                        LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'kseb%'
-                        OR LOWER(TRIM(COALESCE(LedgerName, ''))) LIKE 'kseb%'
-                        OR ((LOWER(COALESCE(LedgerName, '')) LIKE '%deposit%'
-                             OR LOWER(COALESCE(LedgerName, '')) LIKE '%retention%')
-                            AND LOWER(COALESCE(LedgerName, '')) LIKE '%kseb%')
-                        OR ((LOWER(COALESCE(PartyLedgerName, '')) LIKE '%deposit%'
-                             OR LOWER(COALESCE(PartyLedgerName, '')) LIKE '%retention%')
-                            AND LOWER(COALESCE(PartyLedgerName, '')) LIKE '%kseb%')
-                    )
-            ) k ON k.MasterId = r.MasterId
-            WHERE
-                TRIM(COALESCE(r.MasterId, '')) <> ''
-                AND r.`Date` <= :as_of
-            ORDER BY
-                r.`Date` ASC,
-                r.MasterId ASC,
-                r.id ASC
-        ");
+        /* A join on the voucher ids is much faster than IN (SELECT ...).
+           The ParentGroup / GrandParentGroup columns are optional: when
+           the query with them fails (older table, MySQL collation ...),
+           it is run again without them, so receipts always load and
+           deposits fall back to the ledger name. */
+        $receiptQuery = function (bool $withGroup): string {
+            $groupColumns = $withGroup
+                ? "r.ParentGroup AS LedgerParent, r.GrandParentGroup AS LedgerGrandParent"
+                : "NULL AS LedgerParent, NULL AS LedgerGrandParent";
+            $groupFilter = $withGroup
+                ? "TRIM(COALESCE(ParentGroup, '')) = '" . DEPOSIT_GROUP . "' OR"
+                : "";
 
-        $receiptStmt->execute([
+            return "
+                SELECT
+                    r.id,
+                    r.MasterId,
+                    r.VoucherTypeName,
+                    r.`Date`,
+                    r.VoucherNumber,
+                    r.Reference,
+                    r.PartyLedgerName,
+                    r.LedgerName,
+                    r.Amount,
+                    r.BillDate,
+                    r.BillType,
+                    r.BillCreditPeriod,
+                    r.IsBankLedger,
+                    r.BillName,
+                    {$groupColumns}
+                FROM kseb_receipts r
+                JOIN (
+                    SELECT DISTINCT MasterId
+                    FROM kseb_receipts
+                    WHERE
+                        `Date` <= :as_of_ids
+                        AND (
+                            {$groupFilter}
+                            LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'kseb%'
+                            OR LOWER(TRIM(COALESCE(LedgerName, ''))) LIKE 'kseb%'
+                            OR ((LOWER(COALESCE(LedgerName, '')) LIKE '%deposit%'
+                                 OR LOWER(COALESCE(LedgerName, '')) LIKE '%retention%')
+                                AND LOWER(COALESCE(LedgerName, '')) LIKE '%kseb%')
+                            OR ((LOWER(COALESCE(PartyLedgerName, '')) LIKE '%deposit%'
+                                 OR LOWER(COALESCE(PartyLedgerName, '')) LIKE '%retention%')
+                                AND LOWER(COALESCE(PartyLedgerName, '')) LIKE '%kseb%')
+                        )
+                ) k ON k.MasterId = r.MasterId
+                WHERE
+                    TRIM(COALESCE(r.MasterId, '')) <> ''
+                    AND r.`Date` <= :as_of
+                ORDER BY
+                    r.`Date` ASC,
+                    r.MasterId ASC,
+                    r.id ASC
+            ";
+        };
+
+        $receiptParams = [
             ":as_of_ids" => $asOf,
             ":as_of" => $asOf
-        ]);
+        ];
+
+        try {
+            $receiptStmt = $pdo->prepare($receiptQuery(true));
+            $receiptStmt->execute($receiptParams);
+        } catch (Throwable $e) {
+            error_log("KSEB OUTSTANDING RECEIPTS (ParentGroup) ERROR: " . $e->getMessage());
+            $warnings[] = "kseb_receipts ParentGroup could not be read - security deposits are found by ledger name.";
+
+            $receiptStmt = $pdo->prepare($receiptQuery(false));
+            $receiptStmt->execute($receiptParams);
+        }
 
         $receiptRowsById = [];
 
@@ -1692,6 +2213,14 @@ try {
             // Receipts: from 1st April when the opening bills are loaded.
             if ($voucher["allocations"] && (!$hasOpeningBills || $voucherDate >= $openingDate)) {
                 $receiptVouchers[] = $voucher;
+            }
+
+            /* Deposits before 1st April are not taken from kseb_receipts:
+               like the ledgers' opening balance, the opening deposits
+               come from salesdatalatest33 and their break up from the
+               Tally XML. */
+            if ($voucherDate < $openingDate) {
+                continue;
             }
 
             foreach ($voucher["deposits"] as $d) {
@@ -1711,7 +2240,9 @@ try {
 
     } catch (Throwable $e) {
         error_log("KSEB OUTSTANDING RECEIPTS ERROR: " . $e->getMessage());
-        $warnings[] = "Receipts and security deposits (kseb_receipts) could not be read.";
+        // The reason, so it can be fixed without the server log.
+        $warnings[] = "Receipts and security deposits (kseb_receipts) could not be read: "
+            . mb_substr($e->getMessage(), 0, 200);
     }
 
     $useReceiptTable = count($receiptVouchers) > 0;
@@ -2604,11 +3135,13 @@ try {
         $summary["unmatched_receipts_amount"] += -$unmatchedTotal;
     }
 
-    /* Security deposits per deposit ledger + reference (LPO): what was
-       deposited, what was refunded and what KSEB still holds. The KSEB
-       ledger is the voucher party; a refund booked on the deposit
-       ledger itself takes the KSEB ledger of that deposit's earlier
-       entries. */
+    /* Security deposits (group SECURITY DEPOSITS KSEB) per deposit
+       ledger + reference (LPO): what was deposited, what was refunded
+       and what KSEB still holds. All of them are listed, also the
+       fully refunded ones. The KSEB ledger is the office in the
+       deposit ledger's name, else the voucher party; a refund booked
+       on the deposit ledger itself takes the KSEB ledger of that
+       deposit's earlier entries. */
 
     $depositKseb = [];
 
@@ -2625,6 +3158,7 @@ try {
     foreach (array_merge(
         array_column($ledgerInfo, "party"),
         array_values($openingNames),
+        array_values($directoryNames),
         array_column($depositEntries, "party")
     ) as $name) {
         if (strpos(ledgerKey($name), "kseb") === 0 && officeKey($name) !== "") {
@@ -2638,23 +3172,34 @@ try {
         /* KSEB ledger of the deposit: the office in the deposit ledger's
            name, else the voucher's KSEB party, else the KSEB party of
            the same deposit ledger's other entries. */
-        $ksebParty = $officeLedger[officeKey($d["ledger"])]
-            ?? (strpos(ledgerKey($d["party"]), "kseb") === 0
+        $byOffice = $directoryDepositLedger[ledgerKey($d["ledger"])]
+            ?? officeLedgerFor($officeLedger, $d["ledger"]);
+
+        $ksebParty = $byOffice !== ""
+            ? $byOffice
+            : (strpos(ledgerKey($d["party"]), "kseb") === 0
                 ? $d["party"]
-                : ($depositKseb[ledgerKey($d["ledger"])] ?? $d["party"]));
+                : ($depositKseb[ledgerKey($d["ledger"])] ?? ""));
+
+        /* Never a bank or other non-KSEB party (a refund received
+           straight into the bank has the bank as its party). */
+        if (strpos(ledgerKey($ksebParty), "kseb") !== 0) {
+            $ksebParty = "";
+        }
 
         $groupKey = ledgerKey($ksebParty) . "|" . ledgerKey($d["ledger"]) . "|"
             . ($d["bill_ref"] !== "" ? strtolower($d["bill_ref"]) : "#" . $d["master_id"]);
 
         if (!isset($depositGroups[$groupKey])) {
             $partyKey = ledgerKey($ksebParty);
-            $distribution = $directory[$partyKey] ?? "";
+            $distribution = $directory[$partyKey] ?? ($directory[ledgerKey($d["ledger"])] ?? "");
 
             $depositGroups[$groupKey] = [
                 "party" => $ledgerInfo[$partyKey]["party"] ?? $ksebParty,
                 "executive" => $ledgerInfo[$partyKey]["executive"] ?? executiveFromName($ksebParty),
                 "distribution" => $distribution !== "" ? $distribution : "Unmapped",
                 "deposit_ledger" => $d["ledger"],
+                "ledger_group" => $d["ledger_group"] ?? "",
                 "bill_ref" => $d["bill_ref"],
                 "date" => $d["date"],
                 "credit_days" => $d["credit_days"],
@@ -2697,6 +3242,9 @@ try {
         $g["deposited"] = round($g["deposited"], 2);
         $g["refunded"] = round($g["refunded"], 2);
         $g["balance"] = round($g["balance"], 2);
+        $g["status"] = abs($g["balance"]) < 1
+            ? "refunded"
+            : ($g["refunded"] > 0.5 ? "part_refunded" : "held");
         $g["due_date"] = $g["credit_days"] > 0
             ? (new DateTime($g["date"]))->modify("+" . $g["credit_days"] . " days")->format("Y-m-d")
             : "";
@@ -2706,6 +3254,267 @@ try {
     usort($securityDeposits, function ($a, $b) {
         return strcmp($a["date"], $b["date"]) ?: strnatcasecmp($a["bill_ref"], $b["bill_ref"]);
     });
+
+    // Security deposit totals, for the top of the page.
+    $summary["security_deposit_count"] = count($securityDeposits);
+    $summary["security_deposit_deposited"] = (float)array_sum(array_column($securityDeposits, "deposited"));
+    $summary["security_deposit_refunded"] = (float)array_sum(array_column($securityDeposits, "refunded"));
+    $summary["security_deposit_held"] = (float)array_sum(array_column($securityDeposits, "balance"));
+
+    // Opening deposits (XML) and refunds that found no deposit: the
+    // deposit was made before 1st April and is not in the XML.
+    $summary["security_deposit_opening_count"] = count($openingDeposits);
+    $summary["security_deposit_opening_amount"] = (float)array_sum(array_column($openingDeposits, "amount"));
+
+    $refundOnly = array_filter($securityDeposits, function ($g) {
+        return $g["deposited"] < 0.5 && $g["refunded"] >= 0.5;
+    });
+
+    $summary["security_deposit_refund_only_count"] = count($refundOnly);
+    $summary["security_deposit_refund_only_amount"] = (float)array_sum(array_column($refundOnly, "refunded"));
+
+    if ($refundOnly) {
+        $warnings[] = count($refundOnly) . " security deposit refund(s) of Rs "
+            . number_format($summary["security_deposit_refund_only_amount"], 2)
+            . " have no deposit to settle - "
+            . ($openingDeposits
+                ? "their LPO reference is not in the Tally XML's opening deposits."
+                : "the Tally XML has no Security Deposit ledgers (add the SECURITY DEPOSITS KSEB group to the LOB Report).");
+    }
+
+    /* Security deposit opening balance and its break up, like
+       opening_breakup: per deposit ledger, the opening balance on
+       1st April (salesdatalatest33), then every LPO reference of it
+       in the Tally XML, with what was refunded since and what is
+       still held as on the as-on date. A ledger the XML does not
+       have is shown with its opening balance only. */
+
+    $depositByRef = [];
+
+    foreach ($securityDeposits as $g) {
+        $depositByRef[ledgerKey($g["deposit_ledger"]) . "|" . strtolower($g["bill_ref"])] = $g;
+    }
+
+    /* One entry per deposit ledger: first its opening balance
+       (salesdatalatest33), then the XML break up of it below.
+       Keyed by the ledger name as salesdatalatest33 writes it, else
+       as the XML does. */
+    $depositOpeningBreakup = [];
+    $depositBreakupName = [];
+    $seenDepositRef = [];
+
+    $addDepositLedger = function (string $ledger, ?array $g) use (
+        &$depositOpeningBreakup, &$depositBreakupName,
+        $depositOpeningByKey, $openingDepositTotal, $officeLedger, $directory, $directoryDepositLedger
+    ): string {
+        $key = ledgerKey($ledger);
+
+        if (isset($depositBreakupName[$key])) {
+            return $depositBreakupName[$key];
+        }
+
+        $ksebParty = $g["party"]
+            ?? ($directoryDepositLedger[$key] ?? officeLedgerFor($officeLedger, $ledger));
+        // Distribution of its KSEB ledger, else of the deposit ledger's
+        // own directory row.
+        $distribution = $directory[ledgerKey($ksebParty)] ?? ($directory[$key] ?? "");
+
+        $xmlTotal = null;
+
+        foreach ($openingDepositTotal as $name => $total) {
+            if (ledgerKey($name) === $key) {
+                $xmlTotal = $total;
+            }
+        }
+
+        $depositBreakupName[$key] = $ledger;
+        $depositOpeningBreakup[$ledger] = [
+            "party" => $ksebParty,
+            "executive" => $g["executive"] ?? executiveFromName($ksebParty),
+            "distribution" => $distribution !== "" ? $distribution : "Unmapped",
+            // Opening balance on 1st April (salesdatalatest33), Dr +.
+            "opening_balance" => $depositOpeningByKey[$key] ?? null,
+            // Sum of the XML break up below.
+            "total" => 0,
+            // Party total as Tally reports it in the XML.
+            "xml_total" => $xmlTotal,
+            // Opening balance not explained by the XML break up.
+            "difference" => null,
+            "has_breakup" => false,
+            "refunded" => 0,
+            // Refunds of this ledger whose LPO is not in the break up.
+            "refunded_not_in_breakup" => 0,
+            "balance" => 0,
+            "bills" => []
+        ];
+
+        return $ledger;
+    };
+
+    // 1. Opening balances of the deposit ledgers (salesdatalatest33).
+    foreach ($depositOpeningByKey as $key => $amount) {
+        $addDepositLedger($depositOpeningNames[$key], null);
+    }
+
+    // 2. Their break up (Tally XML).
+    foreach ($openingDeposits as $od) {
+
+        $g = $depositByRef[ledgerKey($od["ledger"]) . "|" . strtolower($od["bill_ref"])] ?? null;
+        $ledger = $addDepositLedger($od["ledger"], $g);
+
+        $depositOpeningBreakup[$ledger]["has_breakup"] = true;
+
+        if ($depositOpeningBreakup[$ledger]["party"] === "" && $g) {
+            $depositOpeningBreakup[$ledger]["party"] = $g["party"];
+            $depositOpeningBreakup[$ledger]["executive"] = $g["executive"];
+            $depositOpeningBreakup[$ledger]["distribution"] = $g["distribution"];
+        }
+
+        // Refunded since 1st April / still held, for this reference.
+        // Several opening lines with the same reference share it, so
+        // it is taken once (on the first of them).
+        $refKey = ledgerKey($ledger) . "|" . strtolower($od["bill_ref"]);
+        $first = !isset($seenDepositRef[$refKey]);
+        $seenDepositRef[$refKey] = true;
+
+        $refunded = $g && $first ? $g["refunded"] : 0;
+        $balance = $g ? ($first ? $g["balance"] : 0) : $od["amount"];
+
+        $b =& $depositOpeningBreakup[$ledger];
+
+        $b["total"] = round($b["total"] + $od["amount"], 2);
+        $b["refunded"] = round($b["refunded"] + $refunded, 2);
+        $b["balance"] = round($b["balance"] + $balance, 2);
+        $b["bills"][] = [
+            "bill_ref" => $od["bill_ref"] !== "" ? $od["bill_ref"] : "On Account",
+            "bill_date" => $od["bill_date"],
+            "credit_days" => $od["credit_days"],
+            "due_date" => $od["credit_days"] > 0
+                ? (new DateTime($od["bill_date"]))->modify("+" . $od["credit_days"] . " days")->format("Y-m-d")
+                : "",
+            "amount" => $od["amount"],
+            "refunded" => round($refunded, 2),
+            "balance" => round($balance, 2),
+            "status" => abs($balance) < 1 ? "refunded" : ($refunded > 0.5 ? "part_refunded" : "held"),
+            // Refund vouchers of this reference since 1st April.
+            "lines" => $g && $first
+                ? array_values(array_filter($g["lines"], function ($line) {
+                    return $line["voucher_type"] !== "Opening Balance";
+                }))
+                : []
+        ];
+
+        unset($b);
+    }
+
+    /* 3. Refunds since 1st April that found no LPO in the break up
+       came out of the opening balance too. A ledger without a break
+       up: still held = opening balance - those refunds. */
+    foreach ($refundOnly as $g) {
+        $key = ledgerKey($g["deposit_ledger"]);
+
+        if (isset($depositBreakupName[$key])) {
+            $depositOpeningBreakup[$depositBreakupName[$key]]["refunded_not_in_breakup"] += $g["refunded"];
+        }
+    }
+
+    /* 4. Receipts and payments of every deposit ledger since 1st April
+       (kseb_receipts): payments = deposits made (Dr), receipts =
+       refunds (Cr). Closing = opening + payments - receipts. A deposit
+       ledger with no opening balance but entries this year is added
+       too, with opening 0. */
+    foreach ($depositEntries as $d) {
+
+        if ($d["master_id"] === "" || $d["date"] < $openingDate) {
+            continue;
+        }
+
+        $ledger = $addDepositLedger($d["ledger"], null);
+        $b =& $depositOpeningBreakup[$ledger];
+
+        if ($b["party"] === "" && strpos(ledgerKey($d["party"]), "kseb") === 0) {
+            $b["party"] = $ledgerInfo[ledgerKey($d["party"])]["party"] ?? $d["party"];
+            $b["executive"] = $ledgerInfo[ledgerKey($d["party"])]["executive"] ?? executiveFromName($d["party"]);
+            $distribution = $directory[ledgerKey($d["party"])] ?? "";
+            $b["distribution"] = $distribution !== "" ? $distribution : "Unmapped";
+        }
+
+        if ($d["amount"] > 0) {
+            $b["payments"] = ($b["payments"] ?? 0) + $d["amount"];
+        } else {
+            $b["receipts"] = ($b["receipts"] ?? 0) - $d["amount"];
+        }
+
+        $b["entries"][] = [
+            "date" => $d["date"],
+            "voucher_type" => $d["voucher_type"],
+            "voucher_no" => $d["voucher_no"],
+            "sales_id" => $d["master_id"],
+            "bill_ref" => $d["bill_ref"],
+            "bill_type" => $d["bill_type"],
+            "amount" => $d["amount"]
+        ];
+
+        unset($b);
+    }
+
+    foreach ($depositOpeningBreakup as &$b) {
+        $b["payments"] = round($b["payments"] ?? 0, 2);
+        $b["receipts"] = round($b["receipts"] ?? 0, 2);
+        $b["closing"] = round((float)$b["opening_balance"] + $b["payments"] - $b["receipts"], 2);
+        $b["entries"] = $b["entries"] ?? [];
+
+        usort($b["entries"], function ($x, $y) {
+            return strcmp($x["date"], $y["date"]);
+        });
+    }
+    unset($b);
+
+    $depositMismatch = [];
+
+    foreach ($depositOpeningBreakup as $ledger => &$b) {
+        $b["refunded_not_in_breakup"] = round($b["refunded_not_in_breakup"], 2);
+
+        if ($b["opening_balance"] !== null && $b["has_breakup"]) {
+            $b["difference"] = round($b["opening_balance"] - $b["total"], 2);
+
+            if (abs($b["difference"]) >= 1) {
+                $depositMismatch[] = $ledger;
+            }
+        }
+
+        if (!$b["has_breakup"]) {
+            $b["refunded"] = $b["refunded_not_in_breakup"];
+            $b["balance"] = round((float)$b["opening_balance"] - $b["refunded"], 2);
+        }
+    }
+    unset($b);
+
+    uksort($depositOpeningBreakup, function ($a, $b) use ($depositOpeningBreakup) {
+        return strnatcasecmp($depositOpeningBreakup[$a]["party"], $depositOpeningBreakup[$b]["party"])
+            ?: strnatcasecmp($a, $b);
+    });
+
+    if ($depositOpeningByKey && !$openingDeposits) {
+        $warnings[] = "Security deposit opening balances (salesdatalatest33) are shown without their break up - "
+            . "the Tally XML has no Security Deposit ledgers.";
+    }
+
+    if ($depositMismatch) {
+        $warnings[] = "Security deposit break up (Tally XML) does not add up to the opening balance (salesdatalatest33) for: "
+            . implode(", ", array_slice($depositMismatch, 0, 10))
+            . (count($depositMismatch) > 10 ? " and " . (count($depositMismatch) - 10) . " more" : "");
+    }
+
+    $summary["security_deposit_opening_balance"] = (float)array_sum($depositOpeningByKey);
+    $summary["security_deposit_opening_ledgers"] = count($depositOpeningByKey);
+    // Since 1st April, all deposit ledgers: paid in, refunded, held now.
+    $summary["security_deposit_payments"] = (float)array_sum(array_column($depositOpeningBreakup, "payments"));
+    $summary["security_deposit_receipts"] = (float)array_sum(array_column($depositOpeningBreakup, "receipts"));
+    $summary["security_deposit_closing"] = (float)array_sum(array_column($depositOpeningBreakup, "closing"));
+
+    $summary["security_deposit_opening_refunded"] = (float)array_sum(array_column($depositOpeningBreakup, "refunded"));
+    $summary["security_deposit_opening_held"] = (float)array_sum(array_column($depositOpeningBreakup, "balance"));
 
     /* Opening balances keyed by the same ledger name the bills use. */
 
@@ -2897,6 +3706,9 @@ try {
 
     /* =========================================================
        7. RESPONSE
+
+       security_deposits comes first: the page shows that
+       section at the top.
     ========================================================= */
 
     echo json_encode(
@@ -2912,6 +3724,10 @@ try {
             "receipt_rows" => $receiptRows,
             "receipts_source" => $useReceiptTable ? "kseb_receipts" : "salesdata",
             "summary" => $summary,
+            "deposit_group" => DEPOSIT_GROUP,
+            "security_deposits" => $securityDeposits,
+            // Deposits held on 1st April per deposit ledger (Tally XML).
+            "deposit_opening_breakup" => (object)$depositOpeningBreakup,
             "buckets" => $buckets,
             "bills" => $bills,
             "on_account" => $onAccountRows,
@@ -2919,7 +3735,6 @@ try {
             "receipts" => $receipts,
             "opening_balances" => (object)$openingBalances,
             "opening_breakup" => (object)$openingBreakup,
-            "security_deposits" => $securityDeposits,
             "vouchers" => (object)$vouchers,
             "directory_count" => count($directory),
             "warnings" => $warnings

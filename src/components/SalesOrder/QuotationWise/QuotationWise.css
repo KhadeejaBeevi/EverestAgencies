@@ -262,3 +262,169 @@
         zoom: 1;
     }
 }
+
+/* =========================================================
+   PHONES (768px and below): each quotation is a card,
+   like the Tender Details page. Only the main table is
+   changed; item/bill tables inside a card stay tables.
+   ========================================================= */
+
+.qw-mobile-cards > table {
+    display: block;
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: auto !important;
+}
+
+.qw-mobile-cards > table > thead,
+.qw-mobile-cards > table > tbody,
+.qw-mobile-cards > table > tfoot {
+    display: block;
+    position: static;
+}
+
+/* Header: keep only the "select all" checkbox */
+.qw-mobile-cards > table > thead > tr {
+    display: block;
+}
+
+.qw-mobile-cards > table > thead > tr > th {
+    display: none;
+}
+
+.qw-mobile-cards > table > thead > tr > th:first-child {
+    display: block;
+    width: auto !important;
+    position: static !important;
+    text-align: left !important;
+    border-radius: 8px;
+    padding: 8px 12px !important;
+}
+
+.qw-mobile-cards > table > thead > tr > th:first-child > div {
+    justify-content: flex-start !important;
+}
+
+.qw-mobile-cards > table > thead > tr > th:first-child span::after {
+    content: " — select all for WhatsApp";
+    font-weight: 500;
+}
+
+/* Card */
+.qw-mobile-cards > table > tbody > tr.qw-main-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-top: 12px;
+    border: 1px solid #c8d8cf;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--quotation-party-bg, #fff);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td {
+    display: block;
+    width: auto !important;
+    min-width: 0;
+    padding: 8px 12px !important;
+    border: none !important;
+    border-bottom: 1px solid #e6ece8 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    word-break: break-word;
+    background: transparent !important;
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #05693a;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Long fields take the full card width */
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="S.No"],
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Reference Details"],
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Party Name"],
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Invoice No"],
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Billed Party"],
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Sales & Follow-up"],
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Notes"] {
+    grid-column: 1 / -1;
+}
+
+/* Card header strip: checkbox + number */
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="S.No"] {
+    background: #05693a !important;
+    color: #fff;
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="S.No"]::before {
+    display: none;
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="S.No"] > div {
+    justify-content: flex-start !important;
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="S.No"] span::before {
+    content: "#";
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td:last-child {
+    border-bottom: none !important;
+}
+
+/* Long-term client checkbox sits left in the card */
+.qw-mobile-cards > table > tbody > tr.qw-main-row > td[data-label="Long-Term Client"] label {
+    justify-content: flex-start !important;
+}
+
+/* Item / bill details open under their card and scroll sideways */
+.qw-mobile-cards > table > tbody > tr.qw-detail-row,
+.qw-mobile-cards > table > tbody > tr.qw-more-row {
+    display: block;
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-detail-row > td {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid #c8d8cf !important;
+    border-top: none !important;
+    border-radius: 0 0 10px 10px;
+}
+
+.qw-mobile-cards > table > tbody > tr.qw-more-row > td {
+    display: block;
+    margin-top: 12px;
+    border-radius: 8px;
+}
+
+/* Grand total as one summary card */
+.qw-mobile-cards > table > tfoot {
+    margin-top: 12px;
+}
+
+.qw-mobile-cards > table > tfoot > tr {
+    display: flex !important;
+    flex-wrap: wrap;
+    position: static !important;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: none !important;
+}
+
+.qw-mobile-cards > table > tfoot > tr > td {
+    display: block;
+    flex: 1 1 auto;
+    text-align: center !important;
+}
+
+.qw-mobile-cards > table > tfoot > tr > td:last-child {
+    display: none;
+}

@@ -44,6 +44,7 @@ const CLOSED_STATUSES = new Set([
 const isQuotation = (status) => QUOTATION_STATUSES.has(normalize(status));
 const isPO = (status) => PO_STATUSES.has(normalize(status));
 const isClosed = (status) => CLOSED_STATUSES.has(normalize(status));
+const isNotConnected = (status) => normalize(status) === "call not connected";
 
 // Quotations with no newer call for this many days are "pending".
 const PENDING_QUOTATION_DAYS = 7;
@@ -52,6 +53,7 @@ const STAGE_FILTERS = [
   { key: "ALL", label: "All", match: () => true },
   { key: "Interested", label: "Interested", match: (s) => normalize(s) === "interested" },
   { key: "Call Back", label: "Call Back", match: (s) => normalize(s) === "call back" },
+  { key: "Call Not Connected", label: "Not Connected", match: isNotConnected },
   { key: "Quotation", label: "Quotation", match: isQuotation },
   { key: "PO", label: "PO Received", match: isPO },
   { key: "No Requirements", label: "No Requirement", match: (s) => normalize(s) === "no requirements" },
@@ -65,6 +67,7 @@ const stageTone = (status) => {
   if (isQuotation(s)) return "quotation";
   if (s === "interested" || s === "negotiation") return "positive";
   if (s === "call back" || s === "followup") return "pending";
+  if (isNotConnected(s)) return "missed";
   if (isClosed(s)) return "negative";
   return "neutral";
 };
@@ -190,8 +193,41 @@ function StageBadge({ status }) {
   );
 }
 
-// Active / Closed for the stage recorded on this call.
-function StatusBadge({ status }) {
+// Shown under a quotation: did the lead send a PO after it?
+function QuotationPOTag({ po }) {
+  if (po) {
+    return (
+      <span
+        className="ch-po-tag ch-po-tag--done"
+        title={`PO received on ${formatDate(po.po_date || po.call_date)}`}
+      >
+        ✓ PO received
+        {po.po_no ? ` · ${po.po_no}` : ""}
+      </span>
+    );
+  }
+  return <span className="ch-po-tag ch-po-tag--waiting">Awaiting PO</span>;
+}
+
+// Status of this call. A PO call, or any earlier call of a lead that
+// later sent a PO, shows "PO Received"; otherwise Active / Closed.
+function StatusBadge({ status, po }) {
+  if (isPO(status) || po) {
+    return (
+      <span
+        className="ch-lead ch-lead--won"
+        title={
+          po
+            ? `PO received on ${formatDate(po.po_date || po.call_date)}${
+                po.po_no ? ` · ${po.po_no}` : ""
+              }`
+            : undefined
+        }
+      >
+        PO Received
+      </span>
+    );
+  }
   return isClosed(status) ? (
     <span className="ch-lead ch-lead--closed">Closed</span>
   ) : (
@@ -245,6 +281,8 @@ export default function CallHistory() {
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [showPendingOnly, setShowPendingOnly] = useState(false);
+  // Within the Quotation stage: "ALL", "PO" (converted) or "NOPO".
+  const [quotationPoFilter, setQuotationPoFilter] = useState("ALL");
 
   // Follow-up reminder
   const [completedIds, setCompletedIds] = useState(readCompleted);
@@ -336,6 +374,33 @@ export default function CallHistory() {
 
   const isLatestOfLead = (item) => latestByLead[item.kseb_id]?.id === item.id;
 
+  // For every non-PO call, the first PO call of the same lead made after
+  // it (or null). Earlier calls of a lead that sent a PO show as
+  // "PO Received", and quotations show whether they became a PO.
+  const poAfterCall = useMemo(() => {
+    const posByLead = {};
+    callHistory.forEach((item) => {
+      if (isPO(item.status)) {
+        if (!posByLead[item.kseb_id]) posByLead[item.kseb_id] = [];
+        posByLead[item.kseb_id].push(item);
+      }
+    });
+    // Oldest first, so the first match is the PO that followed the quotation.
+    Object.values(posByLead).forEach((list) =>
+      list.sort((a, b) => byNewestFirst(b, a))
+    );
+
+    const map = {};
+    callHistory.forEach((item) => {
+      if (isPO(item.status)) return;
+      const pos = posByLead[item.kseb_id] || [];
+      map[item.id] = pos.find((po) => isNewer(po, item)) || null;
+    });
+    return map;
+  }, [callHistory]);
+
+  const hasPO = (item) => !!poAfterCall[item.id];
+
   // Search + telecaller apply everywhere, including pending quotations.
   const matchesPeopleFilters = (c) => {
     const term = search.trim().toLowerCase();
@@ -407,9 +472,23 @@ export default function CallHistory() {
 
   const activeStage = STAGE_FILTERS.find((f) => f.key === stageFilter);
 
+  const periodQuotations = periodCalls.filter((c) => isQuotation(c.status));
+  const quotationPoCounts = {
+    ALL: periodQuotations.length,
+    PO: periodQuotations.filter(hasPO).length,
+    NOPO: periodQuotations.filter((c) => !hasPO(c)).length,
+  };
+
+  const matchesQuotationPoFilter = (c) =>
+    stageFilter !== "Quotation" ||
+    quotationPoFilter === "ALL" ||
+    (quotationPoFilter === "PO" ? hasPO(c) : !hasPO(c));
+
   const visibleCalls = showPendingOnly
     ? pendingQuotations
-    : periodCalls.filter((c) => activeStage.match(c.status)).sort(byNewestFirst);
+    : periodCalls
+        .filter((c) => activeStage.match(c.status) && matchesQuotationPoFilter(c))
+        .sort(byNewestFirst);
 
   // Sections shown in the list: weeks of the month, or one section for
   // pending quotations.
@@ -550,6 +629,7 @@ export default function CallHistory() {
   const selectStage = (key) => {
     setShowPendingOnly(false);
     setStageFilter(key);
+    setQuotationPoFilter("ALL");
   };
 
   const showPending = () => {
@@ -564,6 +644,7 @@ export default function CallHistory() {
     followupFilter !== "" ||
     callDateFilter !== "" ||
     showPendingOnly ||
+    quotationPoFilter !== "ALL" ||
     selectedMonth !== now.getMonth() + 1 ||
     selectedYear !== now.getFullYear();
 
@@ -573,6 +654,7 @@ export default function CallHistory() {
     setTelecallerFilter("ALL");
     setFollowupFilter("");
     setShowPendingOnly(false);
+    setQuotationPoFilter("ALL");
     setCallDateFilter("");
     setSelectedMonth(now.getMonth() + 1);
     setSelectedYear(now.getFullYear());
@@ -607,15 +689,22 @@ export default function CallHistory() {
     setSelectedYear(year);
   };
 
+  const quotationPoLabel =
+    stageFilter === "Quotation" && quotationPoFilter !== "ALL"
+      ? quotationPoFilter === "PO"
+        ? " · PO received"
+        : " · Awaiting PO"
+      : "";
+
   const listDescription = showPendingOnly
     ? `${visibleCalls.length} pending quotation${visibleCalls.length === 1 ? "" : "s"}`
     : followupFilter
     ? `${visibleCalls.length} call${visibleCalls.length === 1 ? "" : "s"} with follow-up on ${formatDate(followupFilter)}${
         stageFilter !== "ALL" ? ` · ${activeStage.label}` : ""
-      }`
+      }${quotationPoLabel}`
     : `${visibleCalls.length} call${visibleCalls.length === 1 ? "" : "s"} ${callDateFilter ? "on" : "in"} ${periodLabel}${
         stageFilter !== "ALL" ? ` · ${activeStage.label}` : ""
-      }`;
+      }${quotationPoLabel}`;
 
   if (loading) {
     return (
@@ -762,7 +851,9 @@ export default function CallHistory() {
           >
             <span className="ch-stat-label">Quotations</span>
             <span className="ch-stat-value">{stageCounts.Quotation}</span>
-            <span className="ch-stat-hint">{periodLabel}</span>
+            <span className="ch-stat-hint">
+              {quotationPoCounts.PO} converted to PO · {periodLabel}
+            </span>
           </button>
 
           <button
@@ -911,6 +1002,31 @@ export default function CallHistory() {
               </button>
             ))}
           </div>
+
+          {!showPendingOnly && stageFilter === "Quotation" && (
+            <div
+              className="ch-chips ch-chips--sub"
+              role="tablist"
+              aria-label="Filter quotations by PO"
+            >
+              {[
+                { key: "ALL", label: "All quotations" },
+                { key: "PO", label: "✓ PO received" },
+                { key: "NOPO", label: "Awaiting PO" },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  role="tab"
+                  aria-selected={quotationPoFilter === f.key}
+                  className={`ch-chip ${quotationPoFilter === f.key ? "is-active" : ""}`}
+                  onClick={() => setQuotationPoFilter(f.key)}
+                >
+                  {f.label}
+                  <span className="ch-chip-count">{quotationPoCounts[f.key]}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Result bar */}
@@ -1022,7 +1138,12 @@ export default function CallHistory() {
                                 </div>
                               </td>
                               <td>
-                                <StageBadge status={c.status} />
+                                <div className="ch-stack">
+                                  <StageBadge status={c.status} />
+                                  {isQuotation(c.status) && (
+                                    <QuotationPOTag po={poAfterCall[c.id]} />
+                                  )}
+                                </div>
                               </td>
                               <td>
                                 {c.quotation_no || c.quotation_amount ? (
@@ -1053,7 +1174,7 @@ export default function CallHistory() {
                               </td>
                               <td>{c.telecaller_name || "-"}</td>
                               <td>
-                                <StatusBadge status={c.status} />
+                                <StatusBadge status={c.status} po={poAfterCall[c.id]} />
                               </td>
                               <td className="ch-actions">
                                 <div className="ch-actions-inner">
@@ -1122,7 +1243,12 @@ export default function CallHistory() {
                                 </a>
                               )}
                             </div>
-                            <StageBadge status={c.status} />
+                            <div className="ch-stack ch-stack--end">
+                              <StageBadge status={c.status} />
+                              {isQuotation(c.status) && (
+                                <QuotationPOTag po={poAfterCall[c.id]} />
+                              )}
+                            </div>
                           </div>
 
                           <dl className="ch-card-details">
@@ -1177,7 +1303,7 @@ export default function CallHistory() {
 
                             <dt>Status</dt>
                             <dd>
-                              <StatusBadge status={c.status} />
+                              <StatusBadge status={c.status} po={poAfterCall[c.id]} />
                             </dd>
                           </dl>
 

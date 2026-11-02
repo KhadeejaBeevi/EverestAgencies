@@ -10,6 +10,7 @@ import {
   authHeaders,
   getWhatsappMobile,
   openWhatsappChat,
+  saveBlob,
 } from "../../components/SalesOrder/QuotationWise/quotationUtils";
 
 const API_BASE = "/serverphp/";
@@ -32,6 +33,58 @@ const LEAD_SOURCES = [
   "Field Visit",
   "Other",
 ];
+
+const isMobileDevice = () =>
+  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+
+const getCatalogFileName = (catalog) =>
+  `${
+    String(catalog?.name || "")
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() || "Solar Catalog"
+  }.pdf`;
+
+// Fetches a catalog PDF as a Blob. The saved link may point at another
+// address (www / http / XAMPP's localhost), which the browser blocks, so
+// the file is first loaded through this site's own /serverphp/ path
+// (on `npm run dev` Vite forwards that to XAMPP's /everest/serverphp).
+const loadCatalogPdf = async (url) => {
+  const candidates = [];
+
+  try {
+    const parsed = new URL(url, window.location.href);
+    const path = `${parsed.pathname}${parsed.search}`;
+    const serverphpAt = path.indexOf(API_BASE);
+
+    if (serverphpAt >= 0) candidates.push(path.slice(serverphpAt));
+    if (parsed.origin !== window.location.origin) candidates.push(path);
+    candidates.push(parsed.href);
+  } catch {
+    candidates.push(url);
+  }
+
+  const errors = [];
+
+  for (const candidate of new Set(candidates)) {
+    try {
+      const response = await fetch(candidate, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const blob = await response.blob();
+      const head = await blob.slice(0, 5).text();
+      if (head !== "%PDF-") throw new Error("not a PDF file");
+
+      return blob.type === "application/pdf"
+        ? blob
+        : new Blob([blob], { type: "application/pdf" });
+    } catch (error) {
+      errors.push(`${candidate}: ${error.message || error}`);
+    }
+  }
+
+  throw new Error(errors.join(" | "));
+};
 
 const DEFAULT_SOLAR_TEMPLATES = [
   {
@@ -94,6 +147,18 @@ const SolarNewLeads = () => {
   const [catalogName, setCatalogName] = useState("");
   const [catalogFile, setCatalogFile] = useState(null);
   const [whatsappSaving, setWhatsappSaving] = useState(false);
+
+  // Send the catalog as a PDF file instead of a link. The PDF is fetched
+  // BEFORE the button is clicked: browsers only allow sharing/downloading
+  // a file straight from a click.
+  const [attachPdf, setAttachPdf] = useState(true);
+  const [catalogBlobs, setCatalogBlobs] = useState({});
+  const [catalogBlobStatus, setCatalogBlobStatus] = useState({
+    id: "",
+    loading: false,
+    error: "",
+  });
+  const [catalogBlobRetry, setCatalogBlobRetry] = useState(0);
 
   // WhatsApp send log: the shared whatsapp_send_log.php, solar entries only.
   const [whatsappLog, setWhatsappLog] = useState([]);
@@ -485,7 +550,12 @@ const SolarNewLeads = () => {
     }
   };
 
-  const buildWhatsappMessage = (template, catalog, lead) => {
+  const buildWhatsappMessage = (
+    template,
+    catalog,
+    lead,
+    asAttachment = attachPdf
+  ) => {
     if (!template || !lead) return "";
 
     const values = {
@@ -493,7 +563,12 @@ const SolarNewLeads = () => {
       decision_maker: lead.decision_maker || "Sir/Madam",
       contact_no: lead.contact_no || "",
       catalog_name: catalog?.name || "solar catalog",
-      catalog_link: catalog?.url || "",
+      // When the PDF itself is sent, the message carries no link.
+      catalog_link: !catalog
+        ? ""
+        : asAttachment
+        ? `📎 ${catalog.name || "Catalog"} (PDF attached)`
+        : catalog.url || "",
       sender_name: loggedInUser || "",
     };
 
@@ -556,6 +631,67 @@ const SolarNewLeads = () => {
     );
   };
 
+  const changeAttachPdf = (checked) => {
+    setAttachPdf(checked);
+    setWhatsappMessage(
+      buildWhatsappMessage(
+        selectedTemplate,
+        selectedCatalog,
+        whatsappLead,
+        checked
+      )
+    );
+  };
+
+  // Load the selected catalog PDF so "Open WhatsApp" can attach it.
+  useEffect(() => {
+    if (!showWhatsappModal || !attachPdf || !selectedCatalog?.url) return;
+
+    const id = String(selectedCatalog.id);
+    if (catalogBlobs[id]) return;
+
+    let cancelled = false;
+    setCatalogBlobStatus({ id, loading: true, error: "" });
+
+    loadCatalogPdf(selectedCatalog.url)
+      .then((blob) => {
+        if (cancelled) return;
+        setCatalogBlobs((prev) => ({ ...prev, [id]: blob }));
+        setCatalogBlobStatus({ id, loading: false, error: "" });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.log("CATALOG PDF LOAD ERROR:", error);
+        setCatalogBlobStatus({
+          id,
+          loading: false,
+          error: `Could not load the catalog PDF (${error.message}).`,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    showWhatsappModal,
+    attachPdf,
+    selectedCatalog?.id,
+    selectedCatalog?.url,
+    catalogBlobs,
+    catalogBlobRetry,
+  ]);
+
+  const selectedCatalogBlob = selectedCatalog
+    ? catalogBlobs[String(selectedCatalog.id)]
+    : null;
+  const willAttachPdf = attachPdf && !!selectedCatalog;
+  const catalogBlobPending =
+    willAttachPdf &&
+    !selectedCatalogBlob &&
+    catalogBlobStatus.id === String(selectedCatalog?.id);
+  const catalogPdfLoading = catalogBlobPending && catalogBlobStatus.loading;
+  const catalogPdfError = catalogBlobPending ? catalogBlobStatus.error : "";
+
   const fetchWhatsappLog = async () => {
     setWhatsappLogLoading(true);
 
@@ -591,7 +727,7 @@ const SolarNewLeads = () => {
   // Fire-and-forget, like Quotation Wise: never blocks opening WhatsApp.
   // WhatsApp does not report whether Send was pressed, so an entry means
   // the chat was opened with this message.
-  const logWhatsappSend = (number) => {
+  const logWhatsappSend = (number, pdfAttached) => {
     const entry = {
       module: "solar",
       lead_id: String(whatsappLead?.id || ""),
@@ -602,8 +738,7 @@ const SolarNewLeads = () => {
       template_id: selectedTemplate?.id || "",
       template_name: selectedTemplate?.name || "",
       message: whatsappMessage,
-      pdf_attached:
-        selectedCatalog && whatsappMessage.includes(selectedCatalog.url) ? 1 : 0,
+      pdf_attached: pdfAttached ? 1 : 0,
     };
 
     const now = new Date();
@@ -671,7 +806,51 @@ const SolarNewLeads = () => {
       return;
     }
 
-    logWhatsappSend(number);
+    if (!willAttachPdf) {
+      logWhatsappSend(
+        number,
+        !!selectedCatalog && whatsappMessage.includes(selectedCatalog.url)
+      );
+      openWhatsappChat(number, whatsappMessage);
+      return;
+    }
+
+    if (!selectedCatalogBlob) {
+      alert(
+        catalogPdfError ||
+          "The catalog PDF is still loading. Please try again in a moment."
+      );
+      return;
+    }
+
+    const fileName = getCatalogFileName(selectedCatalog);
+    const file = new File([selectedCatalogBlob], fileName, {
+      type: "application/pdf",
+    });
+
+    // Phones: the share sheet sends the PDF file itself, with the message
+    // as its caption. WhatsApp then asks which chat to send it to.
+    if (isMobileDevice() && navigator.canShare?.({ files: [file] })) {
+      // Some phones drop the text when sharing a file; keep it on the
+      // clipboard so it can be pasted.
+      navigator.clipboard?.writeText(whatsappMessage).catch(() => {});
+
+      navigator
+        .share({ files: [file], text: whatsappMessage, title: fileName })
+        .then(() => logWhatsappSend(number, true))
+        .catch((error) => {
+          if (error?.name !== "AbortError") {
+            console.log("WHATSAPP SHARE ERROR:", error);
+            alert(`Could not share the PDF. ${error?.message || ""}`);
+          }
+        });
+      return;
+    }
+
+    // Computers: a web page cannot hand a file to WhatsApp Desktop.
+    // Download the PDF and open the lead's chat to attach it there.
+    saveBlob(selectedCatalogBlob, fileName);
+    logWhatsappSend(number, true);
     openWhatsappChat(number, whatsappMessage);
   };
 
@@ -1789,6 +1968,54 @@ const SolarNewLeads = () => {
               </div>
             </div>
 
+            {selectedCatalog && (
+              <div className="mb-4">
+                <label className="inline-flex items-center gap-2 font-semibold text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={attachPdf}
+                    onChange={(e) => changeAttachPdf(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  Send catalog as PDF file (not a link)
+                </label>
+
+                {catalogPdfError && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <button
+                      onClick={() => setCatalogBlobRetry((prev) => prev + 1)}
+                      className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-sm font-semibold"
+                    >
+                      Retry
+                    </button>
+
+                    <button
+                      onClick={() => changeAttachPdf(false)}
+                      className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded-lg text-sm font-semibold"
+                    >
+                      Send link instead
+                    </button>
+                  </div>
+                )}
+
+                {willAttachPdf && (
+                  <p
+                    className={`text-sm mt-1 break-all ${
+                      catalogPdfError ? "text-red-600" : "text-gray-500"
+                    }`}
+                  >
+                    {catalogPdfError
+                      ? catalogPdfError
+                      : catalogPdfLoading
+                      ? "Loading catalog PDF..."
+                      : isMobileDevice()
+                      ? "Tap the button, choose WhatsApp, then this lead's chat. The PDF goes with the message."
+                      : "The PDF downloads and WhatsApp opens this lead's chat. Attach the downloaded PDF (📎 › Document) and press Send."}
+                  </p>
+                )}
+              </div>
+            )}
+
             <label className="font-semibold text-gray-700">Message</label>
 
             <textarea
@@ -1812,9 +2039,15 @@ const SolarNewLeads = () => {
 
               <button
                 onClick={sendWhatsapp}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2"
+                disabled={catalogPdfLoading}
+                className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2"
               >
-                <FaWhatsapp className="text-xl" /> Open WhatsApp
+                <FaWhatsapp className="text-xl" />{" "}
+                {catalogPdfLoading
+                  ? "Loading PDF..."
+                  : willAttachPdf
+                  ? "Open WhatsApp with PDF"
+                  : "Open WhatsApp"}
               </button>
             </div>
 
@@ -2009,5 +2242,6 @@ const SolarNewLeads = () => {
     </div>
   );
 };
+
 
 export default SolarNewLeads;

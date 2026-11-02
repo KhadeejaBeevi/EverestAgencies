@@ -1094,18 +1094,24 @@ function Banner() {
           </div>
 
         </div>
-      </header>
 
       {/* =========================================================
           MOBILE MENU
+          Opens over the page, right under the header, and scrolls
+          on its own when it is longer than the screen.
       ========================================================= */}
 
       {mobileMenu && (
         <div
           className="
             lg:hidden
+            absolute left-0 right-0 top-full
+            max-h-[calc(100dvh-64px)]
+            overflow-y-auto
+            overscroll-contain
             bg-slate-900
             border-t border-slate-800
+            shadow-2xl
             px-4 py-4
             space-y-2
           "
@@ -1509,6 +1515,14 @@ function Banner() {
                 <span>KSEB Payment</span>
               </Link>
 
+              <Link
+                to="/kseboutstanding"
+                onClick={closeMobileMenu}
+              >
+                <Wallet size={16} />
+                <span>KSEB Outstanding</span>
+              </Link>
+
             </div>
           )}
 
@@ -1731,6 +1745,7 @@ function Banner() {
 
         </div>
       )}
+      </header>
     </>
   );
 }

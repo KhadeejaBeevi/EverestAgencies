@@ -24,7 +24,56 @@ if (!file_exists($uploadDir)) {
     mkdir($uploadDir, 0777, true);
 }
 
-function uploadImage($fieldName, $uploadDir)
+/* -------------------------
+   ALLOWED FILE TYPES
+   Images + common documents.
+   Scripts (.php etc.) are never allowed.
+   Keep in sync with update_po.php and FILE_ACCEPT in POEntry.jsx
+--------------------------*/
+
+$allowedExtensions = [
+    // images
+    "jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "tif", "tiff",
+    // documents
+    "pdf", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx", "txt", "odt", "ods"
+];
+
+/* -------------------------
+   CHECK FILE TYPES FIRST
+   (tell the user instead of silently dropping the file)
+--------------------------*/
+
+$fileLabels = [
+    "quotation_image" => "Quotation file",
+    "po_image"        => "PO file",
+    "invoice_image"   => "Invoice file"
+];
+
+foreach ($fileLabels as $field => $label) {
+
+    if (
+        isset($_FILES[$field]) &&
+        $_FILES[$field]["error"] == 0
+    ) {
+
+        $ext = strtolower(
+            pathinfo($_FILES[$field]["name"], PATHINFO_EXTENSION)
+        );
+
+        if (!in_array($ext, $allowedExtensions)) {
+
+            echo json_encode([
+                "success" => false,
+                "message" => "$label: .$ext files are not allowed. Allowed types: " .
+                             implode(", ", $allowedExtensions)
+            ]);
+
+            exit;
+        }
+    }
+}
+
+function uploadImage($fieldName, $uploadDir, $allowedExtensions)
 {
     if (
         isset($_FILES[$fieldName]) &&
@@ -37,14 +86,6 @@ function uploadImage($fieldName, $uploadDir)
                 PATHINFO_EXTENSION
             )
         );
-
-        $allowedExtensions = [
-            "jpg",
-            "jpeg",
-            "png",
-            "webp",
-            "pdf"
-        ];
 
         if (!in_array($extension, $allowedExtensions)) {
             return "";
@@ -88,22 +129,25 @@ $invoice_date     = $_POST["invoice_date"] ?? "";
 $invoice_amount   = $_POST["invoice_amount"] ?? "";
 
 /* -------------------------
-   UPLOAD IMAGES
+   UPLOAD FILES
 --------------------------*/
 
 $quotation_image = uploadImage(
     "quotation_image",
-    $uploadDir
+    $uploadDir,
+    $allowedExtensions
 );
 
 $po_image = uploadImage(
     "po_image",
-    $uploadDir
+    $uploadDir,
+    $allowedExtensions
 );
 
 $invoice_image = uploadImage(
     "invoice_image",
-    $uploadDir
+    $uploadDir,
+    $allowedExtensions
 );
 
 /* -------------------------

@@ -118,7 +118,7 @@ main {
   padding: 1rem 0;
   font-size: 16px;
   color: white;
-  border-bottom: none; 
+  border-bottom: none;
    font-weight: bold;
 }
 
@@ -160,7 +160,7 @@ main {
   justify-content: center;
 }
  /*.sidebar.collapsed .sidebar-link span {
-  display: none; /* hide label text 
+  display: none; /* hide label text
 }*/
 
 
@@ -172,3 +172,27 @@ main {
   stroke-width: 2;
 }
 
+
+/* ---- Fix: allow normal scrolling on phones / in the app ---- */
+/* (Google Play rejection: "App is not responding - users cannot scroll") */
+@media (max-width: 768px) {
+  .dashboard-wrapper {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .dashboard-layout {
+    overflow: visible;
+  }
+
+  .main-content,
+  .dashboard-layout main {
+    overflow-x: auto;
+    overflow-y: visible;
+    min-width: 0;
+  }
+
+  .sidebar {
+    height: auto;
+  }
+}

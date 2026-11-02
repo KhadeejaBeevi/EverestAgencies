@@ -321,6 +321,12 @@
   white-space: nowrap;
 }
 
+.ch-chips--sub {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--ch-border);
+}
+
 .ch-chip:hover {
   border-color: #9ca3af;
 }
@@ -547,6 +553,22 @@
 .ch-badge--positive { background: #dbeafe; color: #1e40af; }
 .ch-badge--pending { background: #ede9fe; color: #5b21b6; }
 .ch-badge--negative { background: #fee2e2; color: #991b1b; }
+.ch-badge--missed { background: #ffedd5; color: #9a3412; }
+
+/* PO indicator under a quotation */
+.ch-po-tag {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ch-po-tag--done { color: #15803d; }
+.ch-po-tag--waiting { color: #9ca3af; font-weight: 600; }
+
+.ch-stack--end { align-items: flex-end; text-align: right; }
 
 .ch-lead {
   display: inline-flex;
@@ -567,13 +589,6 @@
 .ch-lead--open { color: #16a34a; }
 .ch-lead--closed { color: #dc2626; }
 .ch-lead--won { color: #15803d; }
-
-.ch-po-note {
-  display: block;
-  color: #15803d;
-  font-size: 11px;
-  font-weight: 600;
-}
 
 .ch-followup small {
   display: block;

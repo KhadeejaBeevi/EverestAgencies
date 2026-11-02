@@ -690,3 +690,31 @@
     }
 
 }
+
+/* Phones: filters stack one under another instead of one wide row */
+@media (max-width: 768px) {
+
+    .tender-filter-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin: 12px;
+    }
+
+    .tender-filter-left,
+    .tender-filter-right,
+    .tender-date-filter,
+    .tender-filter-right .tender-clear-filter-btn {
+        width: 100%;
+    }
+
+    .tender-filter-right {
+        align-items: stretch;
+    }
+
+    .tender-filter-center .search-box {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+}

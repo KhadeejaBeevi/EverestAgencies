@@ -226,7 +226,7 @@ const TableCompare = () => {
             <hr />
 
             <h3>Total Differences : {Object.keys(differences).length}</h3>
-            <div className="table-container"></div>
+            <div className="table-container">
             <table>
 
                 <thead>
@@ -314,6 +314,7 @@ const TableCompare = () => {
                 </tbody>
 
             </table>
+            </div>
 
         </div>
         </>

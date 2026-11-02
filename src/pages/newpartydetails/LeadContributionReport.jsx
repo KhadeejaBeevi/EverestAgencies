@@ -867,7 +867,15 @@ const LeadContributionReport = () => {
                     STAFF + DAILY GRAPH
                 ================================================== */}
 
+                {/* Phones/tablets: the two charts stack instead of side by side */}
+                <style>{`
+                    @media (max-width: 900px) {
+                        .lead-contrib-charts { grid-template-columns: minmax(0, 1fr) !important; }
+                    }
+                `}</style>
+
                 <div
+                    className="lead-contrib-charts"
                     style={{
                         display: "grid",
 

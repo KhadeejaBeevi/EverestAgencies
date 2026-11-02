@@ -10,6 +10,26 @@ import { apiFetch } from "../../../api/apiClient";
 
 const API = "/serverphp";
 
+// File types allowed for Quotation / PO / Invoice attachments.
+// Keep this list in sync with $allowedExtensions in add_po.php and update_po.php.
+const FILE_ACCEPT =
+    "image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.odt,.ods";
+
+const getFileExtension = (url) =>
+    (url || "")
+        .split("?")[0]
+        .split("#")[0]
+        .split(".")
+        .pop()
+        .toLowerCase();
+
+const isImageFile = (url) =>
+    ["jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "avif"]
+        .includes(getFileExtension(url));
+
+const isPdf = (url) =>
+    getFileExtension(url) === "pdf";
+
 const POEntry = () => {
 
     const navigate = useNavigate();
@@ -201,6 +221,8 @@ const [newPO, setNewPO] = useState({
 
             quotation_number: "",
             quotation_date: "",
+            quotation_image: null,
+
             account_status: "",
 
             area_name: "",
@@ -210,8 +232,6 @@ const [newPO, setNewPO] = useState({
             po_date: "",
 
             po_image: null,
-
-
 
         });
 
@@ -236,6 +256,9 @@ const [newPO, setNewPO] = useState({
             const formData = new FormData();
 
             Object.keys(newPO).forEach((key) => {
+
+                // Skip empty file fields so "null" is not sent as text
+                if (newPO[key] === null) return;
 
                 formData.append(
                     key,
@@ -322,7 +345,7 @@ const [editData, setEditData] = useState({
 
     setEditData({
         quotation_number: item.quotation_number || "",
-        quotation_date: item.quotation_date || "",
+        quotation_date: cleanDate(item.quotation_date),
 
         account_status: item.account_status || "",
 
@@ -330,23 +353,23 @@ const [editData, setEditData] = useState({
         area_executive: item.area_executive || "",
 
         po_number: item.po_number || "",
-        po_date: item.po_date || "",
+        po_date: cleanDate(item.po_date),
 
         quotation_image: null,
         po_image: null,
 
         invoice_number: item.invoice_number || "",
-        invoice_date: item.invoice_date || "",
-        invoice_amount: item.invoice_amount || "",
+        invoice_date: cleanDate(item.invoice_date),
+        invoice_amount: cleanAmount(item.invoice_amount),
         invoice_image: null
     });
 
     // Load existing invoice details into the state used by the edit form
     setEditInvoiceRows([
         {
-            invoice_date: item.invoice_date || "",
+            invoice_date: cleanDate(item.invoice_date),
             invoice_number: item.invoice_number || "",
-            invoice_amount: item.invoice_amount || "",
+            invoice_amount: cleanAmount(item.invoice_amount),
             invoice_image: null
         }
     ]);
@@ -478,33 +501,33 @@ const [editData, setEditData] = useState({
 
 
 
-
-    const isPdf = (url) =>
-        /\.pdf$/i.test(url || "");
-
+    // Shows a thumbnail for images, a "PDF" button for PDFs,
+    // and a "File" button for any other type (Word, Excel, etc.)
     const renderAttachment = (url, title, alt) => {
 
-        if (!url) return "-";
+        if (!url) return "";
 
-        if (isPdf(url)) {
+        if (isImageFile(url)) {
             return (
-                <button
-                    type="button"
-                    className="table-pdf"
+                <img
+                    src={url}
+                    alt={alt}
+                    className="table-image"
                     onClick={() => openPreview(title, url)}
-                >
-                    PDF
-                </button>
+                />
             );
         }
 
         return (
-            <img
-                src={url}
-                alt={alt}
-                className="table-image"
+            <button
+                type="button"
+                className="table-pdf"
                 onClick={() => openPreview(title, url)}
-            />
+            >
+                {isPdf(url)
+                    ? "PDF"
+                    : getFileExtension(url).toUpperCase() || "File"}
+            </button>
         );
 
     };
@@ -644,7 +667,7 @@ const updatePO = async (id) => {
             editData.po_date || ""
         );
 
-        // New PO image only if selected
+        // New PO file only if selected
         if (editData.po_image) {
             formData.append(
                 "po_image",
@@ -652,7 +675,7 @@ const updatePO = async (id) => {
             );
         }
 
-        // New quotation image only if selected
+        // New quotation file only if selected
         if (editData.quotation_image) {
             formData.append(
                 "quotation_image",
@@ -678,7 +701,7 @@ const updatePO = async (id) => {
             invoice.invoice_amount || ""
         );
 
-        // New invoice image only if selected
+        // New invoice file only if selected
         if (invoice.invoice_image) {
             formData.append(
                 "invoice_image",
@@ -792,11 +815,38 @@ const handleAddChange = (e) => {
 
     };
 
+    // Returns "" for missing / zero / invalid dates
+    // (e.g. null, "", "0000-00-00" from the database)
+    function cleanDate(date) {
+
+        if (!date || /^0000-00-00/.test(date)) return "";
+
+        if (isNaN(new Date(date).getTime())) return "";
+
+        return date;
+
+    }
+
+    // Returns "" for missing or zero amounts
+    function cleanAmount(amount) {
+
+        if (amount === null || amount === undefined || amount === "") return "";
+
+        const value = Number(amount);
+
+        if (isNaN(value) || value === 0) return "";
+
+        return amount;
+
+    }
+
     const formatDate = (date) => {
 
-        if (!date) return "-";
+        const valid = cleanDate(date);
 
-        return new Date(date)
+        if (!valid) return "";
+
+        return new Date(valid)
             .toLocaleDateString(
                 "en-GB",
                 {
@@ -806,6 +856,17 @@ const handleAddChange = (e) => {
                 }
             )
             .replace(/ /g, " - ");
+
+    };
+
+    // Leave blank when there is no invoice amount (instead of ₹0)
+    const formatAmount = (amount) => {
+
+        const valid = cleanAmount(amount);
+
+        if (!valid) return "";
+
+        return `₹${valid}`;
 
     };
 
@@ -958,7 +1019,7 @@ const handleAddChange = (e) => {
 
                                 />
 
-                            ) : (
+                            ) : isImageFile(previewImage) ? (
 
                                 <img
 
@@ -976,9 +1037,42 @@ const handleAddChange = (e) => {
 
                                 />
 
+                            ) : (
+
+                                <div
+                                    style={{
+                                        padding: "30px",
+                                        textAlign: "center",
+                                        background: "#f8f9fa",
+                                        borderRadius: "10px"
+                                    }}
+                                >
+
+                                    <p style={{ marginBottom: "15px" }}>
+                                        This file type (
+                                        {getFileExtension(previewImage).toUpperCase()}
+                                        ) cannot be previewed here.
+                                        Open or download it to view.
+                                    </p>
+
+                                </div>
+
                             )}
 
                             <div className="modal-buttons">
+
+                                <a
+                                    className="tender_save-btn"
+                                    href={previewImage}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    download
+                                    style={{ textDecoration: "none" }}
+                                >
+
+                                    Open / Download
+
+                                </a>
 
                                 <button
 
@@ -1167,7 +1261,7 @@ const handleAddChange = (e) => {
                                         )}
                                     </td>
                                     <td>
-                                        {renderAttachment(item.quotation_image_url, "Quotation Image", "Quotation")}
+                                        {renderAttachment(item.quotation_image_url, "Quotation File", "Quotation")}
                                     </td>
 
                                     <td>
@@ -1180,7 +1274,7 @@ const handleAddChange = (e) => {
 
                                     <td>
 
-                                        {renderAttachment(item.po_image_url, "Purchase Order Image", "PO")}
+                                        {renderAttachment(item.po_image_url, "Purchase Order File", "PO")}
 
                                     </td>
 
@@ -1188,10 +1282,10 @@ const handleAddChange = (e) => {
 
                                     <td>{formatDate(item.invoice_date)}</td>
 
-                                    <td>₹{item.invoice_amount || 0}</td>
+                                    <td>{formatAmount(item.invoice_amount)}</td>
 
                                     <td>
-                                        {renderAttachment(item.invoice_image_url, "Invoice Image", "Invoice")}
+                                        {renderAttachment(item.invoice_image_url, "Invoice File", "Invoice")}
                                     </td>
                                     <td>
                                         {canManagePO ? (
@@ -1223,7 +1317,7 @@ const handleAddChange = (e) => {
 
                                 <tr>
 
-                                    <td colSpan="14">
+                                    <td colSpan="15">
 
                                         No Data Found
 
@@ -1300,10 +1394,40 @@ const handleAddChange = (e) => {
                                             Invoice :
                                         </strong>{" "}
 
-                                        ₹
-                                        {item.total_invoice_amount || 0}
+                                        {formatAmount(item.invoice_amount)}
 
                                     </p>
+
+                                    {(item.quotation_image_url ||
+                                        item.po_image_url ||
+                                        item.invoice_image_url) && (
+
+                                        <div className="mobile-attachments">
+
+                                            {item.quotation_image_url && (
+                                                <div>
+                                                    <small>Quotation</small>
+                                                    {renderAttachment(item.quotation_image_url, "Quotation File", "Quotation")}
+                                                </div>
+                                            )}
+
+                                            {item.po_image_url && (
+                                                <div>
+                                                    <small>PO</small>
+                                                    {renderAttachment(item.po_image_url, "Purchase Order File", "PO")}
+                                                </div>
+                                            )}
+
+                                            {item.invoice_image_url && (
+                                                <div>
+                                                    <small>Invoice</small>
+                                                    {renderAttachment(item.invoice_image_url, "Invoice File", "Invoice")}
+                                                </div>
+                                            )}
+
+                                        </div>
+
+                                    )}
 
                                 </div>
 
@@ -1419,11 +1543,11 @@ const handleAddChange = (e) => {
 
                                     </div>
                                     <div className="form-group">
-                                        <label>Quotation Image</label>
+                                        <label>Quotation File (Image / PDF / Doc)</label>
                                         <input
                                             type="file"
                                             name="quotation_image"
-                                            accept="image/*,application/pdf"
+                                            accept={FILE_ACCEPT}
                                             onChange={handleAddChange}
                                         />
                                     </div>
@@ -1520,11 +1644,11 @@ const handleAddChange = (e) => {
                                     </div>
 
                                     <div className="form-group">
-                                        <label>PO Image</label>
+                                        <label>PO File (Image / PDF / Doc)</label>
                                         <input
                                             type="file"
                                             name="po_image"
-                                            accept="image/*,application/pdf"
+                                            accept={FILE_ACCEPT}
                                             onChange={handleAddChange}
                                         />
                                     </div>
@@ -1577,11 +1701,11 @@ const handleAddChange = (e) => {
                                             </div>
 
                                             <div className="form-group">
-                                                <label>Invoice Image</label>
+                                                <label>Invoice File (Image / PDF / Doc)</label>
                                                 <input
                                                     type="file"
                                                     name="invoice_image"
-                                                    accept="image/*,application/pdf"
+                                                    accept={FILE_ACCEPT}
                                                     onChange={(e) => handleInvoiceChange(0, e)}
                                                 />
                                             </div>
@@ -1694,12 +1818,12 @@ const handleAddChange = (e) => {
 
                                 </div>
                                 <div className="form-group">
-    <label>Quotation Image</label>
+    <label>Replace Quotation File (Image / PDF / Doc)</label>
 
     <input
         type="file"
         name="quotation_image"
-        accept="image/*,application/pdf"
+        accept={FILE_ACCEPT}
         onChange={handleEditChange}
     />
 </div>
@@ -1814,14 +1938,14 @@ const handleAddChange = (e) => {
 
                                     <label>
 
-                                        Replace PO Image
+                                        Replace PO File (Image / PDF / Doc)
 
                                     </label>
 
                                     <input
                                         type="file"
                                         name="po_image"
-                                        accept="image/*,application/pdf"
+                                        accept={FILE_ACCEPT}
                                         onChange={handleEditChange}
                                     />
 
@@ -1875,11 +1999,11 @@ const handleAddChange = (e) => {
                                         </div>
 
                                         <div className="form-group">
-                                            <label>Invoice Image</label>
+                                            <label>Replace Invoice File (Image / PDF / Doc)</label>
                                             <input
                                                 type="file"
                                                 name="invoice_image"
-                                                accept="image/*,application/pdf"
+                                                accept={FILE_ACCEPT}
                                                 onChange={(e)=>handleEditInvoiceChange(0,e)}
                                             />
                                         </div>
