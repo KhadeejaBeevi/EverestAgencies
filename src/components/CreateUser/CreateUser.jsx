@@ -6,6 +6,7 @@ import { setDoc, doc } from "firebase/firestore";
 import { toast } from "react-toastify";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { Camera, Trash2, UserRound } from "lucide-react";
+import { DESIGNATIONS } from "../designations";
 import { resizeImage, MAX_UPLOAD_BYTES } from "../MyProfile/profilePhoto";
 function CreateUser() {
   const [email, setEmail] = useState("");
@@ -15,6 +16,7 @@ function CreateUser() {
   const [loading, setLoading] = useState(false); // Add loading state
   const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState("");
+  const [designation, setDesignation] = useState("");
   const [photo, setPhoto] = useState("");
   const fileInputRef = useRef(null);
 
@@ -73,6 +75,7 @@ await setDoc(doc(db, "Users", userCredential.user.uid), {
   lastName: lname,
   phone: trimmedPhone,
   photo,
+  designation: designation.trim(),
   role: "user",
 });
 
@@ -165,6 +168,20 @@ console.log("Firestore document created");
                 placeholder="Last name"
                 onChange={(e) => setLname(e.target.value)}
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Designation</label>
+              <select
+                className="mt-1 w-full px-3 py-2 border border-gray-400 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                value={designation}
+                onChange={(e) => setDesignation(e.target.value)}
+                required
+              >
+                <option value="">Select designation</option>
+                {DESIGNATIONS.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Email address</label>

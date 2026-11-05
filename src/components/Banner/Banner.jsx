@@ -26,6 +26,7 @@ import {
   CalendarCheck,
   FileText,
   ClipboardCheck,
+  ClipboardList,
   PackageSearch,
   Truck,
   Boxes,
@@ -395,6 +396,22 @@ function Banner() {
                         >
                           <PhoneCall size={16} />
                           <span>SalesCoordinator Report</span>
+                        </Link>
+
+                        <Link
+                          to="/customerpo"
+                          onClick={closeDesktopMenu}
+                        >
+                          <ClipboardList size={16} />
+                          <span>Customer PO</span>
+                        </Link>
+
+                        <Link
+                          to="/ordertodelivery"
+                          onClick={closeDesktopMenu}
+                        >
+                          <Truck size={16} />
+                          <span>Order To Delivery</span>
                         </Link>
 
                       </div>
@@ -790,7 +807,7 @@ function Banner() {
                           onClick={closeDesktopMenu}
                         >
                           <CreditCard size={16} />
-                          <span>KSEB Payment</span>
+                          <span>KSEB Invoices</span>
                         </Link>
 
                         <Link
@@ -1512,7 +1529,7 @@ function Banner() {
                 onClick={closeMobileMenu}
               >
                 <CreditCard size={16} />
-                <span>KSEB Payment</span>
+                <span>KSEB Invoices</span>
               </Link>
 
               <Link
@@ -1672,6 +1689,26 @@ function Banner() {
                 <PhoneCall size={16} />
                 <span>
                   SalesCoordinator Report
+                </span>
+              </Link>
+
+              <Link
+                to="/customerpo"
+                onClick={closeMobileMenu}
+              >
+                <ClipboardList size={16} />
+                <span>
+                  Customer PO
+                </span>
+              </Link>
+
+              <Link
+                to="/ordertodelivery"
+                onClick={closeMobileMenu}
+              >
+                <Truck size={16} />
+                <span>
+                  Order To Delivery
                 </span>
               </Link>
 

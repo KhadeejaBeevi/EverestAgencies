@@ -64,6 +64,8 @@ import QuotationWise from "./components/SalesOrder/QuotationWise/QuotationWise";
 import GlobalAlterationAlert from "./components/GlobalAlterationAlert";
 import QuotationReadyAlert from "./components/QuotationReadyAlert";
 import TelecallerReport from "./components/SalesOrder/TelecallerReport/TelecallerReport";
+import CustomerPO from "./components/SalesOrder/OrderDelivery/CustomerPO";
+import OrderToDelivery from "./components/SalesOrder/OrderDelivery/OrderToDelivery";
 import KSEBPayment from "./pages/kseb/KSEBPayment";
 import KSEBOutstanding from "./pages/kseb/KSEBOutstanding";
 import KsebOverallSales from "./pages/kseb/KSEBOverallSales";
@@ -321,6 +323,18 @@ function App() {
           <Route path="/telecallerreport" element={
             <ProtectedRoute page="Telecaller Report">
               <TelecallerReport />
+            </ProtectedRoute>
+          }/>
+
+          <Route path="/customerpo" element={
+            <ProtectedRoute page="Customer PO">
+              <CustomerPO />
+            </ProtectedRoute>
+          }/>
+
+          <Route path="/ordertodelivery" element={
+            <ProtectedRoute page="Order To Delivery">
+              <OrderToDelivery />
             </ProtectedRoute>
           }/>
 

@@ -571,7 +571,7 @@ const OpeningBreakup = ({ breakup, openingBalance, openingDate, source }) => {
                         <th style={{ ...tHead, background: "transparent" }}>Date</th>
                         <th style={{ ...tHead, background: "transparent" }}>Bill / Invoice Reference No.</th>
                         <th style={{ ...tHeadRight, background: "transparent" }}>Credit Period</th>
-                        <th style={{ ...tHead, background: "transparent", fontStyle: "italic" }}>Due on</th>
+                        <th style={{ ...tHeadRight, background: "transparent", fontStyle: "italic" }}>Due on</th>
                         <th style={{ ...tHeadRight, background: "transparent" }}>Opening Amount</th>
                         <th style={{ ...tHeadRight, background: "transparent" }}>Pending Now</th>
                     </tr>
@@ -582,7 +582,7 @@ const OpeningBreakup = ({ breakup, openingBalance, openingDate, source }) => {
                             <td style={tCellRight}>{formatTallyDate(b.bill_date)}</td>
                             <td style={{ ...tCell, fontStyle: b.is_on_account ? "italic" : "normal" }}>{b.bill_ref}</td>
                             <td style={tCellRight}>{!b.is_on_account && b.credit_days ? `${b.credit_days} Days` : ""}</td>
-                            <td style={{ ...tCell, fontStyle: "italic" }}>
+                            <td style={{ ...tCellRight, fontStyle: "italic" }}>
                                 {b.is_on_account ? "" : formatTallyDate(b.due_date)}
                             </td>
                             <td style={tCellRight}>{formatDrCr(b.amount)}</td>
@@ -1743,7 +1743,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                             </th>
                             <th style={tHeadRight}>{isDeposits ? "Deposited" : "Opening Amount"}</th>
                             <th style={{ ...tHeadRight, fontWeight: "800" }}>{isDeposits ? "Held by KSEB" : "Pending Amount"}</th>
-                            <th style={{ ...tHead, fontStyle: "italic" }}>Due on</th>
+                            <th style={{ ...tHeadRight, fontStyle: "italic" }}>Due on</th>
                             <th style={{ ...tHeadRight, fontStyle: "italic" }}>Days Overdue</th>
                         </tr>
                     </thead>
@@ -1805,7 +1805,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                                     <td style={{ ...tCellRight, fontWeight: overdue ? "800" : "400" }}>
                                         {formatDrCr(b.balance)}
                                     </td>
-                                    <td style={{ ...tCell, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
+                                    <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
                                     <td style={{ ...tCellRight, fontStyle: "italic" }}>{overdue ? b.overdue_days : ""}</td>
                                 </tr>
 
@@ -2138,7 +2138,7 @@ const DepositsTable = ({ deposits, showDistribution, onOpenLedger, canOpen, expa
                                                         <th style={{ ...tHead, background: "transparent" }}>Date</th>
                                                         <th style={{ ...tHead, background: "transparent" }}>Reference (LPO)</th>
                                                         <th style={{ ...tHeadRight, background: "transparent" }}>Credit Period</th>
-                                                        <th style={{ ...tHead, background: "transparent", fontStyle: "italic" }}>Due on</th>
+                                                        <th style={{ ...tHeadRight, background: "transparent", fontStyle: "italic" }}>Due on</th>
                                                         <th style={{ ...tHeadRight, background: "transparent" }}>Deposited</th>
                                                         <th style={{ ...tHeadRight, background: "transparent" }}>Refunded</th>
                                                         <th style={{ ...tHeadRight, background: "transparent" }}>Balance</th>
@@ -2158,7 +2158,7 @@ const DepositsTable = ({ deposits, showDistribution, onOpenLedger, canOpen, expa
                                                                 <td style={tCellRight}>
                                                                     {d.credit_days ? `${d.credit_days} Days` : ""}
                                                                 </td>
-                                                                <td style={{ ...tCell, fontStyle: "italic" }}>
+                                                                <td style={{ ...tCellRight, fontStyle: "italic" }}>
                                                                     {formatTallyDate(d.due_date)}
                                                                 </td>
                                                                 <td style={tCellRight}>{formatTally(d.deposited)}</td>
@@ -2398,7 +2398,7 @@ const DepositOpeningTable = ({ rows, showDistribution, openingDate }) => {
                                                             <th style={{ ...tHead, background: "transparent" }}>Date</th>
                                                             <th style={{ ...tHead, background: "transparent" }}>Reference (LPO)</th>
                                                             <th style={{ ...tHeadRight, background: "transparent" }}>Credit Period</th>
-                                                            <th style={{ ...tHead, background: "transparent", fontStyle: "italic" }}>Due on</th>
+                                                            <th style={{ ...tHeadRight, background: "transparent", fontStyle: "italic" }}>Due on</th>
                                                             <th style={{ ...tHeadRight, background: "transparent" }}>Opening Amount</th>
                                                             <th style={{ ...tHeadRight, background: "transparent" }}>Refunded</th>
                                                             <th style={{ ...tHeadRight, background: "transparent" }}>Still Held</th>
@@ -2410,7 +2410,7 @@ const DepositOpeningTable = ({ rows, showDistribution, openingDate }) => {
                                                                 <td style={tCellRight}>{formatTallyDate(b.bill_date)}</td>
                                                                 <td style={tCell}>{b.bill_ref}</td>
                                                                 <td style={tCellRight}>{b.credit_days ? `${b.credit_days} Days` : ""}</td>
-                                                                <td style={{ ...tCell, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
+                                                                <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
                                                                 <td style={tCellRight}>{formatTally(b.amount)}</td>
                                                                 <td style={{ ...tCellRight, color: "#166534" }}>
                                                                     {formatTally(b.refunded)}

@@ -799,6 +799,31 @@ try {
 
         /*
         |--------------------------------------------------------------------------
+        | ORDER NUMBER
+        |--------------------------------------------------------------------------
+        |
+        | Taken from salesdata.EveInvVchOrderNos. OrderNo is used only
+        | when EveInvVchOrderNos is empty.
+        |
+        */
+
+        $orderNo =
+            cleanValue(
+                $row["EveInvVchOrderNos"]
+            );
+
+
+        if ($orderNo === "") {
+
+            $orderNo =
+                cleanValue(
+                    $row["OrderNo"]
+                );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
         | INVOICE KEY
         |--------------------------------------------------------------------------
         */
@@ -847,10 +872,12 @@ try {
                         $row["Reference"]
                     ),
 
+                /*
+                | Order number comes from EveInvVchOrderNos
+                | (falls back to OrderNo when that is empty).
+                */
                 "order_no" =>
-                    cleanValue(
-                        $row["OrderNo"]
-                    ),
+                    $orderNo,
 
                 "party_name" =>
                     $party,
@@ -1081,6 +1108,27 @@ try {
 
         $invoice =&
             $invoices[$invoiceKey];
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | ORDER NUMBER FROM A LATER ROW
+        |--------------------------------------------------------------------------
+        |
+        | If the first row of the invoice had no order number,
+        | use the first later row that has one.
+        |
+        */
+
+        if (
+            $invoice["order_no"] === ""
+            &&
+            $orderNo !== ""
+        ) {
+
+            $invoice["order_no"] =
+                $orderNo;
+        }
 
 
         /*
@@ -1433,6 +1481,91 @@ try {
 
 
     $result->free();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | UPLOADED DOCUMENTS (PO / INVOICE / OTHER)
+    |--------------------------------------------------------------------------
+    |
+    | Documents are uploaded from the KSEB Invoices page through
+    | kseb_invoice_tracking.php and saved in kseb_invoice_documents
+    | (one row per file, doc_type = PO, INVOICE, DD, BANK_GUARANTEE,
+    | DELIVERY_NOTE or OTHER).
+    |
+    | Every invoice gets three lists:
+    |
+    |   po_documents       -> doc_type PO
+    |   invoice_documents  -> doc_type INVOICE
+    |   other_documents    -> every other doc_type
+    |
+    | If the table does not exist yet, the lists stay empty.
+    |
+    */
+
+    $documentTypeLabels = [
+        "PO"             => "Purchase Order (PO)",
+        "INVOICE"        => "Invoice",
+        "DD"             => "Demand Draft (DD)",
+        "BANK_GUARANTEE" => "Bank Guarantee",
+        "DELIVERY_NOTE"  => "Delivery Note / DC",
+        "OTHER"          => "Other"
+    ];
+
+    foreach ($invoices as &$invoice) {
+        $invoice["po_documents"] = [];
+        $invoice["invoice_documents"] = [];
+        $invoice["other_documents"] = [];
+    }
+
+    unset($invoice);
+
+    $documentResult = $conn->query(
+        "SELECT id, invoice_key, doc_type, original_name, mime_type,
+                file_size, remarks, uploaded_by, uploaded_at
+         FROM kseb_invoice_documents
+         ORDER BY uploaded_at ASC, id ASC"
+    );
+
+    if ($documentResult) {
+
+        while ($documentRow = $documentResult->fetch_assoc()) {
+
+            $documentKey = (string)$documentRow["invoice_key"];
+
+            if (!isset($invoices[$documentKey])) {
+                $documentKey = strtolower($documentKey);
+            }
+
+            if (!isset($invoices[$documentKey])) {
+                continue;
+            }
+
+            $documentType = strtoupper(cleanValue($documentRow["doc_type"]));
+
+            $document = [
+                "id" => (int)$documentRow["id"],
+                "doc_type" => $documentType,
+                "doc_type_label" => $documentTypeLabels[$documentType] ?? $documentType,
+                "original_name" => cleanValue($documentRow["original_name"]),
+                "mime_type" => cleanValue($documentRow["mime_type"]),
+                "file_size" => (int)$documentRow["file_size"],
+                "remarks" => cleanValue($documentRow["remarks"]),
+                "uploaded_by" => cleanValue($documentRow["uploaded_by"]),
+                "uploaded_at" => cleanValue($documentRow["uploaded_at"])
+            ];
+
+            if ($documentType === "PO") {
+                $invoices[$documentKey]["po_documents"][] = $document;
+            } elseif ($documentType === "INVOICE") {
+                $invoices[$documentKey]["invoice_documents"][] = $document;
+            } else {
+                $invoices[$documentKey]["other_documents"][] = $document;
+            }
+        }
+
+        $documentResult->free();
+    }
 
 
     /*

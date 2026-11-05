@@ -50,7 +50,7 @@ const PasswordLinkModal = ({ user, onClose }) => {
             const res = await apiFetch(ENDPOINT, {
                 method: "POST",
                 headers: { Authorization: `Bearer ${idToken}` },
-                body: JSON.stringify({ uid: user.id }),
+                body: JSON.stringify({ uid: user.id, idToken }),
             });
             const data = await res.json();
 

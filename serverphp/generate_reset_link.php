@@ -28,7 +28,20 @@ const FIREBASE_PROJECT_ID = 'login-auth-2f165';
 const REQUIRED_PAGE       = 'Manage Users';
 
 // Path to the service account JSON. Keep it out of the public web folder.
-$SERVICE_ACCOUNT_PATH = getenv('FIREBASE_CREDENTIALS') ?: 'C:/secure/firebase-service-account.json';
+// Uses FIREBASE_CREDENTIALS if set, else the first file that exists:
+// the live server's path, then the local XAMPP path.
+$SERVICE_ACCOUNT_PATH = getenv('FIREBASE_CREDENTIALS') ?: '';
+if ($SERVICE_ACCOUNT_PATH === '') {
+    foreach ([
+        '/home2/everejop/secure/firebase-service-account.json', // live server
+        'C:/secure/firebase-service-account.json',              // local XAMPP
+    ] as $candidate) {
+        if (is_readable($candidate)) {
+            $SERVICE_ACCOUNT_PATH = $candidate;
+            break;
+        }
+    }
+}
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -52,22 +65,38 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // ---------- caller's ID token ----------
+// Sent as "Authorization: Bearer <token>" and also as "idToken" in the JSON
+// body, because Apache (e.g. XAMPP) often drops the Authorization header.
+$input      = json_decode(file_get_contents('php://input'), true) ?: [];
 $authHeader = $_SERVER['HTTP_AUTHORIZATION']
     ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
     ?? (function_exists('getallheaders') ? (getallheaders()['Authorization'] ?? '') : '');
 
-if (!preg_match('/^Bearer\s+(.+)$/i', $authHeader, $m)) {
+$idToken = preg_match('/^Bearer\s+(.+)$/i', (string)$authHeader, $m)
+    ? trim($m[1])
+    : trim((string)($input['idToken'] ?? ''));
+
+if ($idToken === '') {
     respond(401, ['success' => false, 'message' => 'Not logged in']);
 }
-$idToken = trim($m[1]);
 
 // ---------- input ----------
-$input     = json_decode(file_get_contents('php://input'), true) ?: [];
 $targetUid = trim((string)($input['uid'] ?? ''));
 
 if ($targetUid === '' || !preg_match('/^[A-Za-z0-9_-]{1,128}$/', $targetUid)) {
     respond(400, ['success' => false, 'message' => 'Missing or invalid user id']);
 }
+
+if (!is_readable($SERVICE_ACCOUNT_PATH)) {
+    respond(500, [
+        'success' => false,
+        'message' => 'Server setup: Firebase service account key file not found. '
+            . 'Upload it and set $SERVICE_ACCOUNT_PATH (or the FIREBASE_CREDENTIALS env var) in '
+            . basename(__FILE__),
+    ]);
+}
+
+$isAdmin = false;
 
 try {
     $auth = (new Factory())
@@ -101,6 +130,7 @@ try {
     if (!$allowed) {
         respond(403, ['success' => false, 'message' => 'Only admins with Manage Users access can create reset links']);
     }
+    $isAdmin = true;
 
     // 3. Create the link for the target user
     $user = $auth->getUser($targetUid);
@@ -121,5 +151,7 @@ try {
     respond(404, ['success' => false, 'message' => 'User not found in Firebase Authentication']);
 } catch (\Throwable $e) {
     error_log('generate_reset_link: ' . $e->getMessage());
-    respond(500, ['success' => false, 'message' => 'Could not create the reset link']);
+    // Only verified admins see the technical reason.
+    $detail = $isAdmin ? ': ' . $e->getMessage() : '';
+    respond(500, ['success' => false, 'message' => 'Could not create the reset link' . $detail]);
 }

@@ -480,10 +480,11 @@ export default function CreatePartyModal({ onClose, onPartyCreated }) {
             {/* Section 2: GST & Contact Details */}
             <div>
               <h3 className="text-base sm:text-lg font-semibold mb-3 text-gray-700 border-b pb-2">
-                GST & Contact Details
+                Contact Details
               </h3>
               <div className="space-y-4">
-                {/* GST Registration Type */}
+                {/* GST fields hidden for now
+                GST Registration Type
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
                     GST Registration Type
@@ -501,7 +502,7 @@ export default function CreatePartyModal({ onClose, onPartyCreated }) {
                   </select>
                 </div>
 
-                {/* GSTIN Number */}
+                GSTIN Number
                 <div>
                   <label className="block text-sm font-medium mb-1.5">GSTIN Number</label>
                   <input
@@ -513,6 +514,7 @@ export default function CreatePartyModal({ onClose, onPartyCreated }) {
                     placeholder="Enter GSTIN"
                   />
                 </div>
+                */}
 
                 {/* Mobile */}
                 <div>

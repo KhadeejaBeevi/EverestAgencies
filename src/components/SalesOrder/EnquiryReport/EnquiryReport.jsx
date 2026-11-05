@@ -99,6 +99,7 @@ const REMARK_OPTIONS = [
     "Price Issue",
     "Requirement Not Clear",
     "Technical Clarification",
+    "Technical Clarification Solved",
     "Duplicate Enquiry",
     "Not Required"
 ];
@@ -106,6 +107,33 @@ const REMARK_OPTIONS = [
 /* Enquiries waiting for a technical clarification (from the customer
    or the technical team) before the quotation can be made. */
 const TECHNICAL_CLARIFICATION_REMARK = "Technical Clarification";
+const TECHNICAL_CLARIFICATION_SOLVED_REMARK = "Technical Clarification Solved";
+
+/* Pending / solved badge for technical clarification, shown like the
+   negotiation badge. */
+function getTechnicalClarificationBadge(item) {
+    const remarks = String(item?.remarks || "").trim();
+    const by = item?.status_changed_by ? ` by ${item.status_changed_by}` : "";
+    const at = item?.status_changed_at ? ` on ${formatDate(item.status_changed_at)}` : "";
+
+    if (remarks === TECHNICAL_CLARIFICATION_REMARK) {
+        return {
+            label: "⏳ Clarification pending",
+            title: `Waiting for the technical clarification${by}${at}`,
+            style: { backgroundColor: "#fff3cd", border: "1px solid #ffb300", color: "#8a4b00" }
+        };
+    }
+
+    if (remarks === TECHNICAL_CLARIFICATION_SOLVED_REMARK) {
+        return {
+            label: "✅ Clarification solved",
+            title: `Technical clarification solved${by}${at}`,
+            style: { backgroundColor: "#e8f5e9", border: "1px solid #81c784", color: "#1b5e20" }
+        };
+    }
+
+    return null;
+}
 
 /* =========================================================
    PERIOD FILTER (day / week / month)
@@ -467,7 +495,7 @@ const EnquiryRow = memo(function EnquiryRow({ item, slNo, timerState, timerLabel
 
     const displayRemarks = resolveRemarks(item.remarks, item.sales_order_no);
 
-    const negotiationBadge = getNegotiationBadge(item);
+    const negotiationBadge = getTechnicalClarificationBadge(item) || getNegotiationBadge(item);
 
     return (
         <tr
@@ -1498,7 +1526,7 @@ export default function EnquiryReport() {
                                 checked={showTechnicalOnly}
                                 onChange={e => setShowTechnicalOnly(e.target.checked)}
                             />
-                            Technical clarification
+                            Technical clarification pending
                         </label>
 
                         <div className="toolbar-filter">
@@ -1898,6 +1926,18 @@ export default function EnquiryReport() {
                                                     Quotation No. is required.
                                                 </small>
                                             </>
+                                        )}
+
+                                        {(remarksMode === NEGOTIATION_REMARK || remarksMode === TECHNICAL_CLARIFICATION_REMARK) && (
+                                            <small style={{ display: "block", marginTop: "4px" }}>
+                                                The person who added this enquiry will be notified of this status.
+                                            </small>
+                                        )}
+
+                                        {remarksMode === TECHNICAL_CLARIFICATION_REMARK && (
+                                            <small style={{ display: "block", marginTop: "4px" }}>
+                                                Shows as "Clarification pending" until the remark is changed to Technical Clarification Solved.
+                                            </small>
                                         )}
                                     </div>
 

@@ -1,6 +1,7 @@
 import Banner from "../Banner/Banner.jsx";
 import React, { useEffect, useState } from "react";
 import "./ManageUsers.css";
+import { DESIGNATIONS } from "../designations";
 import {
     collection,
     getDocs,
@@ -177,6 +178,7 @@ const ManageUsers = () => {
                 lastName: selectedUser.lastName,
                 email: selectedUser.email,
                 role: selectedUser.role,
+                designation: (selectedUser.designation || "").trim(),
                 phone: (selectedUser.phone || "").trim(),
                 photo: selectedUser.photo || "",
 
@@ -499,6 +501,33 @@ const ManageUsers = () => {
                                         value={selectedUser.phone || ""}
                                         onChange={handleChange}
                                     />
+
+                                </div>
+
+                                <div className="form-group">
+
+                                    <label>Designation</label>
+
+                                    <select
+                                        name="designation"
+                                        value={selectedUser.designation || ""}
+                                        onChange={handleChange}
+                                    >
+
+                                        <option value="">Select designation</option>
+
+                                        {selectedUser.designation &&
+                                            !DESIGNATIONS.includes(selectedUser.designation) && (
+                                                <option value={selectedUser.designation}>
+                                                    {selectedUser.designation}
+                                                </option>
+                                            )}
+
+                                        {DESIGNATIONS.map((d) => (
+                                            <option key={d} value={d}>{d}</option>
+                                        ))}
+
+                                    </select>
 
                                 </div>
 

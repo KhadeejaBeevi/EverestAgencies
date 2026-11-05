@@ -12,6 +12,7 @@ import {
 } from "./QuotationPdf.jsx";
 import WhatsappLogModal from "./WhatsappLogModal.jsx";
 import WhatsappApiSender from "./WhatsappApiSender.jsx";
+import { buildSearchRegex, getSearchMatches, highlightMatches } from "./SearchHighlight.jsx";
 import {
     addDaysLocal,
     authHeaders,
@@ -48,6 +49,57 @@ const API = "/serverphp";
 
 const getCurrentFinancialMonth = () => {
     return String(new Date().getMonth() + 1);
+};
+
+// Week = Monday to Sunday. Returns the Monday ("YYYY-MM-DD") of the week
+// that contains the given "YYYY-MM-DD" date.
+const getWeekStartKey = (dateKey) => {
+    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return "";
+    const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+};
+
+// "03 Nov – 09 Nov 2025" for the week that contains the given date.
+const formatWeekRange = (dateKey) => {
+    const startKey = getWeekStartKey(dateKey);
+    if (!startKey) return "";
+    const start = new Date(`${startKey}T00:00:00Z`);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 6);
+    const part = (d) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "UTC" });
+    return `${part(start)} – ${part(end)} ${end.getUTCFullYear()}`;
+};
+
+// Moves a "YYYY-MM-DD" date by the given number of days.
+const addDaysTo = (dateKey, days) => {
+    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return todayLocal();
+    const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+};
+
+const periodDateInputStyle = {
+    height: "36px",
+    padding: "0 10px",
+    border: "1px solid #ccc",
+    borderRadius: "6px",
+    fontSize: "13px",
+    background: "#fff",
+    cursor: "pointer"
+};
+
+const periodNavButtonStyle = {
+    height: "36px",
+    width: "30px",
+    border: "1px solid #ccc",
+    borderRadius: "6px",
+    background: "#fff",
+    fontSize: "18px",
+    lineHeight: 1,
+    cursor: "pointer"
 };
 
 // Follow-up details (Followed By, Last Active, Today's calls) refresh every
@@ -104,6 +156,11 @@ const QuotationWise = () => {
     const [selectedMonth, setSelectedMonth] = useState(getCurrentFinancialMonth());
     // Financial year (April-March) the month filter applies to; "all" = every year.
     const [selectedFinancialYear, setSelectedFinancialYear] = useState(String(getFinancialYear()));
+    // Quotation date filter type: "month" (above), "week" or "day".
+    const [periodType, setPeriodType] = useState("month");
+    // Day filter date, and any date inside the week for the week filter.
+    const [selectedDay, setSelectedDay] = useState(todayLocal());
+    const [selectedWeekDate, setSelectedWeekDate] = useState(todayLocal());
 
     const [sortOrder, setSortOrder] = useState(savedView.sortOrder || "newest");
     const [followupByQuotation, setFollowupByQuotation] = useState({});
@@ -520,6 +577,9 @@ const QuotationWise = () => {
     const fetchSalesOrders = async () => {
         // Refresh should always return the quotation month selector to the current month.
         setSelectedMonth(getCurrentFinancialMonth());
+        setPeriodType("month");
+        setSelectedDay(todayLocal());
+        setSelectedWeekDate(todayLocal());
         setLoading(true);
 
         try {
@@ -944,7 +1004,16 @@ const QuotationWise = () => {
 
     // Is the quotation in the selected financial year and month?
     // month: 1-12, or "all" for the whole financial year.
+    // With the Week or Day filter, the chosen week/day decides instead.
     const isInSelectedPeriod = (row, month) => {
+        if (periodType === "day") {
+            return normalizeDate(row?.date) === selectedDay;
+        }
+        if (periodType === "week") {
+            const rowKey = normalizeDate(row?.date);
+            return Boolean(rowKey) && getWeekStartKey(rowKey) === getWeekStartKey(selectedWeekDate);
+        }
+
         const d = new Date(String(row?.date || "").replace(" ", "T"));
         if (isNaN(d.getTime())) return false;
 
@@ -1037,13 +1106,17 @@ const QuotationWise = () => {
         telecallerName,
         selectedMonth,
         selectedFinancialYear,
+        periodType,
+        selectedDay,
+        selectedWeekDate,
         longTermClients
     ]);
 
-    // Lowercase text + digits of every row (API fields and follow-ups), built
-    // once per data change instead of on every key press.
-    const searchIndex = useMemo(() => {
-        const index = new Map();
+    // Row -> the fields that contain the search text ("Found in"). Rows that
+    // are not in the map do not match. Each field is checked on its own.
+    const searchMatches = useMemo(() => {
+        const matches = new Map();
+        if (!String(debouncedSearch || "").trim()) return matches;
 
         data.forEach((row) => {
             const quotationNo = getQuotationNo(row);
@@ -1054,23 +1127,24 @@ const QuotationWise = () => {
                 remarks: followupRemarksByQuotation[quotationNo] || "",
                 history: followupHistoryByQuotation[quotationNo] || []
             };
-            const raw = JSON.stringify(row ?? {}) + JSON.stringify(followupRecord);
-
-            index.set(row, {
-                text: raw.toLowerCase(),
-                digits: raw.replace(/\D/g, "")
-            });
+            const fields = getSearchMatches(row, followupRecord, debouncedSearch);
+            if (fields.length) matches.set(row, fields);
         });
 
-        return index;
+        return matches;
     }, [
         data,
+        debouncedSearch,
         followupByQuotation,
         followupDateByQuotation,
         followupStatusByQuotation,
         followupRemarksByQuotation,
         followupHistoryByQuotation
     ]);
+
+    // Highlights the searched text in the table (see SearchHighlight.jsx).
+    const searchRegex = useMemo(() => buildSearchRegex(debouncedSearch), [debouncedSearch]);
+    const hl = (value) => highlightMatches(value, searchRegex);
 
     const filteredData = useMemo(() => {
         const search = String(debouncedSearch || '').trim().toLowerCase();
@@ -1079,15 +1153,8 @@ const QuotationWise = () => {
         if (search) {
             // Search the COMPLETE quotation record, including nested items,
             // every field returned by the API and the follow-up history.
-            // Mobile/number search ignores spaces, +91, hyphens, brackets, etc.
-            const normalizedSearch = search.replace(/\D/g, "");
-
-            result = result.filter((row) => {
-                const entry = searchIndex.get(row);
-                if (!entry) return false;
-                if (entry.text.includes(search)) return true;
-                return !!normalizedSearch && entry.digits.includes(normalizedSearch);
-            });
+            // Mobile number search ignores spaces, +91, hyphens, brackets, etc.
+            result = result.filter((row) => searchMatches.has(row));
         }
 
         if (statusFilter !== 'all') {
@@ -1279,11 +1346,14 @@ const QuotationWise = () => {
     }, [
         data,
         debouncedSearch,
-        searchIndex,
+        searchMatches,
         statusFilter,
         customerTypeFilter,
         selectedMonth,
         selectedFinancialYear,
+        periodType,
+        selectedDay,
+        selectedWeekDate,
         sortOrder,
         followupFilter,
         followupByQuotation,
@@ -1485,6 +1555,9 @@ const QuotationWise = () => {
         setCustomerTypeFilter("all");
         setSelectedMonth(getCurrentFinancialMonth());
         setSelectedFinancialYear(String(getFinancialYear()));
+        setPeriodType("month");
+        setSelectedDay(todayLocal());
+        setSelectedWeekDate(todayLocal());
         setSortOrder("newest");
         setFollowupFilter("all");
         setFollowupDateFilter("");
@@ -1509,8 +1582,10 @@ const QuotationWise = () => {
         followupFilter !== "all" && `Follow-up by: ${followupFilter === "none" ? "Pending" : followupFilter}`,
         followupDateFilter && `Follow-up date: ${formatDate(followupDateFilter)}`,
         followupQuickFilter !== "all" && "Follow-up filter",
-        selectedMonth !== "all" && `Month: ${getFinancialMonth(new Date(2000, Number(selectedMonth) - 1, 1))}`,
-        selectedFinancialYear !== "all" && `FY ${formatFinancialYear(Number(selectedFinancialYear))}`
+        periodType === "month" && selectedMonth !== "all" && `Month: ${getFinancialMonth(new Date(2000, Number(selectedMonth) - 1, 1))}`,
+        periodType === "month" && selectedFinancialYear !== "all" && `FY ${formatFinancialYear(Number(selectedFinancialYear))}`,
+        periodType === "week" && `Week: ${formatWeekRange(selectedWeekDate)}`,
+        periodType === "day" && `Day: ${formatDate(selectedDay)}`
     ].filter(Boolean);
 
 
@@ -2012,7 +2087,7 @@ const QuotationWise = () => {
                     }}
                 >
                     <div style={{ fontSize: "13px", fontWeight: "700" }}>
-                        Bill Details — {bill?.invoice_no || "Invoice"}
+                        Bill Details — {hl(bill?.invoice_no || "Invoice")}
                         {bill?.invoice_date && (
                             <span style={{ fontWeight: "500", marginLeft: "8px" }}>
                                 ({formatDate(bill.invoice_date)})
@@ -2020,7 +2095,7 @@ const QuotationWise = () => {
                         )}
                         {bill?.billed_party && (
                             <span style={{ fontWeight: "500", marginLeft: "8px" }}>
-                                · {cleanBilledParty(bill.billed_party)}
+                                · {hl(cleanBilledParty(bill.billed_party))}
                             </span>
                         )}
                     </div>
@@ -2079,9 +2154,9 @@ const QuotationWise = () => {
                                                 maxWidth: 0
                                             }}
                                         >
-                                            <div>{item.item_name}</div>
+                                            <div>{hl(item.item_name)}</div>
                                             {isTemporaryItem && tempDescription && (
-                                                <div className="temporary-item-desc">({tempDescription})</div>
+                                                <div className="temporary-item-desc">({hl(tempDescription)})</div>
                                             )}
                                         </td>
                                         <td style={cellStyle}>{formatAmount(item.rate)}</td>
@@ -2798,8 +2873,91 @@ const QuotationWise = () => {
                             </div>
                         </div>
 
+                        {/* PERIOD TYPE: Month / Week / Day */}
+
+                        <select
+                            value={periodType}
+                            onChange={(e) => setPeriodType(e.target.value)}
+                            title="Filter quotations by month, week or day"
+                            style={{
+                                height: "36px",
+                                padding: "0 10px",
+                                border: "1px solid #ccc",
+                                borderRadius: "6px",
+                                fontSize: "13px"
+                            }}
+                        >
+                            <option value="month">Month</option>
+                            <option value="week">Week</option>
+                            <option value="day">Day</option>
+                        </select>
+
+                        {/* WEEK (Mon-Sun week of the picked date) */}
+
+                        {periodType === "week" && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedWeekDate((d) => addDaysTo(d, -7))}
+                                    title="Previous week"
+                                    style={periodNavButtonStyle}
+                                >
+                                    ‹
+                                </button>
+                                <input
+                                    type="date"
+                                    value={selectedWeekDate}
+                                    onChange={(e) => setSelectedWeekDate(e.target.value || todayLocal())}
+                                    title={`Week: ${formatWeekRange(selectedWeekDate)}`}
+                                    style={periodDateInputStyle}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedWeekDate((d) => addDaysTo(d, 7))}
+                                    title="Next week"
+                                    style={periodNavButtonStyle}
+                                >
+                                    ›
+                                </button>
+                                <span style={{ fontSize: "12px", fontWeight: 600, color: "#444", whiteSpace: "nowrap" }}>
+                                    {formatWeekRange(selectedWeekDate)}
+                                </span>
+                            </div>
+                        )}
+
+                        {/* DAY */}
+
+                        {periodType === "day" && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedDay((d) => addDaysTo(d, -1))}
+                                    title="Previous day"
+                                    style={periodNavButtonStyle}
+                                >
+                                    ‹
+                                </button>
+                                <input
+                                    type="date"
+                                    value={selectedDay}
+                                    onChange={(e) => setSelectedDay(e.target.value || todayLocal())}
+                                    title="Quotation date"
+                                    style={periodDateInputStyle}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedDay((d) => addDaysTo(d, 1))}
+                                    title="Next day"
+                                    style={periodNavButtonStyle}
+                                >
+                                    ›
+                                </button>
+                            </div>
+                        )}
+
                         {/* FINANCIAL YEAR (April-March) */}
 
+                        {periodType === "month" && (
                         <select
                             value={selectedFinancialYear}
                             onChange={(e) => setSelectedFinancialYear(e.target.value)}
@@ -2819,9 +2977,11 @@ const QuotationWise = () => {
                                 </option>
                             ))}
                         </select>
+                        )}
 
                         {/* MONTH */}
 
+                        {periodType === "month" && (
                         <select
                             value={
                                 selectedMonth
@@ -2857,6 +3017,7 @@ const QuotationWise = () => {
                             <option value="2">February</option>
                             <option value="3">March</option>
                         </select>
+                        )}
 
                         {/* SORT */}
 
@@ -3232,7 +3393,7 @@ const QuotationWise = () => {
                                             Party Name
                                         </th>
 
-                                        
+
                                         <th style={{ ...thStyle, width: colWidth.quotationAmount, whiteSpace: "normal" }}>Quotation Amount</th>
 
                                         <th style={{ ...thStyle, width: colWidth.billedAmount, whiteSpace: "normal" }}>Billed Amount</th>
@@ -3422,6 +3583,26 @@ const QuotationWise = () => {
                                                                 verticalAlign: "top"
                                                             }}
                                                         >
+                                                            {/* Where the search matched, e.g. inside the items
+                                                                or bill details that are folded away. */}
+                                                            {searchMatches.has(row) && (
+                                                                <div
+                                                                    style={{
+                                                                        marginBottom: "6px",
+                                                                        padding: "2px 6px",
+                                                                        borderRadius: "4px",
+                                                                        background: "#fff8d6",
+                                                                        border: "1px solid #f0d56b",
+                                                                        color: "#6b5600",
+                                                                        fontSize: "10px",
+                                                                        fontWeight: "600",
+                                                                        lineHeight: "1.4"
+                                                                    }}
+                                                                >
+                                                                    🔍 Found in: {searchMatches.get(row).join(", ")}
+                                                                </div>
+                                                            )}
+
                                                             {row.enquiry_no && (
                                                                 <div
                                                                     style={{
@@ -3430,7 +3611,7 @@ const QuotationWise = () => {
                                                                         fontWeight: "700"
                                                                     }}
                                                                 >
-                                                                    Enquiry: {row.enquiry_no}
+                                                                    Enquiry: {hl(row.enquiry_no)}
                                                                 </div>
                                                             )}
 
@@ -3497,7 +3678,7 @@ const QuotationWise = () => {
                                                                         fontWeight: "700"
                                                                     }}
                                                                 >
-                                                                    {quotationNo}
+                                                                    {hl(quotationNo)}
                                                                 </div>
                                                             </div>
 
@@ -3508,7 +3689,7 @@ const QuotationWise = () => {
                                                                         fontWeight: "700"
                                                                     }}
                                                                 >
-                                                                    Order: {orderNo}
+                                                                    Order: {hl(orderNo)}
                                                                     {isDuplicateOrderNo(row) && (
                                                                         <span
                                                                             style={{
@@ -3666,7 +3847,7 @@ const QuotationWise = () => {
                                                                                         lineHeight: "1.3"
                                                                                     }}
                                                                                 >
-                                                                                    {ledgerName}
+                                                                                    {hl(ledgerName)}
                                                                                 </div>
 
                                                                                 {isLongTermClient(row) && (
@@ -3754,7 +3935,7 @@ const QuotationWise = () => {
                                                                                                 Mailing Name:
                                                                                             </strong>
                                                                                             {" "}
-                                                                                            {mailingName}
+                                                                                            {hl(mailingName)}
                                                                                         </div>
                                                                                     )}
 
@@ -3769,7 +3950,7 @@ const QuotationWise = () => {
                                                                                                 Address:
                                                                                             </strong>
                                                                                             {" "}
-                                                                                            {mailingAddress}
+                                                                                            {hl(mailingAddress)}
                                                                                         </div>
                                                                                     )}
 
@@ -3793,7 +3974,7 @@ const QuotationWise = () => {
                                                                                                 }}
                                                                                             >
                                                                                                 <div style={{ whiteSpace: "normal", wordBreak: "break-word" }}>
-                                                                                                    <strong>Mobile:</strong> {walkinMobile}
+                                                                                                    <strong>Mobile:</strong> {hl(walkinMobile)}
                                                                                                 </div>
 
                                                                                                 {hasValidWhatsAppNumber && (
@@ -3847,7 +4028,7 @@ const QuotationWise = () => {
                                                         </td>
 
 
-                                                    
+
 
 
                                                         {/* QUOTATION AMOUNT */}
@@ -3899,7 +4080,7 @@ const QuotationWise = () => {
                                                                 <>
                                                                     <div style={{ display: "flex", alignItems: "flex-start", gap: "5px" }}>
                                                                         <span style={{ flex: 1, minWidth: 0 }}>
-                                                                            {row.invoice_no || ""}
+                                                                            {hl(row.invoice_no || "")}
                                                                         </span>
 
                                                                         {Array.isArray(row.bills) && row.bills.length > 0 && (
@@ -4052,7 +4233,7 @@ const QuotationWise = () => {
                                                                                     wordBreak: "break-word"
                                                                                 }}
                                                                             >
-                                                                                {billedPartyName}
+                                                                                {hl(billedPartyName)}
                                                                             </span>
                                                                         </div>
 
@@ -4087,7 +4268,7 @@ const QuotationWise = () => {
 
                                                                                     {" "}
 
-                                                                                    {billedPartyAddress}
+                                                                                    {hl(billedPartyAddress)}
                                                                                 </div>
                                                                             )}
                                                                     </>
@@ -4109,12 +4290,12 @@ const QuotationWise = () => {
                                                         >
                                                             {row.brought_by && (
                                                                 <div style={{ marginBottom: "5px" }}>
-                                                                    <span style={{ fontWeight: "700", color: "#030303" }}>Brought By: {row.brought_by}</span>
+                                                                    <span style={{ fontWeight: "700", color: "#030303" }}>Brought By: {hl(row.brought_by)}</span>
                                                                 </div>
                                                             )}
                                                             {row.assigned_to && (
                                                                 <div style={{ marginBottom: "5px" }}>
-                                                                    <span style={{ fontWeight: "700", color: "#070707" }}>Assigned To: {row.assigned_to}</span>
+                                                                    <span style={{ fontWeight: "700", color: "#070707" }}>Assigned To: {hl(row.assigned_to)}</span>
                                                                 </div>
                                                             )}
                                                             <div style={{ marginTop: (row.brought_by || row.assigned_to) ? "7px" : "0" }}>
@@ -4132,7 +4313,7 @@ const QuotationWise = () => {
                                                                                         flex: 1
                                                                                     }}
                                                                                 >
-                                                                                    Followed By: {followupByQuotation[quotationNo]}
+                                                                                    Followed By: {hl(followupByQuotation[quotationNo])}
                                                                                 </span>
                                                                                 {history.length > 0 && (
                                                                                     <button
@@ -4197,8 +4378,8 @@ const QuotationWise = () => {
                                                                                 <div style={{ marginTop: "7px", borderTop: "1px solid #ddd", paddingTop: "6px" }}>
                                                                                     {history.map((item, historyIndex) => (
                                                                                         <div key={`${quotationNo}-followup-${historyIndex}`} style={{ padding: "6px 7px", marginBottom: "5px", background: "#f7f9f8", borderLeft: "3px solid #05693a", borderRadius: "3px", fontSize: "11px", lineHeight: "1.45" }}>
-                                                                                            {item.status && <div style={{ fontWeight: "700", color: "#7649f1" }}>Status: {item.status}</div>}
-                                                                                            {item.remarks && <div style={{ marginTop: "2px", color: "#444", whiteSpace: "pre-wrap" }}><strong>Remarks:</strong> {item.remarks}</div>}
+                                                                                            {item.status && <div style={{ fontWeight: "700", color: "#7649f1" }}>Status: {hl(item.status)}</div>}
+                                                                                            {item.remarks && <div style={{ marginTop: "2px", color: "#444", whiteSpace: "pre-wrap" }}><strong>Remarks:</strong> {hl(item.remarks)}</div>}
                                                                                             {(item.call_date || item.callDate || item.followup_date || item.followupDate || item.created_at) && (
                                                                                                 <div style={{ marginTop: "2px", color: "#777" }}>
                                                                                                     Date: {formatDate(item.call_date || item.callDate || item.followup_date || item.followupDate || item.created_at)}
@@ -4501,12 +4682,12 @@ const QuotationWise = () => {
                                                                                                                         wordBreak: "break-word"
                                                                                                                     }}
                                                                                                                 >
-                                                                                                                    {item.item_name}
+                                                                                                                    {hl(item.item_name)}
                                                                                                                 </div>
 
                                                                                                                 {isTemporaryItem && tempDescription && (
                                                                                                                     <div className="temporary-item-desc">
-                                                                                                                        ({tempDescription})
+                                                                                                                        ({hl(tempDescription)})
                                                                                                                     </div>
                                                                                                                 )}
                                                                                                             </>

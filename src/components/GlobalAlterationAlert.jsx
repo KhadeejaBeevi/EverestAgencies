@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { auth, db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { Bell, X, AlertTriangle, CheckCircle } from "lucide-react";
+import { Bell, X, AlertTriangle, CheckCircle, FileText } from "lucide-react";
 import { apiFetch } from "../api/apiClient";
 
 const API = "/serverphp";
@@ -11,12 +11,40 @@ const QUOTATION_TEAM_EMAILS = [
   "rahida.everestagencies@gmail.com",
 ];
 
+/* Enquiry statuses the person who added the enquiry is told about. */
+const STATUS_ALERT_STYLES = {
+  "Negotiation": {
+    card: "border-amber-300 bg-amber-50",
+    chip: "bg-amber-100 text-amber-900 border border-amber-400"
+  },
+  "Technical Clarification": {
+    card: "border-sky-300 bg-sky-50",
+    chip: "bg-sky-100 text-sky-900 border border-sky-400"
+  }
+};
+
+const statusAlertKey = (item) => `${item.id}|${item.token}`;
+
+function formatAlertDate(value) {
+  if (!value) return "";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 const GlobalAlterationAlert = () => {
   const [isQuotationTeam, setIsQuotationTeam] = useState(false);
   const [requests, setRequests] = useState([]);
   const [showAlert, setShowAlert] = useState(false);
   const [userName, setUserName] = useState("");
   const [completingId, setCompletingId] = useState(null);
+
+  // Enquiry status alerts (Negotiation / Technical Clarification) for
+  // the person who added the enquiry. Shown to every logged-in user.
+  const [statusAlerts, setStatusAlerts] = useState([]);
+  const [showStatusAlert, setShowStatusAlert] = useState(false);
+  const [statusSavingKey, setStatusSavingKey] = useState(null);
+  const knownStatusKeys = useRef(new Set());
 
   const knownRequestIds = useRef(new Set());
   const firstLoad = useRef(true);
@@ -55,7 +83,12 @@ const GlobalAlterationAlert = () => {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      knownStatusKeys.current = new Set();
+      setStatusAlerts([]);
+      setShowStatusAlert(false);
+
       if (!user) {
+        setUserName("");
         setIsQuotationTeam(false);
         setRequests([]);
         setShowAlert(false);
@@ -176,6 +209,177 @@ const GlobalAlterationAlert = () => {
     setShowAlert(false);
   };
 
+  /* ---------- Enquiry status alerts (for the enquiry's Added By) ---------- */
+
+  const loadStatusAlerts = async () => {
+    if (!userName) return;
+
+    try {
+      const response = await apiFetch(
+        `${API}/enquiry_report.php?status_alert=1&user=${encodeURIComponent(userName)}`,
+        { method: "GET" }
+      );
+      const result = await response.json();
+      const items = Array.isArray(result?.data) ? result.data : [];
+
+      const newFound = items.some((item) => !knownStatusKeys.current.has(statusAlertKey(item)));
+      items.forEach((item) => knownStatusKeys.current.add(statusAlertKey(item)));
+
+      setStatusAlerts(items);
+
+      if (newFound) {
+        setShowStatusAlert(true);
+        playAlertSound();
+      }
+    } catch (error) {
+      console.error("Enquiry status alert error:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (!userName) return;
+
+    loadStatusAlerts();
+
+    const interval = setInterval(() => {
+      if (!document.hidden) loadStatusAlerts();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [userName]);
+
+  const acknowledgeStatus = async (targets) => {
+    if (statusSavingKey) return;
+
+    try {
+      setStatusSavingKey(targets.length === 1 ? statusAlertKey(targets[0]) : "all");
+
+      await Promise.all(
+        targets.map(async (item) => {
+          const response = await apiFetch(`${API}/enquiry_report.php`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              status_alert_ack: "1",
+              enquiry_id: String(item.id),
+              token: item.token
+            }).toString()
+          });
+          const result = await response.json();
+          if (!result.success) {
+            throw new Error(result.message || "Failed to update notification");
+          }
+        })
+      );
+
+      const doneKeys = new Set(targets.map(statusAlertKey));
+      setStatusAlerts((prev) => {
+        const remaining = prev.filter((item) => !doneKeys.has(statusAlertKey(item)));
+        if (remaining.length === 0) setShowStatusAlert(false);
+        return remaining;
+      });
+    } catch (error) {
+      console.error("Enquiry status acknowledge error:", error);
+      alert(error.message || "Failed to update notification");
+    } finally {
+      setStatusSavingKey(null);
+    }
+  };
+
+  const statusAlertPopup =
+    showStatusAlert && statusAlerts.length > 0 ? (
+      <div className="fixed inset-0 z-[999997] bg-black/50 flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+          <div className="bg-amber-600 text-white p-5 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={32} />
+              <div>
+                <h2 className="text-2xl font-bold">Enquiry Status Update</h2>
+                <p className="text-amber-100 text-sm">
+                  {statusAlerts.length} enquir{statusAlerts.length !== 1 ? "ies" : "y"} you added
+                  {statusAlerts.length !== 1 ? " are" : " is"} in Negotiation / Technical Clarification
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowStatusAlert(false)}
+              className="p-2 hover:bg-amber-700 rounded-full transition"
+              aria-label="Close"
+            >
+              <X size={26} />
+            </button>
+          </div>
+
+          <div className="p-5 overflow-y-auto">
+            {statusAlerts.map((item) => {
+              const style = STATUS_ALERT_STYLES[item.status] || STATUS_ALERT_STYLES["Negotiation"];
+              const key = statusAlertKey(item);
+
+              return (
+                <div key={key} className={`border-2 rounded-2xl p-4 mb-3 ${style.card}`}>
+                  <div className="flex justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="text-lg font-bold text-gray-900">{item.customer_name || "-"}</div>
+                      <div className="mt-1 text-sm text-gray-600">
+                        Enquiry <b>{item.enquiry_no}</b> · {formatAlertDate(item.enquiry_date)}
+                        {item.phone_number ? ` · ${item.phone_number}` : ""}
+                      </div>
+                    </div>
+
+                    <span className={`self-start px-3 py-1 rounded-xl text-sm font-bold ${style.chip}`}>
+                      {item.status}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex justify-between items-center gap-3 flex-wrap">
+                    <div className="text-sm text-gray-700 flex flex-col gap-1">
+                      {item.quotation_no && (
+                        <span className="flex items-center gap-1">
+                          <FileText size={16} className="shrink-0" />
+                          <b>Quotation:</b> <span className="break-all">{item.quotation_no}</span>
+                        </span>
+                      )}
+                      <span>
+                        <b>Changed by:</b> {item.changed_by || "-"}
+                        {item.changed_at ? ` · ${formatAlertDate(item.changed_at)}` : ""}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => acknowledgeStatus([item])}
+                      disabled={Boolean(statusSavingKey)}
+                      className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-4 py-1.5 rounded-xl text-sm font-bold transition"
+                    >
+                      {statusSavingKey === key ? "Saving..." : "OK, seen"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="p-4 border-t flex justify-end gap-3">
+            {statusAlerts.length > 1 && (
+              <button
+                onClick={() => acknowledgeStatus(statusAlerts)}
+                disabled={Boolean(statusSavingKey)}
+                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-5 py-2 rounded-xl font-bold transition"
+              >
+                {statusSavingKey === "all" ? "Saving..." : "Mark all as seen"}
+              </button>
+            )}
+            <button
+              onClick={() => setShowStatusAlert(false)}
+              className="bg-gray-700 hover:bg-gray-800 text-white px-6 py-2 rounded-xl font-bold transition"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
   // Marks the negotiation rework as done. The request becomes "Revised"
   // and a linked enquiry's remark becomes "Negotiation Rework Completed".
   const markReworkCompleted = async (request) => {
@@ -214,10 +418,12 @@ const GlobalAlterationAlert = () => {
   };
 
   if (!isQuotationTeam || !showAlert || requests.length === 0) {
-    return null;
+    return statusAlertPopup;
   }
 
   return (
+    <>
+    {statusAlertPopup}
     <div
       className="
         fixed inset-0 z-[999999] bg-black/50
@@ -391,6 +597,7 @@ const GlobalAlterationAlert = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

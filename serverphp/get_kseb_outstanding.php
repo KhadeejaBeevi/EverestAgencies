@@ -1367,12 +1367,21 @@ function parseOutstanding(array $items): array
                     $bill = ["ref" => $text, "date" => (string)$billDate, "period" => "", "amount" => null];
                 }
             } else {
-                $parties[] = ["name" => $text, "total" => null, "bills" => []];
+                $parties[] = ["name" => $text, "parent" => "", "total" => null, "bills" => []];
                 $party = count($parties) - 1;
                 $bill = null;
             }
 
             $billDate = null;
+            continue;
+        }
+
+        // <LOBPARENT> right after the party name: its Tally group
+        // ("Sreelal", "SECURITY DEPOSITS KSEB" ...).
+        if ($tag === "LOBPARENT") {
+            if ($party !== null && $bill === null) {
+                $parties[$party]["parent"] = $text;
+            }
             continue;
         }
 
@@ -1990,6 +1999,103 @@ try {
         }
     }
 
+    /* Credit period of each LOBPARENT (salesdatalatest33
+       $_EveBillCrPeriod of the row named like the LOBPARENT, e.g.
+       "Sreelal", "SECURITY DEPOSITS KSEB"). An opening bill whose
+       LOBDATE -> LOBCRPRD gap is 1 day or less (due date = bill date,
+       "1 Days", or no credit period) takes the credit period of its
+       party's LOBPARENT instead, so due date, overdue days and ageing
+       use it. LOBPARENT key -> days (only names with days > 0). */
+    /* Names looked up: every LOBPARENT, and every party (LOBNAME) as
+       the fallback when its LOBPARENT has no credit period (a Tally
+       group such as "SECURITY DEPOSITS KSEB" is usually not a row of
+       salesdatalatest33). Name key -> days. */
+    $parentCreditDays = [];
+    $parentNames = [];
+    $lobParentsSeen = [];
+
+    foreach ($xmlParties as $p) {
+        $parentName = preg_replace('/\s+/', ' ', cleanValue($p["parent"] ?? ""));
+        $partyName = preg_replace('/\s+/', ' ', cleanValue($p["name"] ?? ""));
+
+        if ($parentName !== "") {
+            $parentNames[ledgerKey($parentName)] = $parentName;
+            $lobParentsSeen[$parentName] = true;
+        }
+
+        if ($partyName !== "") {
+            $parentNames[ledgerKey($partyName)] = $partyName;
+        }
+    }
+
+    if ($parentNames) {
+        try {
+            $columns = $columns ?? array_column($pdo->query("SHOW COLUMNS FROM salesdatalatest33")->fetchAll(), "Field");
+            $creditColumn = null;
+
+            foreach (['$_EveBillCrPeriod', 'Ledger.$_EveBillCrPeriod', 'EveBillCrPeriod'] as $candidate) {
+                if (in_array($candidate, $columns, true)) {
+                    $creditColumn = $candidate;
+                    break;
+                }
+            }
+
+            if ($creditColumn === null) {
+                throw new RuntimeException("salesdatalatest33 has no \$_EveBillCrPeriod column");
+            }
+
+            /* Every row with a credit period, matched here by name key
+               (spaces collapsed, case ignored), so "C/o  Libin" with two
+               spaces still matches. */
+            $creditStmt = $pdo->query("
+                SELECT
+                    TRIM(PartyLedgerName) AS ledger,
+                    MAX(`{$creditColumn}`) AS credit_period
+                FROM salesdatalatest33
+                WHERE
+                    TRIM(COALESCE(PartyLedgerName, '')) <> ''
+                    AND TRIM(COALESCE(`{$creditColumn}`, '')) <> ''
+                GROUP BY TRIM(PartyLedgerName)
+            ");
+
+            while ($credit = $creditStmt->fetch()) {
+                $key = ledgerKey($credit["ledger"]);
+                $days = creditDays($credit["credit_period"]);
+
+                if ($days > 0 && isset($parentNames[$key])) {
+                    $parentCreditDays[$key] = $days;
+                }
+            }
+
+            $creditStmt->closeCursor();
+
+        } catch (Throwable $e) {
+            error_log("KSEB OUTSTANDING LOBPARENT CREDIT PERIOD ERROR: " . $e->getMessage());
+            $warnings[] = "LOBPARENT credit periods (salesdatalatest33) could not be read - opening bills use the LOB Report credit period.";
+        }
+    }
+
+    /* LOB credit days of a bill, see above. Returns [days, taken from
+       the LOBPARENT]. */
+    $lobCreditDays = function (string $billDate, string $period, string $parent, string $party = "") use ($parentCreditDays): array {
+        $credit = billCreditDays($billDate, $period);
+
+        if ($credit > 1) {
+            return [$credit, false];
+        }
+
+        // LOBPARENT first, else the party ledger itself.
+        foreach ([$parent, $party] as $name) {
+            $key = ledgerKey($name);
+
+            if ($key !== "" && isset($parentCreditDays[$key])) {
+                return [$parentCreditDays[$key], true];
+            }
+        }
+
+        return [$credit, false];
+    };
+
     $openingBills = [];
     $openingParty = [];
     $openingMismatch = [];
@@ -2023,13 +2129,16 @@ try {
                 $billDate = tallyDate($b["date"]);
                 $billDate = $billDate !== "" ? $billDate : $openingDate;
 
+                [$credit, $creditFromParent] = $lobCreditDays($billDate, $b["period"], (string)($p["parent"] ?? ""), $party);
+
                 $openingDeposits[] = [
                     "ledger" => $party,
                     "ledger_group" => DEPOSIT_GROUP,
                     "bill_ref" => strcasecmp(cleanValue($b["ref"]), "On Account") === 0 ? "" : cleanValue($b["ref"]),
                     "bill_date" => $billDate,
                     "bill_type" => "Opening Balance",
-                    "credit_days" => billCreditDays($billDate, $b["period"]),
+                    "credit_days" => $credit,
+                    "credit_from_ledger" => $creditFromParent,
                     // Tally sign (Dr -) -> page sign (+ = held by KSEB).
                     "amount" => round(-$b["amount"], 2),
                     "master_id" => "",
@@ -2063,21 +2172,17 @@ try {
             // Tally sign (Dr -) -> page sign (+ = party owes us).
             $amount = round(-$b["amount"], 2);
             $billDate = tallyDate($b["date"]);
-            $periodDate = tallyDate($b["period"]);
 
-            /* Credit period: "45 Days" -> 45 days from the bill date,
-               a date ("19-Feb-26") is the due date itself. */
-            if ($periodDate !== "" && $billDate !== "") {
-                $days = (int)(new DateTime($billDate))->diff(new DateTime($periodDate))->format("%r%a");
-                $credit = max(0, $days);
-            } else {
-                $credit = creditDays($b["period"]);
-            }
+            /* Credit period: "45 Days" -> 45 days from the bill date, a
+               date ("19-Feb-26") is the due date itself. 1 day or less
+               -> the LOBPARENT's credit period (see above). */
+            [$credit, $creditFromLedger] = $lobCreditDays($billDate, $b["period"], (string)($p["parent"] ?? ""), $party);
 
             $openingBills[$partyKey][] = [
                 "bill_ref" => cleanValue($b["ref"]),
                 "bill_date" => $billDate !== "" ? $billDate : $openingDate,
                 "credit_days" => $credit,
+                "credit_from_ledger" => $creditFromLedger,
                 "amount" => $amount
             ];
 
@@ -2523,6 +2628,7 @@ try {
             "has_new_ref" => false,
             "bill_from_sales" => false,
             "is_opening" => false,
+            "credit_from_ledger" => false,
             "opening_amount" => 0,
             "bill_amount" => 0,
             "received" => 0,
@@ -2594,6 +2700,7 @@ try {
             $ref["voucher_type"] = "Opening Balance";
             $ref["voucher_no"] = $ob["bill_ref"];
             $ref["credit_days"] = $ob["credit_days"];
+            $ref["credit_from_ledger"] = $ob["credit_from_ledger"];
             $ref["opening_amount"] += $ob["amount"];
             $ref["bill_amount"] += $ob["amount"];
             $ref["balance"] += $ob["amount"];
@@ -2979,6 +3086,9 @@ try {
             // Opening bill: pending on 1st April, already inside the
             // ledger's opening balance (not a voucher of this period).
             "is_opening" => $ref["is_opening"],
+            // Credit days taken from the ledger (salesdatalatest33)
+            // because the LOB Report's was 1 day or less.
+            "credit_from_ledger" => $ref["credit_from_ledger"],
             "opening_amount" => round($ref["opening_amount"], 2),
             "bill_amount" => round($ref["bill_amount"], 2),
             "received" => round($ref["received"], 2),
@@ -3203,6 +3313,7 @@ try {
                 "bill_ref" => $d["bill_ref"],
                 "date" => $d["date"],
                 "credit_days" => $d["credit_days"],
+                "credit_from_ledger" => $d["credit_from_ledger"] ?? false,
                 "deposited" => 0,
                 "refunded" => 0,
                 "balance" => 0,
@@ -3217,6 +3328,7 @@ try {
 
             if ($g["credit_days"] === 0) {
                 $g["credit_days"] = $d["credit_days"];
+                $g["credit_from_ledger"] = $d["credit_from_ledger"] ?? false;
             }
         } else {
             $g["refunded"] += -$d["amount"];
@@ -3389,6 +3501,7 @@ try {
             "bill_ref" => $od["bill_ref"] !== "" ? $od["bill_ref"] : "On Account",
             "bill_date" => $od["bill_date"],
             "credit_days" => $od["credit_days"],
+            "credit_from_ledger" => $od["credit_from_ledger"],
             "due_date" => $od["credit_days"] > 0
                 ? (new DateTime($od["bill_date"]))->modify("+" . $od["credit_days"] . " days")->format("Y-m-d")
                 : "",
@@ -3545,6 +3658,7 @@ try {
                 "bill_ref" => $isOnAccount ? "On Account" : $ob["bill_ref"],
                 "bill_date" => $ob["bill_date"],
                 "credit_days" => $ob["credit_days"],
+                "credit_from_ledger" => $ob["credit_from_ledger"],
                 "due_date" => (new DateTime($ob["bill_date"]))
                     ->modify("+" . $ob["credit_days"] . " days")
                     ->format("Y-m-d"),
@@ -3737,6 +3851,11 @@ try {
             "opening_breakup" => (object)$openingBreakup,
             "vouchers" => (object)$vouchers,
             "directory_count" => count($directory),
+            // Credit period lookup (LOBPARENT, else party ledger):
+            // LOBPARENT names in the XML, and every name found in
+            // salesdatalatest33 with its credit days.
+            "lob_parents_in_xml" => array_keys($lobParentsSeen),
+            "lob_parent_credit_days" => (object)$parentCreditDays,
             "warnings" => $warnings
         ],
         JSON_UNESCAPED_UNICODE |

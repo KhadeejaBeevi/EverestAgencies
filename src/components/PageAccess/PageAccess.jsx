@@ -54,6 +54,9 @@ const ALL_PAGES = [
     "Quotation Followup",
     "Enquiry Report",
     "Quotation Wise Followup",
+    "Customer PO",
+    "Order To Delivery",
+    "Order To Delivery Assign",
 
     "Telecaller Report",
     "Lead Contribution Report",

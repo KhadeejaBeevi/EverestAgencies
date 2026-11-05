@@ -167,11 +167,15 @@ const UserDashboard = () => {
 
                   </h2>
 
-                  <p className="text-red-50">
+                  {userDetails?.designation && (
 
-                    Sales Executive
+                    <p className="text-red-50">
 
-                  </p>
+                      {userDetails.designation}
+
+                    </p>
+
+                  )}
 
                 </div>
 

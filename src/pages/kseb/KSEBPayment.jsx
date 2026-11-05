@@ -6,6 +6,10 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+import KsebInvoiceTrackingModal, {
+    openKsebDocument
+} from "./KsebInvoiceTrackingModal.jsx";
+
 const API = "/serverphp";
 
 const KSEBPayment = () => {
@@ -22,12 +26,20 @@ const KSEBPayment = () => {
 
     const [exportOpen, setExportOpen] = useState(false);
 
+    // Documents + KSEB tracking (kseb_invoice_tracking.php)
+    const [trackingSummary, setTrackingSummary] = useState({});
+    const [trackingSteps, setTrackingSteps] = useState([]);
+    const [trackingInvoice, setTrackingInvoice] = useState(null);
+    const [trackingDocType, setTrackingDocType] = useState("PO");
+    const [openingDocId, setOpeningDocId] = useState(null);
+
     const [screenWidth, setScreenWidth] = useState(
         typeof window !== "undefined" ? window.innerWidth : 1200
     );
 
     useEffect(() => {
         fetchInvoices();
+        fetchTrackingSummary();
     }, []);
 
     useEffect(() => {
@@ -90,6 +102,42 @@ const KSEBPayment = () => {
             setLoading(false);
         }
     };
+
+    const fetchTrackingSummary = async () => {
+        try {
+            const response = await apiFetch(
+                `${API}/kseb_invoice_tracking.php`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ action: "summary" })
+                }
+            );
+
+            const result = await response.json();
+
+            if (result && result.success) {
+                setTrackingSummary(
+                    result.data && typeof result.data === "object"
+                        ? result.data
+                        : {}
+                );
+                setTrackingSteps(
+                    Array.isArray(result.steps) ? result.steps : []
+                );
+            }
+        } catch (error) {
+            // The invoice list still works without tracking.
+            console.error("KSEB tracking summary error:", error);
+        }
+    };
+
+    const getTracking = (invoiceNo) =>
+        trackingSummary[
+            String(invoiceNo || "").trim().toLowerCase()
+        ] || null;
 
     const normalizeDate = (value) => {
         if (!value) return "";
@@ -507,7 +555,7 @@ const KSEBPayment = () => {
                 "Mobile": cleanExportValue(
                     row.mobile
                 ),
-                "Order No": cleanExportValue(
+                "PO Number": cleanExportValue(
                     row.order_no
                 ),
                 "Reference": cleanExportValue(
@@ -753,7 +801,7 @@ const KSEBPayment = () => {
                     "Invoice Date",
                     "Invoice No",
                     "KSEB Party",
-                    "Order No",
+                    "PO Number",
                     "Reference",
                     "Invoice Amount",
                     "Voucher Type"
@@ -1000,7 +1048,7 @@ const KSEBPayment = () => {
 
             if (row.order_no) {
                 details.push(
-                    `Order No: ${row.order_no}`
+                    `PO Number: ${row.order_no}`
                 );
             }
 
@@ -1110,10 +1158,240 @@ const KSEBPayment = () => {
                     ? "6px"
                     : "8px",
         border: "1px solid #ddd",
-        verticalAlign: "middle"
+        verticalAlign: "middle",
+        overflow: "hidden",
+        overflowWrap: "anywhere"
     };
 
     const renderBanner = () => <Banner />;
+
+    const openTracking = (row, docType = "PO") => {
+        setTrackingDocType(docType);
+        setTrackingInvoice(row);
+    };
+
+    // After an upload / delete in the pop-up, put the new document
+    // lists on that invoice row so the table updates without a reload.
+    const updateRowDocuments = (invoiceNo, documents) => {
+        if (!Array.isArray(documents)) return;
+
+        const key = String(invoiceNo || "").trim().toLowerCase();
+        const oldestFirst = [...documents].reverse();
+
+        const lists = {
+            po_documents: oldestFirst.filter(
+                (doc) => doc.doc_type === "PO"
+            ),
+            invoice_documents: oldestFirst.filter(
+                (doc) => doc.doc_type === "INVOICE"
+            ),
+            other_documents: oldestFirst.filter(
+                (doc) =>
+                    doc.doc_type !== "PO" &&
+                    doc.doc_type !== "INVOICE"
+            )
+        };
+
+        setData((previous) =>
+            previous.map((row) =>
+                getInvoiceNo(row).toLowerCase() === key
+                    ? { ...row, ...lists }
+                    : row
+            )
+        );
+
+        setTrackingInvoice((previous) =>
+            previous ? { ...previous, ...lists } : previous
+        );
+    };
+
+    const handleOpenDocument = async (doc) => {
+        setOpeningDocId(doc.id);
+
+        try {
+            await openKsebDocument(doc);
+        } catch (error) {
+            alert(error.message || "Could not open the document");
+        } finally {
+            setOpeningDocId(null);
+        }
+    };
+
+    const renderDocumentsCell = (
+        row,
+        documents,
+        uploadType,
+        showType
+    ) => {
+        const list = Array.isArray(documents) ? documents : [];
+
+        return (
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    alignItems: "stretch"
+                }}
+            >
+                {list.map((doc) => {
+                    const isPdf = String(doc.mime_type || "").includes(
+                        "pdf"
+                    );
+
+                    return (
+                        <button
+                            key={doc.id}
+                            type="button"
+                            title={`${doc.doc_type_label}: ${doc.original_name}${
+                                doc.remarks ? `\n${doc.remarks}` : ""
+                            }`}
+                            disabled={openingDocId === doc.id}
+                            onClick={() => handleOpenDocument(doc)}
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "5px",
+                                width: "100%",
+                                padding: "3px 5px",
+                                border: "1px solid #d5e3db",
+                                borderRadius: "4px",
+                                background: "#f7fbf9",
+                                color: "#05693a",
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                textAlign: "left",
+                                cursor: "pointer",
+                                minWidth: 0
+                            }}
+                        >
+                            <span
+                                style={{
+                                    flexShrink: 0,
+                                    padding: "0 3px",
+                                    borderRadius: "3px",
+                                    fontSize: "8px",
+                                    background: isPdf
+                                        ? "#fdecec"
+                                        : "#e8f1fb",
+                                    color: isPdf
+                                        ? "#b42318"
+                                        : "#1d5fa8"
+                                }}
+                            >
+                                {isPdf ? "PDF" : "IMG"}
+                            </span>
+                            <span
+                                style={{
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    minWidth: 0
+                                }}
+                            >
+                                {openingDocId === doc.id
+                                    ? "Opening..."
+                                    : showType
+                                        ? `${doc.doc_type_label}: ${doc.original_name}`
+                                        : doc.original_name}
+                            </span>
+                        </button>
+                    );
+                })}
+
+                <button
+                    type="button"
+                    onClick={() => openTracking(row, uploadType)}
+                    style={{
+                        alignSelf: "center",
+                        padding: "2px 8px",
+                        border: "1px dashed #05693a",
+                        borderRadius: "4px",
+                        background: "#fff",
+                        color: "#05693a",
+                        fontSize: "10px",
+                        fontWeight: "700",
+                        cursor: "pointer"
+                    }}
+                >
+                    + Upload
+                </button>
+            </div>
+        );
+    };
+
+    const renderTrackingCell = (row, invoiceNo) => {
+        const tracking = getTracking(invoiceNo);
+        const totalSteps =
+            tracking?.total_steps || trackingSteps.length || 0;
+        const doneSteps = tracking?.done_steps || 1;
+        const isPaid =
+            tracking?.current_step === "PAYMENT_COMPLETED";
+        // Every invoice is a generated bill, so "Bill Generated"
+        // is the first step even before anything else is marked.
+        const label =
+            tracking?.current_step_label ||
+            trackingSteps[0]?.label ||
+            "Bill Generated";
+
+        return (
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "4px"
+                }}
+            >
+                <span
+                    title={
+                        totalSteps
+                            ? `${doneSteps} of ${totalSteps} steps done`
+                            : ""
+                    }
+                    style={{
+                        display: "inline-block",
+                        maxWidth: "100%",
+                        padding: "2px 7px",
+                        borderRadius: "10px",
+                        fontSize: "10px",
+                        fontWeight: "700",
+                        whiteSpace: "normal",
+                        lineHeight: 1.3,
+                        background: isPaid
+                            ? "#05693a"
+                            : tracking?.current_step
+                                ? "#fff4d6"
+                                : "#eef0ef",
+                        color: isPaid
+                            ? "#fff"
+                            : tracking?.current_step
+                                ? "#8a6100"
+                                : "#777"
+                    }}
+                >
+                    {label}
+                </span>
+
+                <button
+                    type="button"
+                    onClick={() => openTracking(row, "PO")}
+                    style={{
+                        padding: "3px 10px",
+                        border: "1px solid #05693a",
+                        borderRadius: "4px",
+                        background: "#fff",
+                        color: "#05693a",
+                        fontSize: "10px",
+                        fontWeight: "700",
+                        cursor: "pointer"
+                    }}
+                >
+                    Open
+                </button>
+            </div>
+        );
+    };
 
     return (
         <>
@@ -1781,7 +2059,7 @@ const KSEBPayment = () => {
                                 style={{
                                     width: "100%",
                                     minWidth:
-                                        "1050px",
+                                        "1555px",
                                     tableLayout:
                                         "fixed",
                                     borderCollapse:
@@ -1847,7 +2125,7 @@ const KSEBPayment = () => {
                                                     "150px"
                                             }}
                                         >
-                                            Order / Reference
+                                            PO Number
                                         </th>
 
                                         <th
@@ -1864,10 +2142,37 @@ const KSEBPayment = () => {
                                             style={{
                                                 ...thStyle,
                                                 width:
-                                                    "100px"
+                                                    "140px"
                                             }}
                                         >
-                                            Voucher Type
+                                            PO Document
+                                        </th>
+                                        <th
+                                            style={{
+                                                ...thStyle,
+                                                width:
+                                                    "140px"
+                                            }}
+                                        >
+                                            Invoice Document
+                                        </th>
+                                        <th
+                                            style={{
+                                                ...thStyle,
+                                                width:
+                                                    "180px"
+                                            }}
+                                        >
+                                            Other Documents
+                                        </th>
+                                        <th
+                                            style={{
+                                                ...thStyle,
+                                                width:
+                                                    "140px"
+                                            }}
+                                        >
+                                            Tracking
                                         </th>
                                     </tr>
                                 </thead>
@@ -2026,24 +2331,6 @@ const KSEBPayment = () => {
                                                                 </span>
                                                             </div>
 
-                                                            {row.voucher_type && (
-                                                                <div
-                                                                    style={{
-                                                                        marginTop:
-                                                                            "5px",
-                                                                        fontSize:
-                                                                            "10px",
-                                                                        color:
-                                                                            "#666",
-                                                                        fontWeight:
-                                                                            "600"
-                                                                    }}
-                                                                >
-                                                                    {
-                                                                        row.voucher_type
-                                                                    }
-                                                                </div>
-                                                            )}
                                                         </td>
 
                                                         <td
@@ -2116,7 +2403,18 @@ const KSEBPayment = () => {
                                                                             0
                                                                     }}
                                                                 >
-                                                                    <div>
+                                                                    {/* Long party names wrap inside the column
+                                                                        instead of running into PO Number. */}
+                                                                    <div
+                                                                        style={{
+                                                                            whiteSpace:
+                                                                                "normal",
+                                                                            overflowWrap:
+                                                                                "anywhere",
+                                                                            wordBreak:
+                                                                                "break-word"
+                                                                        }}
+                                                                    >
                                                                         {
                                                                             partyName
                                                                         }
@@ -2244,7 +2542,6 @@ const KSEBPayment = () => {
                                                         >
                                                             {row.order_no && (
                                                                 <div>
-                                                                    Order:{" "}
                                                                     {
                                                                         row.order_no
                                                                     }
@@ -2300,21 +2597,55 @@ const KSEBPayment = () => {
                                                         </td>
 
                                                         <td
+                                                            style={
+                                                                tdStyle
+                                                            }
+                                                        >
+                                                            {renderDocumentsCell(
+                                                                row,
+                                                                row.po_documents,
+                                                                "PO",
+                                                                false
+                                                            )}
+                                                        </td>
+
+                                                        <td
+                                                            style={
+                                                                tdStyle
+                                                            }
+                                                        >
+                                                            {renderDocumentsCell(
+                                                                row,
+                                                                row.invoice_documents,
+                                                                "INVOICE",
+                                                                false
+                                                            )}
+                                                        </td>
+
+                                                        <td
+                                                            style={
+                                                                tdStyle
+                                                            }
+                                                        >
+                                                            {renderDocumentsCell(
+                                                                row,
+                                                                row.other_documents,
+                                                                "DD",
+                                                                true
+                                                            )}
+                                                        </td>
+
+                                                        <td
                                                             style={{
                                                                 ...tdStyle,
                                                                 textAlign:
-                                                                    "center",
-                                                                fontSize:
-                                                                    "10px",
-                                                                fontWeight:
-                                                                    "700",
-                                                                color:
-                                                                    "#555"
+                                                                    "center"
                                                             }}
                                                         >
-                                                            {
-                                                                row.voucher_type
-                                                            }
+                                                            {renderTrackingCell(
+                                                                row,
+                                                                invoiceNo
+                                                            )}
                                                         </td>
                                                     </tr>
 
@@ -2322,7 +2653,7 @@ const KSEBPayment = () => {
                                                         <tr>
                                                             <td
                                                                 colSpan={
-                                                                    7
+                                                                    10
                                                                 }
                                                                 style={{
                                                                     padding:
@@ -2736,8 +3067,8 @@ const KSEBPayment = () => {
                                                                         {row.order_no && (
                                                                             <div>
                                                                                 <strong>
-                                                                                    Order
-                                                                                    No:
+                                                                                    PO
+                                                                                    Number:
                                                                                 </strong>{" "}
                                                                                 {
                                                                                     row.order_no
@@ -2823,6 +3154,21 @@ const KSEBPayment = () => {
                         </div>
                     )}
             </div>
+
+            {trackingInvoice && (
+                <KsebInvoiceTrackingModal
+                    invoice={trackingInvoice}
+                    initialDocType={trackingDocType}
+                    onClose={() => setTrackingInvoice(null)}
+                    onChanged={(documents) => {
+                        fetchTrackingSummary();
+                        updateRowDocuments(
+                            getInvoiceNo(trackingInvoice),
+                            documents
+                        );
+                    }}
+                />
+            )}
         </>
     );
 };
