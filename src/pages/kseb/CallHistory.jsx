@@ -569,8 +569,11 @@ export default function CallHistory() {
 
   /* ---------------------------- actions ---------------------------- */
 
+  // ✅ "from" tells Call Update to come back here after Save
   const openCallEntry = (record) =>
-    navigate(`/call-entry/${record.kseb_id}`, { state: record });
+    navigate(`/call-entry/${record.kseb_id}`, {
+      state: { ...record, from: "/callhistory" },
+    });
 
   const closeFollowupModal = () => {
     setShowFollowupModal(false);

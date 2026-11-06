@@ -134,6 +134,11 @@ const KSEB_TRACKING_STEPS = [
 // is the invoice date. It cannot be edited or undone.
 const KSEB_AUTO_STEP = "BILL_GENERATED";
 
+// Payment collection is the goal. Once this step is saved the
+// invoice is closed: it counts as fully done and no more steps
+// can be added.
+const KSEB_FINAL_STEP = "PAYMENT_COMPLETED";
+
 // File types that can be uploaded.
 const KSEB_ALLOWED_EXTENSIONS = [
     "pdf"  => ["application/pdf"],
@@ -538,11 +543,29 @@ function kseb_invoice_details(mysqli $conn, string $invoiceKey, string $invoiceD
         ];
     }
 
+    // Payment Completed is always shown on top (last in history).
+    $closed = isset($used[KSEB_FINAL_STEP]);
+
+    if ($closed) {
+        $final = null;
+
+        foreach ($history as $index => $entry) {
+            if ($entry["key"] === KSEB_FINAL_STEP) {
+                $final = $entry;
+                unset($history[$index]);
+            }
+        }
+
+        $history = array_values($history);
+        $history[] = $final;
+    }
+
     // Steps not used yet: these are the choices in the drop-down.
+    // Nothing can be added after Payment Completed.
     $available = [];
 
     foreach (KSEB_TRACKING_STEPS as $key => $label) {
-        if (!isset($used[$key])) {
+        if (!$closed && !isset($used[$key])) {
             $available[] = [
                 "key" => $key,
                 "label" => $label
@@ -554,7 +577,8 @@ function kseb_invoice_details(mysqli $conn, string $invoiceKey, string $invoiceD
         "documents" => $documents,
         "history" => $history,
         "available_steps" => $available,
-        "total_steps" => count(KSEB_TRACKING_STEPS)
+        "total_steps" => count(KSEB_TRACKING_STEPS),
+        "closed" => $closed
     ];
 }
 
@@ -601,7 +625,11 @@ try {
                 }
 
                 $summary[$key]["done_steps"]++;
-                $summary[$key]["current_step"] = $step;
+
+                // Payment Completed stays the current step once saved.
+                if ($summary[$key]["current_step"] !== KSEB_FINAL_STEP) {
+                    $summary[$key]["current_step"] = $step;
+                }
             }
 
             $result->free();
@@ -632,6 +660,12 @@ try {
             foreach ($summary as &$item) {
                 $item["current_step_label"] = KSEB_TRACKING_STEPS[$item["current_step"]] ?? "";
                 $item["total_steps"] = count(KSEB_TRACKING_STEPS);
+                $item["closed"] = $item["current_step"] === KSEB_FINAL_STEP;
+
+                // Payment collected = every step counts as done.
+                if ($item["closed"]) {
+                    $item["done_steps"] = $item["total_steps"];
+                }
             }
 
             unset($item);
@@ -880,6 +914,18 @@ try {
             }
 
             $invoiceKey = kseb_invoice_key($invoiceNo);
+
+            // Nothing can be added after Payment Completed.
+            $closedRows = kseb_select(
+                $conn,
+                "SELECT id FROM kseb_invoice_tracking
+                 WHERE invoice_key = '" . $conn->real_escape_string($invoiceKey) . "'
+                   AND step_key = '" . KSEB_FINAL_STEP . "'"
+            );
+
+            if ($closedRows) {
+                kseb_fail("Payment is already completed for this invoice. Tracking is closed");
+            }
 
             // Once saved, a step can never be changed.
             $existing = kseb_select(

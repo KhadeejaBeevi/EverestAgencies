@@ -242,6 +242,8 @@ const KsebInvoiceTrackingModal = ({
     // Steps not used yet = choices in the drop-down.
     const [availableSteps, setAvailableSteps] = useState([]);
     const [totalSteps, setTotalSteps] = useState(7);
+    // true once Payment Completed is saved: tracking is closed.
+    const [closed, setClosed] = useState(false);
     const [docTypes, setDocTypes] = useState(DEFAULT_DOC_TYPES);
 
     const [docType, setDocType] = useState(initialDocType || "PO");
@@ -279,6 +281,10 @@ const KsebInvoiceTrackingModal = ({
 
         if (Array.isArray(result.available_steps)) {
             setAvailableSteps(result.available_steps);
+        }
+
+        if (typeof result.closed === "boolean") {
+            setClosed(result.closed);
         }
 
         if (result.total_steps) {
@@ -482,8 +488,11 @@ const KsebInvoiceTrackingModal = ({
     // Latest step on top, Bill Generated at the bottom.
     const timeline = [...history].reverse();
 
+    // Payment collected = every step counts as done.
+    const doneCount = closed ? totalSteps : history.length;
+
     const progress = totalSteps
-        ? Math.round((history.length / totalSteps) * 100)
+        ? Math.round((doneCount / totalSteps) * 100)
         : 0;
 
     /*
@@ -674,7 +683,7 @@ const KsebInvoiceTrackingModal = ({
                                         marginTop: "2px"
                                     }}
                                 >
-                                    {history.length} of {totalSteps} done
+                                    {doneCount} of {totalSteps} done
                                 </span>
                             </h3>
 
@@ -698,7 +707,7 @@ const KsebInvoiceTrackingModal = ({
                             </div>
 
                             {/* ---- ADD NEXT STEP ---- */}
-                            {availableSteps.length > 0 ? (
+                            {!closed && availableSteps.length > 0 ? (
                                 <div
                                     style={{
                                         padding: "10px",
@@ -814,7 +823,9 @@ const KsebInvoiceTrackingModal = ({
                                         fontWeight: 700
                                     }}
                                 >
-                                    All tracking steps are done
+                                    {closed
+                                        ? "✓ Payment collected. Tracking is complete and closed."
+                                        : "All tracking steps are done"}
                                 </div>
                             )}
 

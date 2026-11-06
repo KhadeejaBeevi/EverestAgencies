@@ -2452,8 +2452,11 @@ const handleSave = async () => {
                     navigate(
                       `/call-entry/${selectedItem.id}`,
                       {
-                        state:
-                          selectedItem,
+                        // ✅ "from" tells Call Update to come back here after Save
+                        state: {
+                          ...selectedItem,
+                          from: "/ksebdirectory",
+                        },
                       }
                     )
                   }

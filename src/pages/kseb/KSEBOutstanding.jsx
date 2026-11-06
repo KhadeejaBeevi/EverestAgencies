@@ -888,7 +888,7 @@ const LedgerDepositEntries = ({ deposits, openings, detailed, fromDate, openingS
                         </tr>
                         <tr style={{ borderTop: "1px solid #94A3B8" }}>
                             <td style={tCell} />
-                            <td style={{ ...tCell, fontWeight: "700" }}>Closing Balance (held by KSEB)</td>
+                            <td style={{ ...tCell, fontWeight: "700" }}>Closing Balance (Retainer KSEB)</td>
                             <td style={tCell} />
                             <td style={tCell} />
                             <td style={tCellRight} />
@@ -1742,7 +1742,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                                 {isDeposits ? "Reference (LPO)" : "Bill / Invoice Reference No."}
                             </th>
                             <th style={tHeadRight}>{isDeposits ? "Deposited" : "Opening Amount"}</th>
-                            <th style={{ ...tHeadRight, fontWeight: "800" }}>{isDeposits ? "Held by KSEB" : "Pending Amount"}</th>
+                            <th style={{ ...tHeadRight, fontWeight: "800" }}>{isDeposits ? "Retainer KSEB" : "Pending Amount"}</th>
                             <th style={{ ...tHeadRight, fontStyle: "italic" }}>Due on</th>
                             <th style={{ ...tHeadRight, fontStyle: "italic" }}>Days Overdue</th>
                         </tr>

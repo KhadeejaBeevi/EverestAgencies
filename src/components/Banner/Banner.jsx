@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import everestlogo from "/everestlogo.png";
 import { auth, db } from "../firebase";
@@ -7,7 +7,6 @@ import "./Banner.css";
 
 import {
   ChevronDown,
-  ChevronRight,
   Bell,
   LayoutDashboard,
   UsersRound,
@@ -36,8 +35,6 @@ import {
   Wallet,
   ShieldCheck,
   Activity,
-  Menu,
-  X,
   UserRoundCheck,
   BarChart3,
   UserRound,
@@ -171,9 +168,7 @@ function Banner() {
   }, []);
 
   const [openMenu, setOpenMenu] = useState(null);
-  const [mobileMenu, setMobileMenu] = useState(false);
   const [openSubMenu, setOpenSubMenu] = useState(null);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const location = useLocation();
 
@@ -215,17 +210,151 @@ function Banner() {
   // =====================================================
 
   const closeDesktopMenu = () => {
-    setMenuOpen(false);
     setOpenMenu(null);
     setOpenSubMenu(null);
   };
+
+  // =====================================================
+  // CLOSE DESKTOP MENU ON OUTSIDE CLICK / ROUTE CHANGE
+  // =====================================================
+
+  const navRef = useRef(null);
+  const mobileNavRef = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (navRef.current && !navRef.current.contains(e.target)) {
+        setOpenMenu(null);
+        setOpenSubMenu(null);
+      }
+      if (
+        mobileNavRef.current &&
+        !mobileNavRef.current.contains(e.target)
+      ) {
+        setMobileDropdown(null);
+        setMobileSubDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  useEffect(() => {
+    setOpenMenu(null);
+    setOpenSubMenu(null);
+    setMobileDropdown(null);
+    setMobileSubDropdown(null);
+  }, [location.pathname]);
+
+  // =====================================================
+  // DESKTOP MENU CONFIG
+  // =====================================================
+
+  const desktopMenu = [
+    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: dashboardPath },
+    { key: "pdc", label: "PDC", icon: CreditCard, to: "/postdatedcheques" },
+    {
+      key: "quotation",
+      label: "Quotation Tracking",
+      icon: FileSearch,
+      children: [
+        { label: "Enquiry Capture", icon: FileQuestion, to: "/enquiryreport" },
+        { label: "Quotation List", icon: Files, to: "/quotationfollowup" },
+        { label: "Quotation Wise Followup", icon: ListChecks, to: "/quotationwise" },
+        { label: "SalesCoordinator Report", icon: PhoneCall, to: "/telecallerreport" },
+        { label: "Customer PO", icon: ClipboardList, to: "/customerpo" },
+        { label: "Order To Delivery", icon: Truck, to: "/ordertodelivery" },
+      ],
+    },
+    {
+      key: "crm",
+      label: "CRM",
+      icon: ContactRound,
+      children: [
+        { label: "Sales CRM", icon: ContactRound, to: "/salescrm" },
+        { label: "Stock Items", icon: Boxes, to: "/CRMstockitem" },
+        { label: "Stock Check", icon: ClipboardCheck, to: "/stock-check" },
+      ],
+    },
+    {
+      key: "sales",
+      label: "Sales",
+      icon: ShoppingBag,
+      children: [
+        { label: "Pending Orders", icon: PackageSearch, to: "/salesorders" },
+        { label: "LR Details", icon: Truck, to: "/lrdetails" },
+        { label: "Site Visits", icon: MapPinned, to: "/salessitevisit" },
+        { label: "New Lead GEN", icon: UserPlus, to: "/newpartyledgerdetails" },
+      ],
+    },
+    {
+      key: "kseb",
+      label: "KSEB",
+      icon: Building2,
+      children: [
+        {
+          key: "ksebDirectory",
+          label: "KSEB Directory",
+          icon: BookUser,
+          children: [
+            { label: "Card View", icon: BookUser, to: "/ksebdirectory" },
+            { label: "Table View", icon: Files, to: "/ksebdirectorytable" },
+          ],
+        },
+        { label: "Call History", icon: PhoneCall, to: "/callhistory" },
+        { label: "Site Visit Details", icon: MapPinned, to: "/sitevisitdetails" },
+        {
+          key: "attendance",
+          label: "Attendance",
+          icon: CalendarCheck,
+          children: [
+            { label: "Mark Attendance", icon: CalendarCheck, to: "/attendance" },
+            { label: "View Attendance", icon: CalendarCheck, to: "/viewattendance" },
+          ],
+        },
+        { label: "New Lead KSEB", icon: UserPlus, to: "/new-kseb-lead" },
+        // ADMIN + SPECIAL USER -> /tenderdetails, others -> /tenderexecutive
+        { label: "Tender Details", icon: FileText, to: tenderPath },
+        { label: "PO Details", icon: ClipboardCheck, to: "/podetails" },
+        { label: "KSEB Overall Sales", icon: BarChart3, to: "/kseboverallsales" },
+        { label: "KSEB Payment", icon: CreditCard, to: "/ksebpayment" },
+        { label: "KSEB Outstanding", icon: Wallet, to: "/kseboutstanding" },
+      ],
+    },
+    {
+      key: "solar",
+      label: "Solar",
+      icon: Sun,
+      children: [
+        { label: "New Lead Solar", icon: Sunrise, to: "/solarnewleads" },
+        { label: "Solar Customers", icon: Sunrise, to: "/solarcustomers" },
+      ],
+    },
+    {
+      key: "users",
+      label: "Users",
+      icon: UsersRound,
+      alignRight: true,
+      children: [
+        { label: "Create User", icon: UserPlus, to: "/Createuser" },
+        { label: "Create KSEB User", icon: UserRoundCheck, to: "/Createksebuser" },
+        { label: "Create Sales User", icon: UserPlus, to: "/createsalesuser" },
+        { label: "Manage Users", icon: UserCog, to: "/manageusers" },
+        { label: "User Activity Report", icon: Activity, to: "/useractivityreport" },
+        { label: "Page Access Permissions", icon: ShieldCheck, to: "/pageaccess" },
+      ],
+    },
+  ];
+
+  const openMobileItem = desktopMenu.find(
+    (item) => item.key === mobileDropdown && item.children
+  );
 
   // =====================================================
   // CLOSE MOBILE MENU
   // =====================================================
 
   const closeMobileMenu = () => {
-    setMobileMenu(false);
     setMobileDropdown(null);
     setMobileSubDropdown(null);
   };
@@ -262,782 +391,181 @@ function Banner() {
           shadow-lg
         "
       >
-        <div className="relative flex items-center justify-between px-3 md:px-6 py-3">
+        <div className="relative flex items-center justify-between gap-3 px-3 md:px-6 py-3">
 
           {/* =====================================================
-              DESKTOP MENU
+              LOGO (left)
           ===================================================== */}
 
-          <div className="flex items-center">
-            <nav className="relative hidden lg:block">
+          <Link to={dashboardPath} className="shrink-0">
+            <img
+              src={everestlogo}
+              alt="Everest Logo"
+              className="banner-logo h-7 md:h-12 max-w-[100px] md:max-w-[140px]"
+            />
+          </Link>
 
-              {/* MAIN MENU BUTTON */}
+          {/* =====================================================
+              DESKTOP NAV BAR (horizontal, Amazon-style)
+              Sits between the logo and the right-side buttons, always
+              visible on large screens.
+          ===================================================== */}
 
-              <button
-                onClick={() => setMenuOpen(!menuOpen)}
-                className="
-                  flex items-center gap-2
-                  px-4 py-2
-                  rounded-xl
-                  font-medium
-                  text-slate-300
-                  hover:text-white
-                  hover:bg-slate-800
-                  transition-all
-                "
-              >
-                <Menu size={20} />
+          <nav
+            ref={navRef}
+            className="desktop-navbar hidden lg:flex"
+            onMouseLeave={closeDesktopMenu}
+          >
+            {desktopMenu.map((item) => {
+              const Icon = item.icon;
 
-                MENU
-
-                <ChevronDown
-                  size={16}
-                  className={`transition-transform ${
-                    menuOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-
-              {/* =================================================
-                  DESKTOP DROPDOWN
-              ================================================= */}
-
-              {menuOpen && (
-                <div className="menu-popup">
-
-                  {/* DASHBOARD */}
-
+              if (!item.children) {
+                return (
                   <Link
-                    to={dashboardPath}
+                    key={item.key}
+                    to={item.to}
                     onClick={closeDesktopMenu}
-                    className={`menu-item ${
-                      location.pathname === dashboardPath
-                        ? "active-menu"
+                    onMouseEnter={() => setOpenMenu(null)}
+                    className={`navbar-item ${
+                      location.pathname === item.to
+                        ? "navbar-item-active"
                         : ""
                     }`}
                   >
-                    <LayoutDashboard size={18} />
-                    <span>DASHBOARD</span>
+                    <Icon size={16} />
+                    <span>{item.label}</span>
                   </Link>
+                );
+              }
 
-                  {/* PDC */}
+              const isOpen = openMenu === item.key;
+              const isActive = item.children.some((c) =>
+                c.children
+                  ? c.children.some(
+                      (g) => g.to === location.pathname
+                    )
+                  : c.to === location.pathname
+              );
 
-                  <Link
-                    to="/postdatedcheques"
-                    onClick={closeDesktopMenu}
-                    className="menu-item"
+              return (
+                <div
+                  key={item.key}
+                  className="navbar-parent"
+                  onMouseEnter={() => {
+                    if (openMenu !== item.key) {
+                      setOpenMenu(item.key);
+                      setOpenSubMenu(null);
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleDropdown(item.key)}
+                    className={`navbar-item ${
+                      isOpen || isActive
+                        ? "navbar-item-active"
+                        : ""
+                    }`}
+                    aria-expanded={isOpen}
                   >
-                    <CreditCard size={18} />
-                    <span>PDC</span>
-                  </Link>
+                    <Icon size={16} />
+                    <span>{item.label}</span>
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${
+                        isOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
 
-                  {/* =================================================
-                      QUOTATION TRACKING
-                  ================================================= */}
-
-                  <div className="submenu-parent">
-
-                    <button
-                      onClick={() =>
-                        toggleDropdown(
-                          "sales order tracking"
-                        )
-                      }
-                      className="menu-dropdown-btn"
+                  {isOpen && (
+                    <div
+                      className={`navbar-dropdown ${
+                        item.alignRight
+                          ? "navbar-dropdown-right"
+                          : ""
+                      }`}
                     >
-                      <span className="flex items-center gap-3">
-                        <FileSearch size={18} />
-                        QUOTATION TRACKING
-                      </span>
+                      {item.children.map((child) => {
+                        const ChildIcon = child.icon;
 
-                      <ChevronRight
-                        size={16}
-                        className={`transition ${
-                          openMenu ===
-                          "sales order tracking"
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
+                        if (child.children) {
+                          const subOpen =
+                            openSubMenu === child.key;
 
-                    {openMenu === "sales order tracking" && (
-                      <div className="menu-flyout">
+                          return (
+                            <div key={child.key}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleSubMenu(child.key)
+                                }
+                                className="navbar-dropdown-link navbar-dropdown-toggle"
+                              >
+                                <ChildIcon size={16} />
+                                <span>{child.label}</span>
+                                <ChevronDown
+                                  size={14}
+                                  className={`ml-auto transition-transform ${
+                                    subOpen ? "rotate-180" : ""
+                                  }`}
+                                />
+                              </button>
 
-                        <Link
-                          to="/enquiryreport"
-                          onClick={closeDesktopMenu}
-                        >
-                          <FileQuestion size={16} />
-                          <span>Enquiry Capture</span>
-                        </Link>
+                              {subOpen && (
+                                <div className="navbar-dropdown-nested">
+                                  {child.children.map((g) => {
+                                    const GIcon = g.icon;
+                                    return (
+                                      <Link
+                                        key={g.to}
+                                        to={g.to}
+                                        onClick={closeDesktopMenu}
+                                        className={`navbar-dropdown-link ${
+                                          location.pathname === g.to
+                                            ? "active-submenu"
+                                            : ""
+                                        }`}
+                                      >
+                                        <GIcon size={15} />
+                                        <span>{g.label}</span>
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
 
-                        <Link
-                          to="/quotationfollowup"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Files size={16} />
-                          <span>Quotation List</span>
-                        </Link>
-
-                        <Link
-                          to="/quotationwise"
-                          onClick={closeDesktopMenu}
-                        >
-                          <ListChecks size={16} />
-                          <span>
-                            Quotation Wise Followup
-                          </span>
-                        </Link>
-
+                        return (
                           <Link
-                          to="/telecallerreport"
-                          onClick={closeDesktopMenu}
-                        >
-                          <PhoneCall size={16} />
-                          <span>SalesCoordinator Report</span>
-                        </Link>
-
-                        <Link
-                          to="/customerpo"
-                          onClick={closeDesktopMenu}
-                        >
-                          <ClipboardList size={16} />
-                          <span>Customer PO</span>
-                        </Link>
-
-                        <Link
-                          to="/ordertodelivery"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Truck size={16} />
-                          <span>Order To Delivery</span>
-                        </Link>
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* =================================================
-                      CRM
-                  ================================================= */}
-
-                  <div className="submenu-parent">
-
-                    <button
-                      onClick={() =>
-                        toggleDropdown("crm")
-                      }
-                      className="menu-dropdown-btn"
-                    >
-                      <span className="flex items-center gap-3">
-                        <ContactRound size={18} />
-                        CRM
-                      </span>
-
-                      <ChevronRight
-                        size={16}
-                        className={`transition ${
-                          openMenu === "crm"
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
-
-                    {openMenu === "crm" && (
-                      <div className="menu-flyout">
-
-                        <Link
-                          to="/salescrm"
-                          onClick={closeDesktopMenu}
-                        >
-                          <ContactRound size={16} />
-                          <span>Sales CRM</span>
-                        </Link>
-
-                        <Link
-                          to="/CRMstockitem"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Boxes size={16} />
-                          <span>Stock Items</span>
-                        </Link>
-
-                        <Link
-                          to="/stock-check"
-                          onClick={closeDesktopMenu}
-                        >
-                          <ClipboardCheck size={16} />
-                          <span>Stock Check</span>
-                        </Link>
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* =================================================
-                      SALES
-                  ================================================= */}
-
-                  <div className="submenu-parent">
-
-                    <button
-                      onClick={() =>
-                        toggleDropdown("sales")
-                      }
-                      className="menu-dropdown-btn"
-                    >
-                      <span className="flex items-center gap-3">
-                        <ShoppingBag size={18} />
-                        SALES
-                      </span>
-
-                      <ChevronRight
-                        size={16}
-                        className={`transition ${
-                          openMenu === "sales"
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
-
-                    {openMenu === "sales" && (
-                      <div className="menu-flyout">
-
-                        <Link
-                          to="/salesorders"
-                          onClick={closeDesktopMenu}
-                        >
-                          <PackageSearch size={16} />
-                          <span>Pending Orders</span>
-                        </Link>
-
-                        <Link
-                          to="/lrdetails"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Truck size={16} />
-                          <span>LR Details</span>
-                        </Link>
-
-                        <Link
-                          to="/salessitevisit"
-                          onClick={closeDesktopMenu}
-                        >
-                          <MapPinned size={16} />
-                          <span>Site Visits</span>
-                        </Link>
-
-                        <Link
-                          to="/newpartyledgerdetails"
-                          onClick={closeDesktopMenu}
-                        >
-                          <UserPlus size={16} />
-                          <span>New Lead GEN</span>
-                        </Link>
-
-                      
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* =================================================
-                      KSEB
-                  ================================================= */}
-
-                  <div className="submenu-parent">
-
-                    <button
-                      onClick={() =>
-                        toggleDropdown("kseb")
-                      }
-                      className="menu-dropdown-btn"
-                    >
-                      <span className="flex items-center gap-3">
-                        <Building2 size={18} />
-                        KSEB
-                      </span>
-
-                      <ChevronRight
-                        size={16}
-                        className={`transition ${
-                          openMenu === "kseb"
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
-
-                    {openMenu === "kseb" && (
-                      <div className="menu-flyout">
-
-                        {/* KSEB DIRECTORY */}
-
-                        <div className="submenu-parent">
-
-                          <button
-                            onClick={() =>
-                              toggleSubMenu(
-                                "ksebDirectory"
-                              )
-                            }
-                            className="menu-dropdown-btn w-full"
+                            key={child.label}
+                            to={child.to}
+                            onClick={closeDesktopMenu}
+                            className={`navbar-dropdown-link ${
+                              location.pathname === child.to
+                                ? "active-submenu"
+                                : ""
+                            }`}
                           >
-                            <span className="flex items-center gap-3">
-                              <BookUser size={17} />
-                              KSEB Directory
-                            </span>
-
-                            <ChevronRight
-                              size={15}
-                              className={`transition ${
-                                openSubMenu ===
-                                "ksebDirectory"
-                                  ? "rotate-180"
-                                  : ""
-                              }`}
-                            />
-                          </button>
-
-                          {openSubMenu ===
-                            "ksebDirectory" && (
-                            <div className="menu-submenu-inner">
-
-                              <Link
-                                to="/ksebdirectory"
-                                onClick={
-                                  closeDesktopMenu
-                                }
-                                className={
-                                  location.pathname ===
-                                  "/ksebdirectory"
-                                    ? "active-submenu"
-                                    : ""
-                                }
-                              >
-                                <BookUser size={15} />
-
-                                <span>
-                                  Card View
-                                </span>
-                              </Link>
-
-                              <Link
-                                to="/ksebdirectorytable"
-                                onClick={
-                                  closeDesktopMenu
-                                }
-                                className={
-                                  location.pathname ===
-                                  "/ksebdirectorytable"
-                                    ? "active-submenu"
-                                    : ""
-                                }
-                              >
-                                <Files size={15} />
-
-                                <span>
-                                  Table View
-                                </span>
-                              </Link>
-
-                            </div>
-                          )}
-
-                        </div>
-
-                        {/* CALL HISTORY */}
-
-                        <Link
-                          to="/callhistory"
-                          onClick={closeDesktopMenu}
-                        >
-                          <PhoneCall size={16} />
-                          <span>Call History</span>
-                        </Link>
-
-                        {/* SITE VISIT */}
-
-                        <Link
-                          to="/sitevisitdetails"
-                          onClick={closeDesktopMenu}
-                        >
-                          <MapPinned size={16} />
-
-                          <span>
-                            Site Visit Details
-                          </span>
-                        </Link>
-
-                        {/* ATTENDANCE */}
-
-                        <div className="submenu-parent">
-
-                          <button
-                            onClick={() =>
-                              toggleSubMenu(
-                                "attendance"
-                              )
-                            }
-                            className="menu-dropdown-btn"
-                          >
-                            <span className="flex items-center gap-3">
-                              <CalendarCheck size={16} />
-                              Attendance
-                            </span>
-
-                            <ChevronRight
-                              size={16}
-                              className={`transition ${
-                                openSubMenu ===
-                                "attendance"
-                                  ? "rotate-180"
-                                  : ""
-                              }`}
-                            />
-                          </button>
-
-                          {openSubMenu ===
-                            "attendance" && (
-                            <div className="menu-flyout">
-
-                              <Link
-                                to="/attendance"
-                                onClick={
-                                  closeDesktopMenu
-                                }
-                                className={
-                                  location.pathname ===
-                                  "/attendance"
-                                    ? "active-submenu"
-                                    : ""
-                                }
-                              >
-                                <CalendarCheck size={15} />
-
-                                <span>
-                                  Mark Attendance
-                                </span>
-                              </Link>
-
-                              <Link
-                                to="/viewattendance"
-                                onClick={
-                                  closeDesktopMenu
-                                }
-                                className={
-                                  location.pathname ===
-                                  "/viewattendance"
-                                    ? "active-submenu"
-                                    : ""
-                                }
-                              >
-                                <CalendarCheck size={15} />
-
-                                <span>
-                                  View Attendance
-                                </span>
-                              </Link>
-
-                            </div>
-                          )}
-
-                        </div>
-
-                        {/* NEW KSEB LEAD */}
-
-                        <Link
-                          to="/new-kseb-lead"
-                          onClick={closeDesktopMenu}
-                        >
-                          <UserPlus size={16} />
-                          <span>
-                            New Lead KSEB
-                          </span>
-                        </Link>
-
-                        {/* =================================================
-                            TENDER
-                            
-                            ADMIN + SPECIAL USER
-                                -> /tenderdetails
-
-                            ALL OTHER USERS
-                                -> /tenderexecutive
-                        ================================================= */}
-
-                        <Link
-                          to={tenderPath}
-                          onClick={closeDesktopMenu}
-                        >
-                          <FileText size={16} />
-                          <span>
-                            Tender Details
-                          </span>
-                        </Link>
-
-                        {/* PO */}
-
-                        <Link
-                          to="/podetails"
-                          onClick={closeDesktopMenu}
-                        >
-                          <ClipboardCheck size={16} />
-                          <span>
-                            PO Details
-                          </span>
-                        </Link>
-
-                        <Link
-                          to="/kseboverallsales"
-                          onClick={closeDesktopMenu}
-                        >
-                          <BarChart3 size={16} />
-                          <span>KSEB Overall Sales</span>
-                        </Link>
-
-                        <Link
-                          to="/ksebpayment"
-                          onClick={closeDesktopMenu}
-                        >
-                          <CreditCard size={16} />
-                          <span>KSEB Invoices</span>
-                        </Link>
-
-                        <Link
-                          to="/kseboutstanding"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Wallet size={16} />
-                          <span>KSEB Outstanding</span>
-                        </Link>
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* =================================================
-                      SOLAR
-                  ================================================= */}
-
-                  <div className="submenu-parent">
-
-                    <button
-                      onClick={() =>
-                        toggleDropdown("solar")
-                      }
-                      className="menu-dropdown-btn"
-                    >
-                      <span className="flex items-center gap-3">
-                        <Sun size={18} />
-                        SOLAR
-                      </span>
-
-                      <ChevronRight
-                        size={16}
-                        className={`transition ${
-                          openMenu === "solar"
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
-
-                    {openMenu === "solar" && (
-                      <div className="menu-flyout">
-
-                        <Link
-                          to="/solarnewleads"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Sunrise size={16} />
-                          <span>
-                            New Lead Solar
-                          </span>
-                        </Link>
-
-                            <Link
-                          to="/solarcustomers"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Sunrise size={16} />
-                          <span>
-                            Solar Customers
-                          </span>
-                        </Link>
-
-                      </div>
-                    )}
-
-                  </div>
-
-                  {/* =================================================
-                      USERS
-                  ================================================= */}
-
-                  <div className="submenu-parent">
-
-                    <button
-                      onClick={() =>
-                        toggleDropdown("users")
-                      }
-                      className="menu-dropdown-btn"
-                    >
-                      <span className="flex items-center gap-3">
-                        <UsersRound size={18} />
-                        USERS
-                      </span>
-
-                      <ChevronRight
-                        size={16}
-                        className={`transition ${
-                          openMenu === "users"
-                            ? "rotate-180"
-                            : ""
-                        }`}
-                      />
-                    </button>
-
-                    {openMenu === "users" && (
-                      <div className="menu-flyout">
-
-                        <Link
-                          to="/Createuser"
-                          onClick={closeDesktopMenu}
-                        >
-                          <UserPlus size={16} />
-                          <span>
-                            Create User
-                          </span>
-                        </Link>
-
-                        <Link
-                          to="/Createksebuser"
-                          onClick={closeDesktopMenu}
-                        >
-                          <UserRoundCheck size={16} />
-
-                          <span>
-                            Create KSEB User
-                          </span>
-                        </Link>
-
-                        <Link
-                          to="/createsalesuser"
-                          onClick={closeDesktopMenu}
-                        >
-                          <UserPlus size={16} />
-
-                          <span>
-                            Create Sales User
-                          </span>
-                        </Link>
-
-                        <Link
-                          to="/manageusers"
-                          onClick={closeDesktopMenu}
-                        >
-                          <UserCog size={16} />
-                          <span>
-                            Manage Users
-                          </span>
-                        </Link>
-
-                        <Link
-                          to="/useractivityreport"
-                          onClick={closeDesktopMenu}
-                        >
-                          <Activity size={16} />
-
-                          <span>
-                            User Activity Report
-                          </span>
-                        </Link>
-
-                        <Link
-                          to="/pageaccess"
-                          onClick={closeDesktopMenu}
-                        >
-                          <ShieldCheck size={16} />
-
-                          <span>
-                            Page Access Permissions
-                          </span>
-                        </Link>
-
-                      </div>
-                    )}
-
-                  </div>
-
+                            <ChildIcon size={16} />
+                            <span>{child.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
-
-            </nav>
-          </div>
-
-          {/* =====================================================
-              CENTER LOGO
-          ===================================================== */}
-
-          <div className="absolute left-1/2 -translate-x-1/2">
-
-            <Link to={dashboardPath}>
-
-              <img
-                src={everestlogo}
-                alt="Everest Logo"
-                className="
-                  h-7
-                  md:h-12
-                  max-w-[100px]
-                  md:max-w-[140px]
-                "
-              />
-
-            </Link>
-
-          </div>
+              );
+            })}
+          </nav>
 
           {/* =====================================================
               RIGHT SIDE
           ===================================================== */}
 
-          <div className="flex items-center gap-1 md:gap-4">
-
-            {/* MOBILE MENU BUTTON */}
-
-            <button
-              onClick={() => {
-                setMobileMenu(!mobileMenu);
-
-                if (mobileMenu) {
-                  setMobileDropdown(null);
-                  setMobileSubDropdown(null);
-                }
-              }}
-              className="
-                lg:hidden
-                p-2
-                rounded-xl
-                text-slate-300
-                hover:bg-slate-800
-              "
-              aria-label="Open menu"
-            >
-              {mobileMenu ? (
-                <X size={22} />
-              ) : (
-                <Menu size={22} />
-              )}
-            </button>
+          <div className="flex items-center gap-1 md:gap-4 shrink-0">
 
             {/* NOTIFICATION */}
 
@@ -1112,676 +640,138 @@ function Banner() {
 
         </div>
 
-      {/* =========================================================
-          MOBILE MENU
-          Opens over the page, right under the header, and scrolls
-          on its own when it is longer than the screen.
-      ========================================================= */}
 
-      {mobileMenu && (
-        <div
-          className="
-            lg:hidden
-            absolute left-0 right-0 top-full
-            max-h-[calc(100dvh-64px)]
-            overflow-y-auto
-            overscroll-contain
-            bg-slate-900
-            border-t border-slate-800
-            shadow-2xl
-            px-4 py-4
-            space-y-2
-          "
-        >
+        {/* =====================================================
+            MOBILE / TABLET NAV BAR
+            Horizontally scrollable row (Amazon mobile style).
+            Tapping a section opens its items in a panel below.
+        ===================================================== */}
 
-          {/* DASHBOARD */}
+        <div ref={mobileNavRef} className="lg:hidden">
+          <nav className="mobile-navbar">
+            {desktopMenu.map((item) => {
+              const Icon = item.icon;
 
-          <Link
-            to={dashboardPath}
-            onClick={closeMobileMenu}
-            className="mobile-link"
-          >
-            <LayoutDashboard size={18} />
-            <span>Dashboard</span>
-          </Link>
+              if (!item.children) {
+                return (
+                  <Link
+                    key={item.key}
+                    to={item.to}
+                    onClick={closeMobileMenu}
+                    className={`mobile-navbar-item ${
+                      location.pathname === item.to
+                        ? "mobile-navbar-item-active"
+                        : ""
+                    }`}
+                  >
+                    <Icon size={15} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              }
 
-          {/* MY PROFILE */}
+              const isOpen = mobileDropdown === item.key;
 
-          <Link
-            to="/myprofile"
-            onClick={closeMobileMenu}
-            className="mobile-link"
-          >
-            <UserRound size={18} />
-            <span>My Profile</span>
-          </Link>
-
-          {/* USERS */}
-
-          <button
-            onClick={() =>
-              toggleMobileDropdown("users")
-            }
-            className="mobile-dropdown-btn"
-          >
-            <span className="flex items-center gap-3">
-              <UsersRound size={18} />
-              Users
-            </span>
-
-            <ChevronRight
-              size={18}
-              className={`transition ${
-                mobileDropdown === "users"
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
-
-          {mobileDropdown === "users" && (
-            <div className="mobile-submenu">
-
-              <Link
-                to="/Createuser"
-                onClick={closeMobileMenu}
-              >
-                <UserPlus size={16} />
-                <span>Create User</span>
-              </Link>
-
-              <Link
-                to="/Createksebuser"
-                onClick={closeMobileMenu}
-              >
-                <UserRoundCheck size={16} />
-                <span>
-                  Create KSEB User
-                </span>
-              </Link>
-
-              <Link
-                to="/createsalesuser"
-                onClick={closeMobileMenu}
-              >
-                <UserPlus size={16} />
-                <span>
-                  Create Sales User
-                </span>
-              </Link>
-
-              <Link
-                to="/manageusers"
-                onClick={closeMobileMenu}
-              >
-                <UserCog size={16} />
-                <span>
-                  Manage Users
-                </span>
-              </Link>
-
-              <Link
-                to="/useractivityreport"
-                onClick={closeMobileMenu}
-              >
-                <Activity size={16} />
-                <span>
-                  User Activity Report
-                </span>
-              </Link>
-
-              <Link
-                to="/pageaccess"
-                onClick={closeMobileMenu}
-              >
-                <ShieldCheck size={16} />
-
-                <span>
-                  Page Access Permissions
-                </span>
-              </Link>
-
-            </div>
-          )}
-
-          {/* CRM */}
-
-          <button
-            onClick={() =>
-              toggleMobileDropdown("crm")
-            }
-            className="mobile-dropdown-btn"
-          >
-            <span className="flex items-center gap-3">
-              <ContactRound size={18} />
-              CRM
-            </span>
-
-            <ChevronRight
-              size={18}
-              className={`transition ${
-                mobileDropdown === "crm"
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
-
-          {mobileDropdown === "crm" && (
-            <div className="mobile-submenu">
-
-              <Link
-                to="/salescrm"
-                onClick={closeMobileMenu}
-              >
-                <ContactRound size={16} />
-                <span>
-                  Sales CRM
-                </span>
-              </Link>
-
-              <Link
-                to="/CRMstockitem"
-                onClick={closeMobileMenu}
-              >
-                <Boxes size={16} />
-                <span>
-                  Stock Items
-                </span>
-              </Link>
-
-              <Link
-                to="/stock-check"
-                onClick={closeMobileMenu}
-              >
-                <ClipboardCheck size={16} />
-                <span>
-                  Stock Check
-                </span>
-              </Link>
-
-            </div>
-          )}
-
-          {/* =====================================================
-              KSEB MOBILE
-          ===================================================== */}
-
-          <button
-            onClick={() =>
-              toggleMobileDropdown("kseb")
-            }
-            className="mobile-dropdown-btn"
-          >
-            <span className="flex items-center gap-3">
-              <Building2 size={18} />
-              KSEB
-            </span>
-
-            <ChevronRight
-              size={18}
-              className={`transition ${
-                mobileDropdown === "kseb"
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
-
-          {mobileDropdown === "kseb" && (
-            <div className="mobile-submenu">
-
-              {/* KSEB DIRECTORY */}
-
-              <button
-                onClick={() =>
-                  toggleMobileSubDropdown(
-                    "ksebDirectory"
-                  )
-                }
-                className="
-                  mobile-dropdown-btn
-                  mobile-sub-btn
-                "
-              >
-                <span className="flex items-center gap-3">
-                  <BookUser size={17} />
-                  KSEB Directory
-                </span>
-
-                <ChevronRight
-                  size={16}
-                  className={`transition ${
-                    mobileSubDropdown ===
-                    "ksebDirectory"
-                      ? "rotate-180"
-                      : ""
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    toggleMobileDropdown(item.key);
+                    setMobileSubDropdown(null);
+                  }}
+                  className={`mobile-navbar-item ${
+                    isOpen ? "mobile-navbar-item-active" : ""
                   }`}
-                />
-              </button>
+                  aria-expanded={isOpen}
+                >
+                  <Icon size={15} />
+                  <span>{item.label}</span>
+                  <ChevronDown
+                    size={13}
+                    className={`transition-transform ${
+                      isOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </nav>
 
-              {mobileSubDropdown ===
-                "ksebDirectory" && (
-                <div className="mobile-submenu-inner">
+          {openMobileItem && (
+            <div className="mobile-nav-panel">
+              <div className="mobile-nav-panel-title">
+                {openMobileItem.label}
+              </div>
 
-                  <Link
-                    to="/ksebdirectory"
-                    onClick={closeMobileMenu}
-                  >
-                    <BookUser size={15} />
-                    <span>
-                      Card View
-                    </span>
-                  </Link>
+              {openMobileItem.children.map((child) => {
+                const ChildIcon = child.icon;
 
-                  <Link
-                    to="/ksebdirectorytable"
-                    onClick={closeMobileMenu}
-                  >
-                    <Files size={15} />
-                    <span>
-                      Table View
-                    </span>
-                  </Link>
+                if (child.children) {
+                  const subOpen = mobileSubDropdown === child.key;
 
-                </div>
-              )}
+                  return (
+                    <div key={child.key}>
+                      <button
+                        type="button"
+                        onClick={() => toggleMobileSubDropdown(child.key)}
+                        className="navbar-dropdown-link"
+                      >
+                        <ChildIcon size={16} />
+                        <span>{child.label}</span>
+                        <ChevronDown
+                          size={14}
+                          className={`ml-auto transition-transform ${
+                            subOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
 
-              {/* CALL HISTORY */}
-
-              <Link
-                to="/callhistory"
-                onClick={closeMobileMenu}
-              >
-                <PhoneCall size={16} />
-                <span>
-                  Call History
-                </span>
-              </Link>
-
-              {/* SITE VISIT */}
-
-              <Link
-                to="/sitevisitdetails"
-                onClick={closeMobileMenu}
-              >
-                <MapPinned size={16} />
-                <span>
-                  Site Visit Details
-                </span>
-              </Link>
-
-              {/* ATTENDANCE */}
-
-              <button
-                onClick={() =>
-                  toggleMobileSubDropdown(
-                    "attendance"
-                  )
+                      {subOpen && (
+                        <div className="navbar-dropdown-nested">
+                          {child.children.map((g) => {
+                            const GIcon = g.icon;
+                            return (
+                              <Link
+                                key={g.to}
+                                to={g.to}
+                                onClick={closeMobileMenu}
+                                className={`navbar-dropdown-link ${
+                                  location.pathname === g.to
+                                    ? "active-submenu"
+                                    : ""
+                                }`}
+                              >
+                                <GIcon size={15} />
+                                <span>{g.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
                 }
-                className="
-                  mobile-dropdown-btn
-                  mobile-sub-btn
-                "
-              >
-                <span className="flex items-center gap-3">
-                  <CalendarCheck size={17} />
-                  Attendance
-                </span>
 
-                <ChevronRight
-                  size={16}
-                  className={`transition ${
-                    mobileSubDropdown ===
-                    "attendance"
-                      ? "rotate-180"
-                      : ""
-                  }`}
-                />
-              </button>
-
-              {mobileSubDropdown ===
-                "attendance" && (
-                <div className="mobile-submenu-inner">
-
+                return (
                   <Link
-                    to="/attendance"
+                    key={child.label}
+                    to={child.to}
                     onClick={closeMobileMenu}
+                    className={`navbar-dropdown-link ${
+                      location.pathname === child.to
+                        ? "active-submenu"
+                        : ""
+                    }`}
                   >
-                    <CalendarCheck size={15} />
-
-                    <span>
-                      Mark Attendance
-                    </span>
+                    <ChildIcon size={16} />
+                    <span>{child.label}</span>
                   </Link>
-
-                  <Link
-                    to="/viewattendance"
-                    onClick={closeMobileMenu}
-                  >
-                    <CalendarCheck size={15} />
-
-                    <span>
-                      View Attendance
-                    </span>
-                  </Link>
-
-                </div>
-              )}
-
-              {/* NEW KSEB LEAD */}
-
-              <Link
-                to="/new-kseb-lead"
-                onClick={closeMobileMenu}
-              >
-                <UserPlus size={16} />
-
-                <span>
-                  New Lead KSEB
-                </span>
-              </Link>
-
-              {/* =================================================
-                  TENDER MOBILE
-
-                  ADMIN + SPECIAL USER
-                      -> /tenderdetails
-
-                  ALL OTHER USERS
-                      -> /tenderexecutive
-              ================================================= */}
-
-              <Link
-                to={tenderPath}
-                onClick={closeMobileMenu}
-              >
-                <FileText size={16} />
-
-                <span>
-                  Tender Details
-                </span>
-              </Link>
-
-              {/* PO */}
-
-              <Link
-                to="/podetails"
-                onClick={closeMobileMenu}
-              >
-                <ClipboardCheck size={16} />
-
-                <span>
-                  PO Details
-                </span>
-              </Link>
-
-              <Link
-                to="/kseboverallsales"
-                onClick={closeMobileMenu}
-              >
-                <BarChart3 size={16} />
-                <span>KSEB Overall Sales</span>
-              </Link>
-
-              <Link
-                to="/ksebpayment"
-                onClick={closeMobileMenu}
-              >
-                <CreditCard size={16} />
-                <span>KSEB Invoices</span>
-              </Link>
-
-              <Link
-                to="/kseboutstanding"
-                onClick={closeMobileMenu}
-              >
-                <Wallet size={16} />
-                <span>KSEB Outstanding</span>
-              </Link>
-
+                );
+              })}
             </div>
           )}
-
-          {/* =====================================================
-              SALES
-          ===================================================== */}
-
-          <button
-            onClick={() =>
-              toggleMobileDropdown("sales")
-            }
-            className="mobile-dropdown-btn"
-          >
-            <span className="flex items-center gap-3">
-              <ShoppingBag size={18} />
-              Sales
-            </span>
-
-            <ChevronRight
-              size={18}
-              className={`transition ${
-                mobileDropdown === "sales"
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
-
-          {mobileDropdown === "sales" && (
-            <div className="mobile-submenu">
-
-              <Link
-                to="/salesorders"
-                onClick={closeMobileMenu}
-              >
-                <PackageSearch size={16} />
-                <span>
-                  Pending Orders
-                </span>
-              </Link>
-
-              <Link
-                to="/lrdetails"
-                onClick={closeMobileMenu}
-              >
-                <Truck size={16} />
-                <span>
-                  LR Details
-                </span>
-              </Link>
-
-              <Link
-                to="/salessitevisit"
-                onClick={closeMobileMenu}
-              >
-                <MapPinned size={16} />
-                <span>
-                  Site Visits
-                </span>
-              </Link>
-
-              <Link
-                to="/newpartyledgerdetails"
-                onClick={closeMobileMenu}
-              >
-                <UserPlus size={16} />
-                <span>
-                  New Lead GEN
-                </span>
-              </Link>
-
-          
-
-           
-
-            </div>
-          )}
-
-          {/* =====================================================
-              QUOTATION TRACKING
-          ===================================================== */}
-
-          <button
-            onClick={() =>
-              toggleMobileDropdown(
-                "quotationTracking"
-              )
-            }
-            className="mobile-dropdown-btn"
-          >
-            <span className="flex items-center gap-3">
-              <FileSearch size={18} />
-              Quotation Tracking
-            </span>
-
-            <ChevronRight
-              size={18}
-              className={`transition ${
-                mobileDropdown ===
-                "quotationTracking"
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
-
-          {mobileDropdown ===
-            "quotationTracking" && (
-            <div className="mobile-submenu">
-
-              <Link
-                to="/enquiryreport"
-                onClick={closeMobileMenu}
-              >
-                <FileQuestion size={16} />
-
-                <span>
-                  Enquiry Capture
-                </span>
-              </Link>
-
-              <Link
-                to="/quotationfollowup"
-                onClick={closeMobileMenu}
-              >
-                <Files size={16} />
-
-                <span>
-                  Quotation List
-                </span>
-              </Link>
-
-              <Link
-                to="/quotationwise"
-                onClick={closeMobileMenu}
-              >
-                <ListChecks size={16} />
-
-                <span>
-                  Quotation Wise Followup
-                </span>
-              </Link>
-                  <Link
-                to="/telecallerreport"
-                onClick={closeMobileMenu}
-              >
-                <PhoneCall size={16} />
-                <span>
-                  SalesCoordinator Report
-                </span>
-              </Link>
-
-              <Link
-                to="/customerpo"
-                onClick={closeMobileMenu}
-              >
-                <ClipboardList size={16} />
-                <span>
-                  Customer PO
-                </span>
-              </Link>
-
-              <Link
-                to="/ordertodelivery"
-                onClick={closeMobileMenu}
-              >
-                <Truck size={16} />
-                <span>
-                  Order To Delivery
-                </span>
-              </Link>
-
-            </div>
-          )}
-
-          {/* SOLAR */}
-
-          <button
-            onClick={() =>
-              toggleMobileDropdown("solar")
-            }
-            className="mobile-dropdown-btn"
-          >
-            <span className="flex items-center gap-3">
-              <Sun size={18} />
-              Solar
-            </span>
-
-            <ChevronRight
-              size={18}
-              className={`transition ${
-                mobileDropdown === "solar"
-                  ? "rotate-180"
-                  : ""
-              }`}
-            />
-          </button>
-
-          {mobileDropdown === "solar" && (
-            <div className="mobile-submenu">
-
-              <Link
-                to="/solarnewleads"
-                onClick={closeMobileMenu}
-              >
-                <Sunrise size={16} />
-
-                <span>
-                  New Lead Solar
-                </span>
-              </Link>
-
-                <Link
-                to="/solarcustomers"
-                onClick={closeMobileMenu}
-              >
-                
-                <Sunrise size={16} />
-                <span>
-                  Solar Customers
-                </span>
-              </Link>
-
-            </div>
-          )}
-
-          {/* PDC */}
-
-          <Link
-            to="/postdatedcheques"
-            onClick={closeMobileMenu}
-            className="mobile-link"
-          >
-            <CreditCard size={18} />
-
-            <span>
-              Postdated Cheques
-            </span>
-          </Link>
-
         </div>
-      )}
       </header>
     </>
   );

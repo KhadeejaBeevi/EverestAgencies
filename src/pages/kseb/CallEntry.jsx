@@ -56,6 +56,13 @@ export default function CallEntry() {
 
   // ✅ final data source
   const finalData = location.state || fetchedData;
+
+  // ✅ page that opened this Call Update (sent via navigate state)
+  const returnTo = location.state?.from || null;
+  // ✅ today's date in local time (YYYY-MM-DD) - call date can't be in the future
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
   const handleCancel = () => {
     navigate(-1); // goes back
   };
@@ -110,6 +117,12 @@ export default function CallEntry() {
       return;
     }
 
+    // 🔥 CALL DATE CAN'T BE A FUTURE DATE
+    if (form.call_date > today) {
+      alert("Call Date cannot be a future date");
+      return;
+    }
+
     apiFetch("/serverphp/save_call.php", {
       method: "POST",
       headers: {
@@ -147,7 +160,13 @@ export default function CallEntry() {
             contact_designation: "",
           });
 
-          navigate("/ksebdirectory");
+          // ✅ go back to the page that opened Call Update
+          // (Call History or KSEB Directory)
+          if (returnTo) {
+            navigate(returnTo);
+          } else {
+            navigate(-1);
+          }
         } else {
           alert("Save failed: " + (data.message || "Unknown error"));
         }
@@ -158,10 +177,6 @@ export default function CallEntry() {
   };
 
 
-  // ⛔ wait for data
-  if (!finalData) {
-    return <p>Loading...</p>;
-  }
   useEffect(() => {
     if (!finalData?.PLACE || !finalData?.AREA) return;
 
@@ -185,6 +200,11 @@ export default function CallEntry() {
       });
 
   }, [finalData]);
+
+  // ⛔ wait for data
+  if (!finalData) {
+    return <p>Loading...</p>;
+  }
   return (
     <>
           <Banner />
@@ -208,7 +228,13 @@ export default function CallEntry() {
 
         <div className="form-group">
           <label>Call Date</label>
-          <input type="date" name="call_date" onChange={handleChange} />
+          <input
+            type="date"
+            name="call_date"
+            value={form.call_date}
+            max={today}
+            onChange={handleChange}
+          />
         </div>
 
         <div className="form-group">
@@ -254,7 +280,6 @@ export default function CallEntry() {
             <option>No Requirements</option>
             <option>No Response</option>
             <option>Call Back</option>
-            <option>Call Not Connected</option>
             <option>Do not call</option>
           </select>
           {form.status === "Quotation Sent" && (

@@ -4,7 +4,9 @@ import Banner from "../../Banner/Banner.jsx";
 import "./OrderDelivery.css";
 import {
     Attachments,
+    ItemList,
     PassToDeliveryModal,
+    RefLines,
     SalesmanSelect,
     StatusBadge,
     formatAmount,
@@ -12,6 +14,7 @@ import {
     formatQty,
     loadSalesmen,
     odApi,
+    splitRefs,
     todayKey,
     useCurrentUser
 } from "./orderDeliveryShared.jsx";
@@ -226,9 +229,9 @@ export default function OrderToDelivery() {
                                             <td><span className={`od-source od-source-${group.source_type}`}>{SOURCE_LABEL[group.source_type]}</span></td>
                                             <td><b>{group.party_name}</b></td>
                                             <td className="od-small">
-                                                {group.po_number && <div>PO: <b>{group.po_number}</b></div>}
-                                                {group.quotation_nos.length > 0 && <div>Qtn: {group.quotation_nos.join(", ")}</div>}
-                                                {!group.po_number && group.quotation_nos.length === 0 && <span className="od-muted">-</span>}
+                                                <RefLines  value={group.po_number} bold />
+                                                <RefLines  value={group.quotation_nos} />
+                                                {splitRefs(group.po_number).length === 0 && splitRefs(group.quotation_nos).length === 0 && <span className="od-muted"></span>}
                                             </td>
                                             <td className="od-small">
                                                 {group.invoices.map((invoice) => (
@@ -315,8 +318,8 @@ export default function OrderToDelivery() {
                                                 <td><b>{order.party_name}</b></td>
                                                 <td className="od-small">
                                                     <span className={`od-source od-source-${order.source_type}`}>{SOURCE_LABEL[order.source_type]}</span>
-                                                    {order.po_number && <div>PO: <b>{order.po_number}</b></div>}
-                                                    {order.quotation_nos && <div>Qtn: {order.quotation_nos}</div>}
+                                                    <RefLines label="PO" value={order.po_number} bold />
+                                                    <RefLines label="Qtn" value={order.quotation_nos} />
                                                 </td>
                                                 <td className="od-small">
                                                     {order.invoice_nos}
@@ -525,8 +528,8 @@ function OrderDetailModal({ orderId, user, salesmen, onClose, onChanged }) {
                         <div><span>Salesman</span><b>{order.assigned_to || "-"}</b></div>
                         <div><span>Assigned</span><b>{formatDate(order.assigned_at)}{order.assigned_by ? ` by ${order.assigned_by}` : ""}</b></div>
                         <div><span>Deliver by</span><b>{order.due_date ? formatDate(order.due_date) : "-"}</b></div>
-                        {order.po_number && <div><span>PO No.</span><b>{order.po_number}</b></div>}
-                        {order.quotation_nos && <div><span>Quotation No.</span><b>{order.quotation_nos}</b></div>}
+                        {splitRefs(order.po_number).length > 0 && <div><span>PO No.</span><b><RefLines value={order.po_number} /></b></div>}
+                        {splitRefs(order.quotation_nos).length > 0 && <div><span>Quotation No.</span><b><RefLines value={order.quotation_nos} /></b></div>}
                         <div>
                             <span>Invoices</span>
                             <b>{order.invoices.map((invoice) => `${invoice.invoice_no} (${formatDate(invoice.invoice_date)})`).join(", ")}</b>
@@ -642,9 +645,7 @@ function OrderDetailModal({ orderId, user, salesmen, onClose, onChanged }) {
                                 )}
                             </div>
                             {entry.items.length > 0 && (
-                                <div className="od-small">
-                                    {entry.items.map((line) => `${line.item_name}: ${formatQty(line.qty)} ${line.unit || ""}`.trim()).join(" · ")}
-                                </div>
+                                <ItemList items={entry.items.map((line) => ({ name: line.item_name, qty: line.qty, unit: line.unit }))} />
                             )}
                             {entry.note && <div className="od-small">{entry.note}</div>}
                             {entry.attachments.length > 0 && <Attachments files={entry.attachments} />}

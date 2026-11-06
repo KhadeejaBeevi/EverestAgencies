@@ -10,7 +10,9 @@ import {
     formatDate,
     loadSalesmen,
     odApi,
-    useCurrentUser
+    useCurrentUser,
+    RefLines,
+    splitRefs
 } from "./orderDeliveryShared.jsx";
 
 /* =========================================================
@@ -236,7 +238,10 @@ export default function CustomerPO() {
                                             <b>{po.party_name}</b>
                                             {po.remarks && <div className="od-muted od-small">{po.remarks}</div>}
                                         </td>
-                                        <td>{po.quotation_nos || <span className="od-muted">-</span>}</td>
+                                        <td className="od-small">
+                                            <RefLines value={po.quotation_nos} />
+                                            {splitRefs(po.quotation_nos).length === 0 && <span className="od-muted">-</span>}
+                                        </td>
                                         <td className="od-num">{formatAmount(po.po_amount)}</td>
                                         <td>
                                             {po.invoices.length === 0 && <span className="od-muted">Not invoiced yet</span>}

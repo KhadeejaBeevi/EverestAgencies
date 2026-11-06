@@ -10,6 +10,49 @@ import { apiFetch } from "../../../api/apiClient";
 
 export const API_URL = "/serverphp/order_delivery.php";
 
+/* ---------------------------------------------------------
+   PO / QUOTATION NUMBERS, ONE PER LINE
+   Accepts an array or a comma / newline separated string.
+   Drops empty and stray parts with no digit (e.g. "EV", "Ev")
+   and repeats, so only real numbers are shown.
+--------------------------------------------------------- */
+
+export function splitRefs(value) {
+    const parts = Array.isArray(value)
+        ? value.flatMap((item) => String(item ?? "").split(/[,;\n]+/))
+        : String(value ?? "").split(/[,;\n]+/);
+
+    const seen = new Set();
+
+    return parts
+        .map((part) => part.trim())
+        .filter((part) => part !== "" && /\d/.test(part))
+        .filter((part) => {
+            const key = part.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
+/* Shows each number on its own line, with an optional label. */
+export function RefLines({ label = "", value, bold = false }) {
+    const refs = splitRefs(value);
+
+    if (refs.length === 0) return null;
+
+    return (
+        <div className="od-ref-list">
+            {label && <span className="od-ref-label">{label}</span>}
+            {refs.map((ref) => (
+                <div key={ref} className="od-ref">
+                    {bold ? <b>{ref}</b> : ref}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 /* Page Access permission that lets a user pass orders to delivery,
    assign / reassign salesmen and see every salesman's orders.
    Admins always have it. */
@@ -169,6 +212,39 @@ export function Attachments({ files }) {
     );
 }
 
+/* ---------------------------------------------------------
+   ITEM LIST
+   Items as a numbered table: # | Item | Qty | Unit.
+   items = [{ name, qty, unit }]
+--------------------------------------------------------- */
+
+export function ItemList({ items }) {
+    if (!items || items.length === 0) return null;
+
+    return (
+        <table className="od-item-list">
+            <thead>
+                <tr>
+                    <th className="od-item-no">#</th>
+                    <th>Item</th>
+                    <th className="od-item-qty">Qty</th>
+                    <th className="od-item-unit">Unit</th>
+                </tr>
+            </thead>
+            <tbody>
+                {items.map((item, index) => (
+                    <tr key={`${item.name}-${index}`}>
+                        <td className="od-item-no">{index + 1}</td>
+                        <td>{item.name}</td>
+                        <td className="od-item-qty">{formatQty(item.qty)}</td>
+                        <td className="od-item-unit">{item.unit || "-"}</td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
 export function SalesmanSelect({ value, onChange, salesmen, placeholder = "Select salesman" }) {
     const known = salesmen.some((person) => person.name === value);
     return (
@@ -244,23 +320,23 @@ export function PassToDeliveryModal({ group, salesmen, userName, onClose, onPass
 
                 <div className="od-modal-body">
                     <div className="od-info-grid">
-                        {group.po_number && <div><span>PO No.</span><b>{group.po_number}</b></div>}
-                        {group.quotation_nos?.length > 0 && <div><span>Quotation No.</span><b>{group.quotation_nos.join(", ")}</b></div>}
+                        {splitRefs(group.po_number).length > 0 && <div><span>PO No.</span><b><RefLines value={group.po_number} /></b></div>}
+                        {splitRefs(group.quotation_nos).length > 0 && <div><span>Quotation No.</span><b><RefLines value={group.quotation_nos} /></b></div>}
                     </div>
 
                     <label className="od-label">Invoices to deliver</label>
                     <div className="od-invoice-pick">
                         {group.invoices.map((invoice) => (
-                            <label key={invoice.no} className="od-check-row">
-                                <input type="checkbox" checked={selected.includes(invoice.no)} onChange={() => toggle(invoice.no)} />
-                                <span><b>{invoice.no}</b> · {formatDate(invoice.date)}</span>
-                                <span className="od-right">{formatAmount(invoice.amount)}</span>
+                            <div key={invoice.no} className="od-check-block">
+                                <label className="od-check-row">
+                                    <input type="checkbox" checked={selected.includes(invoice.no)} onChange={() => toggle(invoice.no)} />
+                                    <span><b>{invoice.no}</b> · {formatDate(invoice.date)}</span>
+                                    <span className="od-right">{formatAmount(invoice.amount)}</span>
+                                </label>
                                 {invoice.items?.length > 0 && (
-                                    <span className="od-item-preview">
-                                        {invoice.items.map((item) => `${item.name} × ${formatQty(item.qty)} ${item.unit || ""}`.trim()).join(" · ")}
-                                    </span>
+                                    <ItemList items={invoice.items.map((item) => ({ name: item.name, qty: item.qty, unit: item.unit }))} />
                                 )}
-                            </label>
+                            </div>
                         ))}
                     </div>
                     <div className="od-total">Total: {formatAmount(total)}</div>
