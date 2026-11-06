@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Banner from "../../components/Banner/Banner.jsx";
-import { apiFetch } from "../../api/apiClient";
+import { apiFetch } from "../../api/apiClient.js";
 
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -12,14 +12,22 @@ import KsebInvoiceTrackingModal, {
 
 const API = "/serverphp";
 
-const KSEBPayment = () => {
+// The page opens on the current month ("1" = January ... "12" = December).
+const getCurrentMonth = () => String(new Date().getMonth() + 1);
+
+const KSEBInvoices = () => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedMonth, setSelectedMonth] = useState("all");
+    const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth);
     const [sortOrder, setSortOrder] = useState("newest");
     const [amountSort, setAmountSort] = useState("default");
     const [viewMode, setViewMode] = useState("party");
+    // all | not_paid (not fully credited to the bank) | paid
+    const [paymentFilter, setPaymentFilter] = useState("all");
+    // all | missing_any | missing_po | missing_invoice | missing_both | attached
+    // (Other Documents are not checked)
+    const [documentFilter, setDocumentFilter] = useState("all");
 
     const [expandedInvoice, setExpandedInvoice] = useState(null);
     const [expandedParty, setExpandedParty] = useState(null);
@@ -38,8 +46,9 @@ const KSEBPayment = () => {
     );
 
     useEffect(() => {
+        // The tracking summary is loaded after the invoices
+        // (it needs the invoice amounts to check the receipts).
         fetchInvoices();
-        fetchTrackingSummary();
     }, []);
 
     useEffect(() => {
@@ -86,8 +95,10 @@ const KSEBPayment = () => {
 
             if (Array.isArray(result)) {
                 setData(result);
+                fetchTrackingSummary(result);
             } else if (result && Array.isArray(result.data)) {
                 setData(result.data);
+                fetchTrackingSummary(result.data);
             } else {
                 console.error(
                     "Invalid KSEB invoice API response:",
@@ -103,7 +114,17 @@ const KSEBPayment = () => {
         }
     };
 
-    const fetchTrackingSummary = async () => {
+    // Sends every invoice number + amount, so the server can compare
+    // them with the bank credits in kseb_receipts and mark fully paid
+    // invoices as Payment Completed automatically.
+    const fetchTrackingSummary = async (rows = data) => {
+        const invoices = (Array.isArray(rows) ? rows : [])
+            .map((row) => ({
+                invoice_no: getInvoiceNo(row),
+                amount: Number(row?.invoice_amount || 0)
+            }))
+            .filter((invoice) => invoice.invoice_no);
+
         try {
             const response = await apiFetch(
                 `${API}/kseb_invoice_tracking.php`,
@@ -112,7 +133,10 @@ const KSEBPayment = () => {
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({ action: "summary" })
+                    body: JSON.stringify({
+                        action: "summary",
+                        invoices
+                    })
                 }
             );
 
@@ -138,6 +162,58 @@ const KSEBPayment = () => {
         trackingSummary[
             String(invoiceNo || "").trim().toLowerCase()
         ] || null;
+
+    // Payment status from the tracking summary (receipts credited to bank).
+    const getPaymentStatus = (row) => {
+        const tracking = getTracking(getInvoiceNo(row));
+
+        return tracking?.current_step === "PAYMENT_COMPLETED"
+            ? "paid"
+            : "not_paid";
+    };
+
+    // PO / Invoice document uploaded? (Other Documents do not matter.)
+    // A PO uploaded on another invoice with the same PO number counts.
+    const hasPoDocument = (row) => getPoDocuments(row).length > 0;
+
+    const hasInvoiceDocument = (row) =>
+        Array.isArray(row?.invoice_documents) &&
+        row.invoice_documents.length > 0;
+
+    const matchesDocumentFilter = (row) => {
+        const hasPo = hasPoDocument(row);
+        const hasInvoice = hasInvoiceDocument(row);
+
+        switch (documentFilter) {
+            case "missing_any":
+                return !hasPo || !hasInvoice;
+            case "missing_po":
+                return !hasPo;
+            case "missing_invoice":
+                return !hasInvoice;
+            case "missing_both":
+                return !hasPo && !hasInvoice;
+            case "attached":
+                return hasPo && hasInvoice;
+            case "same_po":
+                return getSamePoInvoices(row).length > 0;
+            default:
+                return true;
+        }
+    };
+
+    // Amount still to be received for one invoice.
+    const getBalanceAmount = (row) => {
+        if (getPaymentStatus(row) === "paid") return 0;
+
+        const tracking = getTracking(getInvoiceNo(row));
+
+        return Math.max(
+            Number(row?.invoice_amount || 0) -
+                Number(tracking?.received_amount || 0),
+            0
+        );
+    };
 
     const normalizeDate = (value) => {
         if (!value) return "";
@@ -229,6 +305,80 @@ const KSEBPayment = () => {
         return parts[1];
     };
 
+    // =========================================================
+    // SAME PO NUMBER
+    // =========================================================
+    //
+    // "LPO/6112/2024-25/00001, dt 24-5-24" and
+    // "LPO/6112/2024-25/00001 dt 24-5-2024" are the same PO:
+    // the date part, spaces and case are ignored. Values without
+    // any digit (e.g. "Teli Order") are not treated as PO numbers.
+
+    const getPoKey = (row) => {
+        let text = String(row?.order_no || "").toLowerCase();
+
+        text = text.split(/[\s,.(]*\b(?:dt|dtd|dated|date)\b/)[0];
+        text = text.replace(/\s+/g, "").replace(/[.,;:/-]+$/, "");
+
+        return /\d/.test(text) ? text : "";
+    };
+
+    // PO key -> every invoice row with that PO number
+    const poGroups = useMemo(() => {
+        const groups = {};
+
+        data.forEach((row) => {
+            const key = getPoKey(row);
+
+            if (key) {
+                (groups[key] = groups[key] || []).push(row);
+            }
+        });
+
+        return groups;
+    }, [data]);
+
+    // Other invoices with the same PO number.
+    const getSamePoInvoices = (row) => {
+        const key = getPoKey(row);
+        const invoiceNo = getInvoiceNo(row).toLowerCase();
+
+        if (!key) return [];
+
+        return (poGroups[key] || []).filter(
+            (other) =>
+                getInvoiceNo(other).toLowerCase() !== invoiceNo
+        );
+    };
+
+    // PO documents of this invoice + those uploaded on other
+    // invoices with the same PO number (marked __fromInvoice).
+    const getPoDocuments = (row) => {
+        const own = Array.isArray(row?.po_documents)
+            ? row.po_documents
+            : [];
+
+        const seen = new Set(own.map((doc) => doc.id));
+        const shared = [];
+
+        getSamePoInvoices(row).forEach((other) => {
+            (Array.isArray(other.po_documents)
+                ? other.po_documents
+                : []
+            ).forEach((doc) => {
+                if (!seen.has(doc.id)) {
+                    seen.add(doc.id);
+                    shared.push({
+                        ...doc,
+                        __fromInvoice: getInvoiceNo(other)
+                    });
+                }
+            });
+        });
+
+        return [...own, ...shared];
+    };
+
     const filteredData = useMemo(() => {
         const search = String(searchTerm || "")
             .trim()
@@ -266,6 +416,16 @@ const KSEBPayment = () => {
                 (row) =>
                     getMonthNumber(getInvoiceDate(row)) ===
                     Number(selectedMonth)
+            );
+        }
+
+        if (documentFilter !== "all") {
+            result = result.filter(matchesDocumentFilter);
+        }
+
+        if (paymentFilter !== "all") {
+            result = result.filter(
+                (row) => getPaymentStatus(row) === paymentFilter
             );
         }
 
@@ -321,7 +481,11 @@ const KSEBPayment = () => {
         searchTerm,
         selectedMonth,
         sortOrder,
-        amountSort
+        amountSort,
+        paymentFilter,
+        documentFilter,
+        trackingSummary,
+        poGroups
     ]);
 
     const groupedDisplayData = useMemo(() => {
@@ -430,25 +594,42 @@ const KSEBPayment = () => {
 
     const totals = useMemo(() => {
         let invoiceAmount = 0;
+        let balanceAmount = 0;
+        let notPaidCount = 0;
+        let missingDocsCount = 0;
 
         filteredData.forEach((row) => {
             invoiceAmount += Number(
                 row?.invoice_amount || 0
             );
+
+            if (!hasPoDocument(row) || !hasInvoiceDocument(row)) {
+                missingDocsCount++;
+            }
+
+            if (getPaymentStatus(row) !== "paid") {
+                notPaidCount++;
+                balanceAmount += getBalanceAmount(row);
+            }
         });
 
         return {
             invoiceCount: filteredData.length,
-            invoiceAmount
+            invoiceAmount,
+            notPaidCount,
+            balanceAmount,
+            missingDocsCount
         };
-    }, [filteredData]);
+    }, [filteredData, trackingSummary]);
 
     const clearFilters = () => {
         setSearchTerm("");
-        setSelectedMonth("all");
+        setSelectedMonth(getCurrentMonth());
         setSortOrder("newest");
         setAmountSort("default");
         setViewMode("party");
+        setPaymentFilter("all");
+        setDocumentFilter("all");
     };
 
     const toggleInvoice = (invoiceNo) => {
@@ -578,6 +759,32 @@ const KSEBPayment = () => {
                 ),
                 "Narration": cleanExportValue(
                     row.narration
+                ),
+                "Same PO Invoices": getSamePoInvoices(row)
+                    .map((other) => getInvoiceNo(other))
+                    .join(", "),
+                "PO Document": hasPoDocument(row)
+                    ? "Attached"
+                    : "Not Attached",
+                "Invoice Document": hasInvoiceDocument(row)
+                    ? "Attached"
+                    : "Not Attached",
+                "Payment Status": {
+                    paid: "Paid",
+                    not_paid: "Not Paid"
+                }[getPaymentStatus(row)],
+                "Balance to Receive": getBalanceAmount(row),
+                "Tracking Status":
+                    getTracking(invoiceNo)?.current_step_label ||
+                    "Bill Generated",
+                "Credited to Bank": Number(
+                    getTracking(invoiceNo)?.bank_amount || 0
+                ),
+                "Deductions (SD / TDS)": Number(
+                    getTracking(invoiceNo)?.deductions_amount || 0
+                ),
+                "Bank Account": cleanExportValue(
+                    getTracking(invoiceNo)?.bank_accounts
                 )
             });
 
@@ -643,7 +850,16 @@ const KSEBPayment = () => {
             { wch: 25 },
             { wch: 20 },
             { wch: 20 },
-            { wch: 40 }
+            { wch: 40 },
+            { wch: 30 },
+            { wch: 14 },
+            { wch: 16 },
+            { wch: 14 },
+            { wch: 18 },
+            { wch: 24 },
+            { wch: 18 },
+            { wch: 20 },
+            { wch: 30 }
         ];
 
         XLSX.utils.book_append_sheet(
@@ -696,6 +912,33 @@ const KSEBPayment = () => {
             },
             {
                 "Total Invoice Value": totals.invoiceAmount
+            },
+            {
+                "Payment Filter": {
+                    all: "All Payments",
+                    not_paid: "Not Paid",
+                    paid: "Paid"
+                }[paymentFilter]
+            },
+            {
+                "Document Filter": {
+                    all: "All Documents",
+                    missing_any: "PO or Invoice Not Attached",
+                    missing_po: "PO Not Attached",
+                    missing_invoice: "Invoice Not Attached",
+                    missing_both: "Both Not Attached",
+                    attached: "PO + Invoice Attached",
+                    same_po: "Same PO Number"
+                }[documentFilter]
+            },
+            {
+                "PO / Invoice Not Attached": totals.missingDocsCount
+            },
+            {
+                "Not Paid Invoices": totals.notPaidCount
+            },
+            {
+                "Balance to Receive": totals.balanceAmount
             }
         ];
 
@@ -1245,6 +1488,10 @@ const KSEBPayment = () => {
                             type="button"
                             title={`${doc.doc_type_label}: ${doc.original_name}${
                                 doc.remarks ? `\n${doc.remarks}` : ""
+                            }${
+                                doc.__fromInvoice
+                                    ? `\nSame PO - uploaded on ${doc.__fromInvoice}`
+                                    : ""
                             }`}
                             disabled={openingDocId === doc.id}
                             onClick={() => handleOpenDocument(doc)}
@@ -1254,7 +1501,9 @@ const KSEBPayment = () => {
                                 gap: "5px",
                                 width: "100%",
                                 padding: "3px 5px",
-                                border: "1px solid #d5e3db",
+                                border: doc.__fromInvoice
+                                    ? "1px dashed #9db8a8"
+                                    : "1px solid #d5e3db",
                                 borderRadius: "4px",
                                 background: "#f7fbf9",
                                 color: "#05693a",
@@ -1281,6 +1530,20 @@ const KSEBPayment = () => {
                             >
                                 {isPdf ? "PDF" : "IMG"}
                             </span>
+                            {doc.__fromInvoice && (
+                                <span
+                                    style={{
+                                        flexShrink: 0,
+                                        padding: "0 3px",
+                                        borderRadius: "3px",
+                                        fontSize: "8px",
+                                        background: "#fff4d6",
+                                        color: "#8a6100"
+                                    }}
+                                >
+                                    SAME PO
+                                </span>
+                            )}
                             <span
                                 style={{
                                     overflow: "hidden",
@@ -1334,6 +1597,39 @@ const KSEBPayment = () => {
             trackingSteps[0]?.label ||
             "Bill Generated";
 
+        // From kseb_receipts: part of the invoice settled by receipts
+        // that were credited to the bank, and the bank credit itself.
+        const received = Number(tracking?.received_amount || 0);
+        const bankAmount = Number(tracking?.bank_amount || 0);
+        const deductions = Number(tracking?.deductions_amount || 0);
+        const bankAccounts = Array.isArray(tracking?.bank_accounts)
+            ? tracking.bank_accounts
+            : [];
+        const invoiceAmount = Number(
+            tracking?.invoice_amount || row?.invoice_amount || 0
+        );
+        const isPartPaid = !isPaid && received > 0;
+
+        const bankTitle = bankAmount > 0
+            ? [
+                `Invoice: ₹ ${formatAmount(invoiceAmount)}`,
+                `Credited to bank: ₹ ${formatAmount(bankAmount)}`,
+                bankAccounts.length
+                    ? `Bank: ${bankAccounts.join(", ")}`
+                    : "",
+                deductions > 0
+                    ? `Deductions (SD / TDS): ₹ ${formatAmount(deductions)}`
+                    : "",
+                isPartPaid
+                    ? `Balance: ₹ ${formatAmount(
+                        Math.max(invoiceAmount - received, 0)
+                    )}`
+                    : ""
+            ]
+                .filter(Boolean)
+                .join("\n")
+            : "";
+
         return (
             <div
                 style={{
@@ -1372,6 +1668,29 @@ const KSEBPayment = () => {
                 >
                     {label}
                 </span>
+
+                {bankAmount > 0 && (
+                    <div
+                        title={bankTitle}
+                        style={{
+                            fontSize: "9px",
+                            lineHeight: 1.35,
+                            textAlign: "center",
+                            color: isPaid ? "#05693a" : "#8a6100",
+                            cursor: "help"
+                        }}
+                    >
+                        <div style={{ fontWeight: "700" }}>
+                            Bank: ₹ {formatAmount(bankAmount)}
+                        </div>
+
+                        {deductions > 0 && (
+                            <div style={{ color: "#777" }}>
+                                SD / TDS: ₹ {formatAmount(deductions)}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <button
                     type="button"
@@ -1888,6 +2207,90 @@ const KSEBPayment = () => {
                             </option>
                         </select>
 
+                        <select
+                            value={paymentFilter}
+                            onChange={(e) =>
+                                setPaymentFilter(
+                                    e.target.value
+                                )
+                            }
+                            style={{
+                                height: "36px",
+                                padding:
+                                    "0 10px",
+                                border:
+                                    paymentFilter !== "all"
+                                        ? "1px solid #b35c00"
+                                        : "1px solid #ccc",
+                                borderRadius:
+                                    "6px",
+                                fontSize:
+                                    "13px",
+                                fontWeight:
+                                    paymentFilter !== "all"
+                                        ? "700"
+                                        : "400"
+                            }}
+                        >
+                            <option value="all">
+                                All Payments
+                            </option>
+                            <option value="not_paid">
+                                Not Paid
+                            </option>
+                            <option value="paid">
+                                Paid
+                            </option>
+                        </select>
+
+                        <select
+                            value={documentFilter}
+                            onChange={(e) =>
+                                setDocumentFilter(
+                                    e.target.value
+                                )
+                            }
+                            style={{
+                                height: "36px",
+                                padding:
+                                    "0 10px",
+                                border:
+                                    documentFilter !== "all"
+                                        ? "1px solid #b35c00"
+                                        : "1px solid #ccc",
+                                borderRadius:
+                                    "6px",
+                                fontSize:
+                                    "13px",
+                                fontWeight:
+                                    documentFilter !== "all"
+                                        ? "700"
+                                        : "400"
+                            }}
+                        >
+                            <option value="all">
+                                All Documents
+                            </option>
+                            <option value="missing_any">
+                                PO or Invoice Not Attached
+                            </option>
+                            <option value="missing_po">
+                                PO Not Attached
+                            </option>
+                            <option value="missing_invoice">
+                                Invoice Not Attached
+                            </option>
+                            <option value="missing_both">
+                                Both Not Attached
+                            </option>
+                            <option value="attached">
+                                PO + Invoice Attached
+                            </option>
+                            <option value="same_po">
+                                Same PO Number
+                            </option>
+                        </select>
+
                         <button
                             onClick={
                                 clearFilters
@@ -1968,6 +2371,74 @@ const KSEBPayment = () => {
                                 totals.invoiceAmount
                             )}
                         </div>
+
+                        {totals.missingDocsCount > 0 && (
+                            <button
+                                type="button"
+                                title="Show only invoices without a PO or Invoice document"
+                                onClick={() =>
+                                    setDocumentFilter(
+                                        "missing_any"
+                                    )
+                                }
+                                style={{
+                                    padding:
+                                        "5px 10px",
+                                    border: "none",
+                                    borderRadius:
+                                        "5px",
+                                    background:
+                                        "#fff4e5",
+                                    fontSize:
+                                        "12px",
+                                    fontWeight:
+                                        "700",
+                                    color:
+                                        "#b35c00",
+                                    cursor:
+                                        "pointer"
+                                }}
+                            >
+                                PO / Invoice Not Attached:{" "}
+                                {totals.missingDocsCount}
+                            </button>
+                        )}
+
+                        {totals.notPaidCount > 0 && (
+                            <button
+                                type="button"
+                                title="Show only invoices not fully paid"
+                                onClick={() =>
+                                    setPaymentFilter(
+                                        "not_paid"
+                                    )
+                                }
+                                style={{
+                                    padding:
+                                        "5px 10px",
+                                    border: "none",
+                                    borderRadius:
+                                        "5px",
+                                    background:
+                                        "#fdecec",
+                                    fontSize:
+                                        "12px",
+                                    fontWeight:
+                                        "700",
+                                    color:
+                                        "#b42318",
+                                    cursor:
+                                        "pointer"
+                                }}
+                            >
+                                Not Paid:{" "}
+                                {totals.notPaidCount}
+                                {" "}· Balance: ₹{" "}
+                                {formatAmount(
+                                    totals.balanceAmount
+                                )}
+                            </button>
+                        )}
 
                         {selectedMonth !==
                             "all" && (
@@ -2541,10 +3012,73 @@ const KSEBPayment = () => {
                                                             }}
                                                         >
                                                             {row.order_no && (
-                                                                <div>
+                                                                <div
+                                                                    style={{
+                                                                        color:
+                                                                            getSamePoInvoices(
+                                                                                row
+                                                                            ).length >
+                                                                            0
+                                                                                ? "#dc3545"
+                                                                                : "inherit"
+                                                                    }}
+                                                                >
                                                                     {
                                                                         row.order_no
                                                                     }
+                                                                </div>
+                                                            )}
+
+                                                            {getSamePoInvoices(
+                                                                row
+                                                            ).length > 0 && (
+                                                                <div
+                                                                    title={getSamePoInvoices(
+                                                                        row
+                                                                    )
+                                                                        .map(
+                                                                            (
+                                                                                other
+                                                                            ) =>
+                                                                                `${getInvoiceNo(
+                                                                                    other
+                                                                                )} (${formatDate(
+                                                                                    getInvoiceDate(
+                                                                                        other
+                                                                                    )
+                                                                                )})`
+                                                                        )
+                                                                        .join(
+                                                                            "\n"
+                                                                        )}
+                                                                    style={{
+                                                                        marginTop:
+                                                                            "3px",
+                                                                        color:
+                                                                            "#dc3545",
+                                                                        fontSize:
+                                                                            "10px",
+                                                                        fontWeight:
+                                                                            "700",
+                                                                        cursor:
+                                                                            "help"
+                                                                    }}
+                                                                >
+                                                                    Same PO:{" "}
+                                                                    {getSamePoInvoices(
+                                                                        row
+                                                                    )
+                                                                        .map(
+                                                                            (
+                                                                                other
+                                                                            ) =>
+                                                                                getInvoiceNo(
+                                                                                    other
+                                                                                )
+                                                                        )
+                                                                        .join(
+                                                                            ", "
+                                                                        )}
                                                                 </div>
                                                             )}
 
@@ -2603,7 +3137,9 @@ const KSEBPayment = () => {
                                                         >
                                                             {renderDocumentsCell(
                                                                 row,
-                                                                row.po_documents,
+                                                                getPoDocuments(
+                                                                    row
+                                                                ),
                                                                 "PO",
                                                                 false
                                                             )}
@@ -3173,4 +3709,4 @@ const KSEBPayment = () => {
     );
 };
 
-export default KSEBPayment;
+export default KSEBInvoices;

@@ -317,7 +317,7 @@ function Banner() {
         { label: "Tender Details", icon: FileText, to: tenderPath },
         { label: "PO Details", icon: ClipboardCheck, to: "/podetails" },
         { label: "KSEB Overall Sales", icon: BarChart3, to: "/kseboverallsales" },
-        { label: "KSEB Payment", icon: CreditCard, to: "/ksebpayment" },
+        { label: "KSEB Invoices", icon: CreditCard, to: "/ksebinvoices" },
         { label: "KSEB Outstanding", icon: Wallet, to: "/kseboutstanding" },
       ],
     },

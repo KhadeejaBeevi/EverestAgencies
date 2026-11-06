@@ -908,7 +908,15 @@ const LedgerDepositEntries = ({ deposits, openings, detailed, fromDate, openingS
 // LEDGER REPORT (Tally Bird-Eye-View style)
 // =========================================================
 
-const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initialTab = "supply" }) => {
+const LedgerReport = ({
+    ledger,
+    vouchers,
+    fromDate,
+    asOf,
+    openingSource,
+    ledgerCreditDays = {},
+    initialTab = "supply",
+}) => {
     // Detailed = every voucher exploded (Tally Alt+F5). A click on a row
     // flips just that row.
     const [detailed, setDetailed] = useState(false);
@@ -1271,6 +1279,75 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
     // Number of security deposits (deposit ledger + reference).
     const depositCount = (ledger.deposits || []).length;
 
+    /* Credit days shown next to the ledger name. Supply Chain: the KSEB
+       ledger's own credit days. Security Deposit: the credit days of
+       its security deposit ledger(s), else of the deposit group. When
+       the ledger master has none, the credit days its bills / deposits
+       actually use (the most common one above 1 day) are shown. */
+    const creditDaysLabel = (() => {
+        const daysOf = (name) => Number(ledgerCreditDays[ledgerKey(name)] || 0);
+
+        // Most common credit days (> 1) of a list of entries.
+        const usualDays = (list) => {
+            const counts = new Map();
+
+            list.forEach((x) => {
+                const days = Number(x?.credit_days || 0);
+
+                if (days > 1) counts.set(days, (counts.get(days) || 0) + 1);
+            });
+
+            let best = 0;
+            let bestCount = 0;
+
+            counts.forEach((count, days) => {
+                if (count > bestCount) {
+                    best = days;
+                    bestCount = count;
+                }
+            });
+
+            return best;
+        };
+
+        if (ledgerTab !== "deposits") {
+            const days = daysOf(ledger.party) || usualDays(ledger.bills || []);
+
+            return days > 0 ? `Credit: ${days} Days` : "Credit: not set";
+        }
+
+        // Deposit entries of each deposit ledger (this year + opening break up).
+        const entriesByLedger = new Map();
+        const addEntries = (name, list) => {
+            if (!name) return;
+
+            const key = ledgerKey(name);
+
+            if (!entriesByLedger.has(key)) entriesByLedger.set(key, { name, list: [] });
+
+            entriesByLedger.get(key).list.push(...list);
+        };
+
+        (ledger.deposits || []).forEach((d) => addEntries(d.deposit_ledger, [d]));
+        (ledger.depositOpenings || []).forEach((o) =>
+            addEntries(o.ledger, [...(o.bills || []), ...(o.entries || [])])
+        );
+
+        const groupDays = Number(ledgerCreditDays[ledgerKey("SECURITY DEPOSITS KSEB")] || 0);
+        const ledgersList = [...entriesByLedger.values()];
+
+        if (ledgersList.length === 0) return groupDays > 0 ? `SD Credit: ${groupDays} Days` : "";
+
+        const parts = ledgersList.map(({ name, list }) => {
+            const days = daysOf(name) || usualDays(list) || groupDays;
+            const text = days > 0 ? `${days} Days` : "not set";
+
+            return ledgersList.length > 1 ? `${name}: ${text}` : text;
+        });
+
+        return `SD Credit: ${parts.join(" • ")}`;
+    })();
+
     const exportLedger = () => {
         const workbook = XLSX.utils.book_new();
 
@@ -1402,7 +1479,8 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
             "Opening Amount": b.bill_amount,
             "Pending Amount": Math.abs(b.balance) < 1 ? "Cleared" : b.balance,
             "Due On": formatTallyDate(b.due_date),
-            "Days Overdue": b.overdue_days > 0 ? b.overdue_days : "",
+            "Overdue By": b.overdue_days > 0 ? b.overdue_days : "",
+            "Total Days": b.bill_date ? Math.max(0, daysBetween(b.bill_date, asOf)) : "",
         }));
 
         if (showOnAccount) {
@@ -1477,6 +1555,29 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                 <div>
                     <span style={{ fontSize: "12px", marginRight: "10px" }}>Ledger :</span>
                     <strong style={{ fontSize: "16px" }}>{ledger.party}</strong>
+                    {/* Credit days of the ledger of the selected tab:
+                        Supply Chain = this KSEB ledger, Security Deposit =
+                        its security deposit ledger(s). */}
+                    {creditDaysLabel && (
+                        <span
+                            style={{
+                                marginLeft: "10px",
+                                padding: "1px 8px",
+                                fontSize: "12px",
+                                fontWeight: "700",
+                                color: "#1E3A8A",
+                                background: "#DBEAFE",
+                                borderRadius: "10px",
+                            }}
+                            title={
+                                ledgerTab === "deposits"
+                                    ? "Credit days of the security deposit ledger"
+                                    : "Credit days of the ledger"
+                            }
+                        >
+                            {creditDaysLabel}
+                        </span>
+                    )}
                     <div style={{ fontSize: "12px", fontWeight: "700", marginTop: "2px" }}>
                         {ledger.distribution}
                         {ledger.executive ? ` • Executive: ${ledger.executive}` : ""}
@@ -1744,13 +1845,14 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                             <th style={tHeadRight}>{isDeposits ? "Deposited" : "Opening Amount"}</th>
                             <th style={{ ...tHeadRight, fontWeight: "800" }}>{isDeposits ? "Retainer KSEB" : "Pending Amount"}</th>
                             <th style={{ ...tHeadRight, fontStyle: "italic" }}>Due on</th>
-                            <th style={{ ...tHeadRight, fontStyle: "italic" }}>Days Overdue</th>
+                            <th style={{ ...tHeadRight, fontStyle: "italic" }}>Overdue By</th>
+                            <th style={{ ...tHeadRight, fontStyle: "italic" }}>Total Days</th>
                         </tr>
                     </thead>
                     <tbody>
                         {shownBills.length === 0 && (
                             <tr>
-                                <td colSpan={6} style={{ ...tCell, padding: "12px 8px", color: "#64748B" }}>
+                                <td colSpan={7} style={{ ...tCell, padding: "12px 8px", color: "#64748B" }}>
                                     {isDeposits
                                         ? billTab === "overdue"
                                             ? "No overdue security deposits."
@@ -1807,12 +1909,16 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                                     </td>
                                     <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatTallyDate(b.due_date)}</td>
                                     <td style={{ ...tCellRight, fontStyle: "italic" }}>{overdue ? b.overdue_days : ""}</td>
+                                    {/* Days from the bill / deposit date to the as-on date. */}
+                                    <td style={{ ...tCellRight, fontStyle: "italic" }}>
+                                        {b.bill_date ? Math.max(0, daysBetween(b.bill_date, asOf)) : ""}
+                                    </td>
                                 </tr>
 
                                 {expanded && (
                                     <tr>
                                         <td />
-                                        <td colSpan={5} style={{ padding: "0 8px" }}>
+                                        <td colSpan={6} style={{ padding: "0 8px" }}>
                                             <VoucherDetails detail={b.detail} />
                                         </td>
                                     </tr>
@@ -1834,6 +1940,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                                     </td>
                                     <td style={tCell} />
                                     <td style={tCell} />
+                                    <td style={tCell} />
                                 </tr>
                                 <tr>
                                     <td style={{ ...tCellRight, fontWeight: "700", fontStyle: "italic" }}>
@@ -1842,6 +1949,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                                     <td style={{ ...tCell, fontStyle: "italic" }}>{onAccountLabel}</td>
                                     <td style={{ ...tCellRight, fontStyle: "italic" }}>{formatDrCr(active.onAccount)}</td>
                                     <td style={{ ...tCellRight, fontWeight: "800" }}>{formatDrCr(active.onAccount)}</td>
+                                    <td style={tCell} />
                                     <td style={tCell} />
                                     <td style={tCell} />
                                 </tr>
@@ -1857,6 +1965,7 @@ const LedgerReport = ({ ledger, vouchers, fromDate, asOf, openingSource, initial
                             <td style={{ ...tCellRight, paddingTop: "14px", fontWeight: "800", borderTop: "1px solid #94A3B8" }}>
                                 {formatDrCr(shownPending + (showOnAccount ? active.onAccount : 0))}
                             </td>
+                            <td style={tCell} />
                             <td style={tCell} />
                             <td style={tCell} />
                         </tr>
@@ -2527,6 +2636,8 @@ const KSEBOutstanding = () => {
     // { "<deposit ledger>": { opening_balance, total, bills, ... } } —
     // deposits held on 1st April and their Tally XML break up.
     const [depositOpening, setDepositOpening] = useState({});
+    // { ledger key: credit days } from the ledger masters (salesdatalatest33).
+    const [ledgerCreditDays, setLedgerCreditDays] = useState({});
     const [vouchers, setVouchers] = useState({});
     const [warnings, setWarnings] = useState([]);
     // Where the opening bills (Tally XML) came from, and when.
@@ -2593,6 +2704,11 @@ const KSEBOutstanding = () => {
                     ? result.deposit_opening_breakup
                     : {}
             );
+            setLedgerCreditDays(
+                result.ledger_credit_days && typeof result.ledger_credit_days === "object"
+                    ? result.ledger_credit_days
+                    : {}
+            );
             // { "<Sales ID>": { ledgers, allocations, ... } } — Tally voucher details.
             setVouchers(
                 result.vouchers && typeof result.vouchers === "object" ? result.vouchers : {}
@@ -2613,6 +2729,7 @@ const KSEBOutstanding = () => {
             setOpeningBreakup({});
             setSecurityDeposits([]);
             setDepositOpening({});
+            setLedgerCreditDays({});
             setVouchers({});
             setWarnings([]);
         } finally {
@@ -3188,6 +3305,7 @@ const KSEBOutstanding = () => {
                                 fromDate={fromDate}
                                 asOf={asOf}
                                 openingSource={openingSource}
+                                ledgerCreditDays={ledgerCreditDays}
                                 // Opened from the Security Deposit list: start on its tab.
                                 initialTab={view === "deposits" ? "deposits" : "supply"}
                             />

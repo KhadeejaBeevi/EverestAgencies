@@ -10,7 +10,9 @@
 | Every request is a POST with an "action":
 |
 |   summary      -> current step + document count for every invoice
-|   get          -> documents and tracking steps of one invoice
+|                   (optional "invoices": [{invoice_no, amount}] so paid
+|                   invoices can be found in the receipts table)
+|   get          -> documents, tracking steps and receipts of one invoice
 |   upload       -> upload a document (multipart/form-data, field "file")
 |   delete_doc   -> delete one document
 |   save_step    -> add a tracking step (once saved it cannot be changed)
@@ -21,6 +23,14 @@
 |
 |   kseb_invoice_documents
 |   kseb_invoice_tracking
+|
+| PAYMENT FROM RECEIPTS
+|
+|   The receipt vouchers in kseb_receipts are read to see which invoices
+|   were paid and how much of it was credited to the bank account (the
+|   rest is Security Deposit / TDS kept back by KSEB). When receipts that
+|   reached the bank settle the invoice amount, the invoice is shown as
+|   "Payment Completed" automatically - nobody has to mark it.
 |
 */
 
@@ -134,9 +144,9 @@ const KSEB_TRACKING_STEPS = [
 // is the invoice date. It cannot be edited or undone.
 const KSEB_AUTO_STEP = "BILL_GENERATED";
 
-// Payment collection is the goal. Once this step is saved the
-// invoice is closed: it counts as fully done and no more steps
-// can be added.
+// Payment collection is the goal. Once this step is saved (or the
+// receipts table shows the invoice is fully paid) the invoice is
+// closed: it counts as fully done and no more steps can be added.
 const KSEB_FINAL_STEP = "PAYMENT_COMPLETED";
 
 // File types that can be uploaded.
@@ -148,6 +158,34 @@ const KSEB_ALLOWED_EXTENSIONS = [
     "webp" => ["image/webp"],
     "gif"  => ["image/gif"]
 ];
+
+
+/*
+|--------------------------------------------------------------------------
+| RECEIPTS (PAYMENT CHECK)
+|--------------------------------------------------------------------------
+|
+| kseb_receipts holds every line of the Tally receipt vouchers. One
+| voucher (same MasterId) has:
+|
+|   invoice lines   BillName = invoice no, Amount = amount settled
+|   bank line       IsBankLedger = 1, LedgerName = bank account,
+|                   Amount = -(money credited to the bank)
+|   deduction lines Security Deposit, TDS ... (negative, no BillName)
+|
+|   invoices settled = credited to bank + deductions
+|
+| An invoice is Payment Completed when receipt vouchers that were
+| credited to a bank account settle its full amount. Each invoice
+| gets its share of the bank credit (by its amount in the voucher).
+|
+*/
+
+const KSEB_RECEIPTS_TABLE = "kseb_receipts";
+
+// Settled amount may be this much (in rupees) below the invoice
+// amount and still count as fully paid (Tally round-off).
+const KSEB_RECEIPT_TOLERANCE = 1.00;
 
 
 /*
@@ -230,6 +268,18 @@ function kseb_invoice_date($value): string
     $time = $value !== "" ? strtotime($value) : false;
 
     return $time ? date("Y-m-d", $time) : "";
+}
+
+// Amount sent by the page ("1,23,456.00", 123456, "") -> float or null.
+function kseb_amount($value): ?float
+{
+    if ($value === null || $value === "") {
+        return null;
+    }
+
+    $number = (float)str_replace([",", " "], "", (string)$value);
+
+    return is_finite($number) && $number > 0 ? round($number, 2) : null;
 }
 
 function kseb_steps_list(): array
@@ -370,6 +420,418 @@ function kseb_ensure_upload_dir(): void
 
 /*
 |--------------------------------------------------------------------------
+| RECEIPT HELPERS
+|--------------------------------------------------------------------------
+*/
+
+// Is the receipts table there? (Checked once per request.) Without it
+// the page keeps working, just without the automatic payment check.
+function kseb_receipts_available(mysqli $conn): bool
+{
+    static $available = null;
+
+    if ($available === null) {
+        $result = $conn->query("SHOW TABLES LIKE '" . $conn->real_escape_string(KSEB_RECEIPTS_TABLE) . "'");
+        $available = $result && $result->num_rows > 0;
+
+        if ($result) {
+            $result->free();
+        }
+    }
+
+    return $available;
+}
+
+/*
+| Receipt vouchers, built from their lines. With $invoiceKey only the
+| vouchers that settle that invoice are read.
+|
+|   [MasterId => [
+|       "voucher_id", "date", "party",
+|       "bank_accounts" => [ledger => amount credited],
+|       "bank_amount"   => total credited to bank,
+|       "bills"         => [invoice_key => ["bill_name", "amount"]],
+|       "bills_total"   => total of all invoices settled,
+|       "deductions"    => [ledger => amount]   (Security Deposit, TDS ...)
+|   ]]
+*/
+function kseb_receipt_vouchers(mysqli $conn, ?string $invoiceKey = null): array
+{
+    if (!kseb_receipts_available($conn)) {
+        return [];
+    }
+
+    $table = "`" . KSEB_RECEIPTS_TABLE . "`";
+    $where = "LOWER(TRIM(COALESCE(VoucherTypeName, ''))) = 'receipt'";
+
+    if ($invoiceKey !== null) {
+        $where .= " AND MasterId IN (
+            SELECT MasterId FROM (
+                SELECT DISTINCT MasterId FROM " . $table . "
+                WHERE LOWER(TRIM(COALESCE(BillName, ''))) = '" . $conn->real_escape_string($invoiceKey) . "'
+            ) AS invoice_vouchers
+        )";
+    }
+
+    $result = $conn->query(
+        "SELECT MasterId, VoucherId, Date, PartyLedgerName, LedgerName,
+                Amount, BillName, BillType, BillDate, IsBankLedger
+         FROM " . $table . "
+         WHERE " . $where . "
+         ORDER BY Date ASC, id ASC"
+    );
+
+    if (!$result) {
+        return [];
+    }
+
+    $vouchers = [];
+
+    while ($row = $result->fetch_assoc()) {
+        $id = (string)$row["MasterId"];
+
+        if (!isset($vouchers[$id])) {
+            $vouchers[$id] = [
+                "voucher_id" => (string)($row["VoucherId"] ?? ""),
+                "date" => kseb_invoice_date($row["Date"] ?? ""),
+                "party" => trim((string)($row["PartyLedgerName"] ?? "")),
+                "bank_accounts" => [],
+                "bank_amount" => 0.0,
+                "bills" => [],
+                "bills_total" => 0.0,
+                "deductions" => [],
+                "unnamed_bills" => []
+            ];
+        }
+
+        if ($row["Amount"] === null) {
+            continue;
+        }
+
+        $amount = (float)$row["Amount"];
+        $ledger = trim((string)($row["LedgerName"] ?? ""));
+        $billName = trim((string)($row["BillName"] ?? ""));
+        $voucher = &$vouchers[$id];
+
+        if ((int)$row["IsBankLedger"] === 1) {
+            // Bank line: negative amount = money credited to the bank.
+            $voucher["bank_accounts"][$ledger] = ($voucher["bank_accounts"][$ledger] ?? 0) - $amount;
+            $voucher["bank_amount"] -= $amount;
+        } elseif ($billName !== "" && $amount > 0) {
+            // Invoice settled by this receipt.
+            $key = kseb_invoice_key($billName);
+
+            if (!isset($voucher["bills"][$key])) {
+                $voucher["bills"][$key] = ["bill_name" => $billName, "amount" => 0.0];
+            }
+
+            $voucher["bills"][$key]["amount"] += $amount;
+            $voucher["bills_total"] += $amount;
+        } elseif ($billName === "" && $amount < 0) {
+            // Security Deposit, TDS ... kept back from the payment.
+            $voucher["deductions"][$ledger] = ($voucher["deductions"][$ledger] ?? 0) - $amount;
+        } elseif (
+            $billName === "" &&
+            $amount > 0 &&
+            strcasecmp(trim((string)($row["BillType"] ?? "")), "Agst Ref") === 0
+        ) {
+            // "Agst Ref" line without the invoice number (see below).
+            $voucher["unnamed_bills"][] = [
+                "ledger" => $ledger,
+                "bill_date" => kseb_invoice_date($row["BillDate"] ?? ""),
+                "amount" => $amount
+            ];
+        }
+
+        unset($voucher);
+    }
+
+    $result->free();
+
+    kseb_resolve_unnamed_bills($conn, $vouchers);
+
+    return $vouchers;
+}
+
+/*
+| Some receipts were imported without their bill line (the one with the
+| invoice number in BillName). Only the party line is there:
+|   BillType = Agst Ref, BillName = NULL, BillDate = invoice date.
+| For those vouchers the invoice is found in salesdata by
+| party ledger + invoice date, when exactly one KSEB invoice matches.
+| (Vouchers that do have bill lines repeat the party line without a
+| BillName too, so only vouchers with no bill line at all are used.)
+*/
+function kseb_resolve_unnamed_bills(mysqli $conn, array &$vouchers): void
+{
+    $parties = [];
+
+    foreach ($vouchers as $voucher) {
+        if (!$voucher["bills"]) {
+            foreach ($voucher["unnamed_bills"] as $line) {
+                if ($line["ledger"] !== "" && $line["bill_date"] !== "") {
+                    $parties[kseb_invoice_key($line["ledger"])] = true;
+                }
+            }
+        }
+    }
+
+    if (!$parties) {
+        return;
+    }
+
+    $list = implode(", ", array_map(
+        fn($party) => "'" . $conn->real_escape_string($party) . "'",
+        array_keys($parties)
+    ));
+
+    $result = $conn->query(
+        "SELECT DISTINCT TRIM(VoucherNumber) AS invoice_no, Date,
+                LOWER(TRIM(PartyLedgerName)) AS party_key
+         FROM salesdata
+         WHERE LOWER(TRIM(COALESCE(VoucherTypeName, ''))) IN ('gst sales b2b', 'gst sales b2c')
+           AND TRIM(COALESCE(VoucherNumber, '')) <> ''
+           AND LOWER(TRIM(PartyLedgerName)) IN (" . $list . ")"
+    );
+
+    if (!$result) {
+        return;
+    }
+
+    // [party|date => [invoice_key => invoice_no]]
+    $invoices = [];
+
+    while ($row = $result->fetch_assoc()) {
+        $slot = $row["party_key"] . "|" . kseb_invoice_date($row["Date"] ?? "");
+        $invoices[$slot][kseb_invoice_key($row["invoice_no"])] = (string)$row["invoice_no"];
+    }
+
+    $result->free();
+
+    foreach ($vouchers as &$voucher) {
+        if ($voucher["bills"]) {
+            continue;
+        }
+
+        foreach ($voucher["unnamed_bills"] as $line) {
+            $slot = kseb_invoice_key($line["ledger"]) . "|" . $line["bill_date"];
+            $matches = $invoices[$slot] ?? [];
+
+            if (count($matches) !== 1) {
+                continue;
+            }
+
+            $key = (string)array_key_first($matches);
+
+            if (!isset($voucher["bills"][$key])) {
+                $voucher["bills"][$key] = ["bill_name" => $matches[$key], "amount" => 0.0];
+            }
+
+            $voucher["bills"][$key]["amount"] += $line["amount"];
+            $voucher["bills_total"] += $line["amount"];
+        }
+    }
+
+    unset($voucher);
+}
+
+// One invoice's part of one receipt voucher.
+function kseb_receipt_entry(array $voucher, string $invoiceKey): array
+{
+    $settled = $voucher["bills"][$invoiceKey]["amount"] ?? 0.0;
+    $share = $voucher["bills_total"] > 0 ? $settled / $voucher["bills_total"] : 0;
+    $bankShare = $voucher["bank_amount"] * $share;
+
+    $deductions = [];
+
+    foreach ($voucher["deductions"] as $ledger => $amount) {
+        $deductions[] = [
+            "ledger" => $ledger,
+            "amount" => round($amount * $share, 2)
+        ];
+    }
+
+    $bankAccounts = [];
+
+    foreach ($voucher["bank_accounts"] as $ledger => $amount) {
+        if (abs($amount) >= 0.005) {
+            $bankAccounts[] = $ledger;
+        }
+    }
+
+    return [
+        "date" => $voucher["date"],
+        "voucher_id" => $voucher["voucher_id"],
+        "party" => $voucher["party"],
+        "bank_accounts" => $bankAccounts,
+        "credited_to_bank" => $voucher["bank_amount"] > 0.005,
+        // This invoice
+        "settled_amount" => round($settled, 2),
+        "bank_amount" => round($bankShare, 2),
+        "deductions" => $deductions,
+        // Whole voucher (one bank credit can pay several invoices)
+        "voucher_bank_amount" => round($voucher["bank_amount"], 2),
+        "voucher_bills_total" => round($voucher["bills_total"], 2),
+        "voucher_invoice_count" => count($voucher["bills"])
+    ];
+}
+
+// Totals of a list of entries of one invoice. Only vouchers that were
+// credited to a bank count as received.
+function kseb_receipt_totals_of(array $entries): array
+{
+    $received = 0.0;
+    $bank = 0.0;
+    $lastDate = "";
+    $accounts = [];
+
+    foreach ($entries as $entry) {
+        if (!$entry["credited_to_bank"]) {
+            continue;
+        }
+
+        $received += $entry["settled_amount"];
+        $bank += $entry["bank_amount"];
+        $lastDate = max($lastDate, $entry["date"]);
+
+        foreach ($entry["bank_accounts"] as $account) {
+            $accounts[$account] = true;
+        }
+    }
+
+    return [
+        "received" => round($received, 2),
+        "bank_amount" => round($bank, 2),
+        "deductions" => round($received - $bank, 2),
+        "count" => count($entries),
+        "last_date" => $lastDate,
+        "bank_accounts" => array_keys($accounts)
+    ];
+}
+
+// Totals per invoice key, for every invoice in the receipts table.
+function kseb_receipt_totals(mysqli $conn): array
+{
+    $entries = [];
+
+    foreach (kseb_receipt_vouchers($conn) as $voucher) {
+        foreach (array_keys($voucher["bills"]) as $key) {
+            $entries[$key][] = kseb_receipt_entry($voucher, (string)$key);
+        }
+    }
+
+    $totals = [];
+
+    foreach ($entries as $key => $list) {
+        $totals[(string)$key] = kseb_receipt_totals_of($list);
+    }
+
+    return $totals;
+}
+
+// Every receipt of one invoice, oldest first.
+function kseb_invoice_receipts(mysqli $conn, string $invoiceKey): array
+{
+    $entries = [];
+
+    // All vouchers are read: a receipt imported without its invoice
+    // number is only linked to the invoice after kseb_resolve_unnamed_bills.
+    foreach (kseb_receipt_vouchers($conn) as $voucher) {
+        if (isset($voucher["bills"][$invoiceKey])) {
+            $entries[] = kseb_receipt_entry($voucher, $invoiceKey);
+        }
+    }
+
+    return $entries;
+}
+
+function kseb_money(float $amount): string
+{
+    return "Rs. " . number_format($amount, 2);
+}
+
+// Invoice total from salesdata (same formula as kseb_payment.php:
+// amount + GST, GST worked out from the rate when the tax amount is 0).
+// Only used when the page did not send the invoice amount.
+function kseb_invoice_amount_from_sales(mysqli $conn, string $invoiceKey): ?float
+{
+    $result = $conn->query(
+        "SELECT SUM(
+                    COALESCE(Amount, 0) +
+                    CASE
+                        WHEN COALESCE(EveItemTaxAmt, 0) = 0
+                        THEN COALESCE(Amount, 0) * COALESCE(EveItemGstRate, 0) / 100
+                        ELSE EveItemTaxAmt
+                    END
+                ) AS total
+         FROM salesdata
+         WHERE LOWER(TRIM(COALESCE(VoucherNumber, ''))) = '" . $conn->real_escape_string($invoiceKey) . "'
+           AND LOWER(TRIM(COALESCE(VoucherTypeName, ''))) IN ('gst sales b2b', 'gst sales b2c')"
+    );
+
+    if (!$result) {
+        return null;
+    }
+
+    $row = $result->fetch_assoc();
+    $result->free();
+
+    $total = abs((float)($row["total"] ?? 0));
+
+    return $total > 0 ? round($total, 2) : null;
+}
+
+// Invoice totals of every KSEB invoice in salesdata (same formula).
+//   [invoice_key => float]
+function kseb_sales_invoice_amounts(mysqli $conn): array
+{
+    $result = $conn->query(
+        "SELECT LOWER(TRIM(VoucherNumber)) AS invoice_key,
+                ABS(SUM(
+                    COALESCE(Amount, 0) +
+                    CASE
+                        WHEN COALESCE(EveItemTaxAmt, 0) = 0
+                        THEN COALESCE(Amount, 0) * COALESCE(EveItemGstRate, 0) / 100
+                        ELSE EveItemTaxAmt
+                    END
+                )) AS total
+         FROM salesdata
+         WHERE LOWER(TRIM(COALESCE(PartyLedgerName, ''))) LIKE 'kseb%'
+           AND LOWER(TRIM(COALESCE(VoucherTypeName, ''))) IN ('gst sales b2b', 'gst sales b2c')
+           AND TRIM(COALESCE(VoucherNumber, '')) <> ''
+         GROUP BY LOWER(TRIM(VoucherNumber))"
+    );
+
+    if (!$result) {
+        return [];
+    }
+
+    $amounts = [];
+
+    while ($row = $result->fetch_assoc()) {
+        $total = round((float)$row["total"], 2);
+
+        if ($total > 0) {
+            $amounts[(string)$row["invoice_key"]] = $total;
+        }
+    }
+
+    $result->free();
+
+    return $amounts;
+}
+
+function kseb_is_fully_paid(?float $invoiceAmount, float $received): bool
+{
+    return $invoiceAmount !== null
+        && $invoiceAmount > 0
+        && $received > 0
+        && $received + KSEB_RECEIPT_TOLERANCE >= $invoiceAmount;
+}
+
+
+/*
+|--------------------------------------------------------------------------
 | DATABASE
 |--------------------------------------------------------------------------
 */
@@ -469,16 +931,21 @@ if (!isset($input["action"])) {
 $action = kseb_text($input["action"] ?? "", 30);
 $userName = kseb_text($input["user"] ?? "", 150);
 $invoiceDateInput = kseb_text($input["invoice_date"] ?? "", 40);
+$invoiceAmountInput = kseb_amount($input["invoice_amount"] ?? null);
 
 
 /*
 |--------------------------------------------------------------------------
-| ONE INVOICE: DOCUMENTS + STEPS
+| ONE INVOICE: DOCUMENTS + STEPS + RECEIPTS
 |--------------------------------------------------------------------------
 */
 
-function kseb_invoice_details(mysqli $conn, string $invoiceKey, string $invoiceDate = ""): array
-{
+function kseb_invoice_details(
+    mysqli $conn,
+    string $invoiceKey,
+    string $invoiceDate = "",
+    ?float $invoiceAmount = null
+): array {
     $safeKey = $conn->real_escape_string($invoiceKey);
 
     $documents = [];
@@ -543,6 +1010,63 @@ function kseb_invoice_details(mysqli $conn, string $invoiceKey, string $invoiceD
         ];
     }
 
+    /*
+    | Receipts against this invoice. When they cover the invoice amount
+    | and nobody has saved Payment Completed yet, add it automatically
+    | (dated with the last receipt).
+    */
+    $receipts = kseb_invoice_receipts($conn, $invoiceKey);
+    $receiptTotals = kseb_receipt_totals_of($receipts);
+    $received = $receiptTotals["received"];
+
+    if ($invoiceAmount === null && $receipts) {
+        $invoiceAmount = kseb_invoice_amount_from_sales($conn, $invoiceKey);
+    }
+
+    $paidByReceipts = kseb_is_fully_paid($invoiceAmount, $received);
+
+    if ($paidByReceipts && !isset($used[KSEB_FINAL_STEP])) {
+        $used[KSEB_FINAL_STEP] = true;
+
+        $parts = [];
+
+        foreach ($receipts as $receipt) {
+            if (!$receipt["credited_to_bank"]) {
+                continue;
+            }
+
+            $text = "Receipt dt " . $receipt["date"] .
+                ": " . kseb_money($receipt["bank_amount"]) .
+                " credited to " . implode(", ", $receipt["bank_accounts"]);
+
+            foreach ($receipt["deductions"] as $deduction) {
+                $text .= ", " . $deduction["ledger"] . " " . kseb_money($deduction["amount"]);
+            }
+
+            if ($receipt["voucher_invoice_count"] > 1) {
+                $text .= " (bank credit " . kseb_money($receipt["voucher_bank_amount"]) .
+                    " for " . $receipt["voucher_invoice_count"] . " invoices)";
+            }
+
+            $parts[] = $text;
+        }
+
+        $history[] = [
+            "id" => 0,
+            "key" => KSEB_FINAL_STEP,
+            "label" => KSEB_TRACKING_STEPS[KSEB_FINAL_STEP],
+            "date" => $receiptTotals["last_date"],
+            "remarks" =>
+                "Invoice " . kseb_money((float)$invoiceAmount) .
+                " = credited to bank " . kseb_money($receiptTotals["bank_amount"]) .
+                " + deductions " . kseb_money($receiptTotals["deductions"]) .
+                ". " . implode("; ", $parts),
+            "added_by" => "Tally (receipts)",
+            "added_at" => "",
+            "automatic" => true
+        ];
+    }
+
     // Payment Completed is always shown on top (last in history).
     $closed = isset($used[KSEB_FINAL_STEP]);
 
@@ -578,7 +1102,14 @@ function kseb_invoice_details(mysqli $conn, string $invoiceKey, string $invoiceD
         "history" => $history,
         "available_steps" => $available,
         "total_steps" => count(KSEB_TRACKING_STEPS),
-        "closed" => $closed
+        "closed" => $closed,
+        "receipts" => $receipts,
+        "received_amount" => $received,
+        "bank_amount" => $receiptTotals["bank_amount"],
+        "deductions_amount" => $receiptTotals["deductions"],
+        "bank_accounts" => $receiptTotals["bank_accounts"],
+        "invoice_amount" => $invoiceAmount,
+        "paid_by_receipts" => $paidByReceipts
     ];
 }
 
@@ -592,14 +1123,31 @@ try {
         | SUMMARY FOR THE TABLE
         |------------------------------------------------------------------
         |
-        | For every invoice that has documents or steps:
-        | latest finished step + number of documents.
+        | For every invoice that has documents, steps or receipts:
+        | latest finished step + number of documents + amount received.
+        |
+        | The page sends "invoices": [{invoice_no, amount}] so an invoice
+        | whose receipts cover its amount is shown as Payment Completed.
         |
         */
 
         case "summary":
 
             $summary = [];
+
+            $newEntry = fn() => [
+                "done_steps" => 1,
+                "current_step" => KSEB_AUTO_STEP,
+                "documents" => 0,
+                "doc_types" => [],
+                "received_amount" => 0,
+                "bank_amount" => 0,
+                "deductions_amount" => 0,
+                "bank_accounts" => [],
+                "receipt_count" => 0,
+                "last_receipt_date" => "",
+                "paid_by_receipts" => false
+            ];
 
             // Latest saved step of every invoice wins (ordered by date, then id).
             $result = $conn->query(
@@ -621,7 +1169,7 @@ try {
                 }
 
                 if (!isset($summary[$key])) {
-                    $summary[$key] = ["done_steps" => 1, "current_step" => KSEB_AUTO_STEP, "documents" => 0, "doc_types" => []];
+                    $summary[$key] = $newEntry();
                 }
 
                 $summary[$key]["done_steps"]++;
@@ -648,7 +1196,7 @@ try {
                 $key = $row["invoice_key"];
 
                 if (!isset($summary[$key])) {
-                    $summary[$key] = ["done_steps" => 1, "current_step" => KSEB_AUTO_STEP, "documents" => 0, "doc_types" => []];
+                    $summary[$key] = $newEntry();
                 }
 
                 $summary[$key]["documents"] += (int)$row["total"];
@@ -657,7 +1205,60 @@ try {
 
             $result->free();
 
-            foreach ($summary as &$item) {
+            // Receipts: amount received per invoice.
+            $invoiceAmounts = [];
+
+            foreach ((array)($input["invoices"] ?? []) as $invoice) {
+                if (!is_array($invoice)) {
+                    continue;
+                }
+
+                $key = kseb_invoice_key($invoice["invoice_no"] ?? "");
+
+                if ($key !== "") {
+                    $invoiceAmounts[$key] = kseb_amount($invoice["amount"] ?? null);
+                }
+            }
+
+            $receiptCheck = kseb_receipts_available($conn);
+            $receiptTotals = $receiptCheck ? kseb_receipt_totals($conn) : [];
+
+            // Amounts the page did not send are worked out from salesdata.
+            $pageSentList = (bool)$invoiceAmounts;
+
+            if ($receiptTotals) {
+                foreach (kseb_sales_invoice_amounts($conn) as $key => $amount) {
+                    if (($invoiceAmounts[$key] ?? null) === null && (!$pageSentList || array_key_exists($key, $invoiceAmounts))) {
+                        $invoiceAmounts[$key] = $amount;
+                    }
+                }
+            }
+
+            foreach ($receiptTotals as $key => $receipt) {
+                // Only receipts of KSEB invoices (the page's list, or salesdata).
+                if (!array_key_exists($key, $invoiceAmounts)) {
+                    continue;
+                }
+
+                if (!isset($summary[$key])) {
+                    $summary[$key] = $newEntry();
+                }
+
+                $summary[$key]["received_amount"] = $receipt["received"];
+                $summary[$key]["bank_amount"] = $receipt["bank_amount"];
+                $summary[$key]["deductions_amount"] = $receipt["deductions"];
+                $summary[$key]["bank_accounts"] = $receipt["bank_accounts"];
+                $summary[$key]["receipt_count"] = $receipt["count"];
+                $summary[$key]["last_receipt_date"] = $receipt["last_date"];
+
+                if (kseb_is_fully_paid($invoiceAmounts[$key] ?? null, $receipt["received"])) {
+                    $summary[$key]["paid_by_receipts"] = true;
+                    $summary[$key]["current_step"] = KSEB_FINAL_STEP;
+                }
+            }
+
+            foreach ($summary as $key => &$item) {
+                $item["invoice_amount"] = $invoiceAmounts[$key] ?? null;
                 $item["current_step_label"] = KSEB_TRACKING_STEPS[$item["current_step"]] ?? "";
                 $item["total_steps"] = count(KSEB_TRACKING_STEPS);
                 $item["closed"] = $item["current_step"] === KSEB_FINAL_STEP;
@@ -674,6 +1275,7 @@ try {
                 "success" => true,
                 "steps" => kseb_steps_list(),
                 "doc_types" => kseb_doc_types_list(),
+                "receipt_check" => $receiptCheck,
                 "data" => (object)$summary
             ]);
 
@@ -700,7 +1302,7 @@ try {
                     "invoice_no" => $invoiceNo,
                     "doc_types" => kseb_doc_types_list()
                 ],
-                kseb_invoice_details($conn, kseb_invoice_key($invoiceNo), $invoiceDateInput)
+                kseb_invoice_details($conn, kseb_invoice_key($invoiceNo), $invoiceDateInput, $invoiceAmountInput)
             ));
 
             break;
@@ -815,7 +1417,7 @@ try {
                     "success" => true,
                     "message" => "Document uploaded"
                 ],
-                kseb_invoice_details($conn, $invoiceKey, $invoiceDateInput)
+                kseb_invoice_details($conn, $invoiceKey, $invoiceDateInput, $invoiceAmountInput)
             ));
 
             break;
@@ -864,7 +1466,7 @@ try {
                     "success" => true,
                     "message" => "Document deleted"
                 ],
-                kseb_invoice_details($conn, $document["invoice_key"], $invoiceDateInput)
+                kseb_invoice_details($conn, $document["invoice_key"], $invoiceDateInput, $invoiceAmountInput)
             ));
 
             break;
@@ -927,6 +1529,17 @@ try {
                 kseb_fail("Payment is already completed for this invoice. Tracking is closed");
             }
 
+            // Same when the receipts already show the invoice as fully paid.
+            $receipts = kseb_invoice_receipts($conn, $invoiceKey);
+
+            if ($receipts) {
+                $amount = $invoiceAmountInput ?? kseb_invoice_amount_from_sales($conn, $invoiceKey);
+
+                if (kseb_is_fully_paid($amount, kseb_receipt_totals_of($receipts)["received"])) {
+                    kseb_fail("Payment is already received in Tally receipts for this invoice. Tracking is closed");
+                }
+            }
+
             // Once saved, a step can never be changed.
             $existing = kseb_select(
                 $conn,
@@ -982,7 +1595,7 @@ try {
                     "success" => true,
                     "message" => KSEB_TRACKING_STEPS[$stepKey] . " saved"
                 ],
-                kseb_invoice_details($conn, $invoiceKey, $invoiceDateInput)
+                kseb_invoice_details($conn, $invoiceKey, $invoiceDateInput, $invoiceAmountInput)
             ));
 
             break;

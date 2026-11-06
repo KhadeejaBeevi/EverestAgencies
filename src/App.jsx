@@ -66,7 +66,7 @@ import QuotationReadyAlert from "./components/QuotationReadyAlert";
 import TelecallerReport from "./components/SalesOrder/TelecallerReport/TelecallerReport";
 import CustomerPO from "./components/SalesOrder/OrderDelivery/CustomerPO";
 import OrderToDelivery from "./components/SalesOrder/OrderDelivery/OrderToDelivery";
-import KSEBPayment from "./pages/kseb/KSEBPayment";
+import KSEBInvoices from "./pages/kseb/KSEBInvoices";
 import KSEBOutstanding from "./pages/kseb/KSEBOutstanding";
 import KsebOverallSales from "./pages/kseb/KSEBOverallSales";
 import KsebLocationReport from "./pages/kseb/KsebLocationReport";
@@ -351,9 +351,9 @@ function App() {
             </AdminOnly>
           }/>
 
-          <Route path="/ksebpayment" element={
-            <ProtectedRoute page="KSEB Payment">
-              <KSEBPayment />
+          <Route path="/ksebinvoices" element={
+            <ProtectedRoute page="KSEB Invoices">
+              <KSEBInvoices />
             </ProtectedRoute>
           }/>
 
