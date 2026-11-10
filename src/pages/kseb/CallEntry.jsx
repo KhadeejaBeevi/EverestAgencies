@@ -270,6 +270,7 @@ export default function CallEntry() {
             <option>Negotiation</option>
 
             <option>PO Received</option>
+            <option>Impress Money</option>
 
             <option>Lost</option>
             <option>Closed</option>

@@ -28,6 +28,10 @@ const QUOTATION_STATUSES = new Set([
 
 const PO_STATUSES = new Set(["po", "po received"]);
 
+// Impress Money (advance paid) means the customer bought from us, just
+// like a PO, so it is shown and counted as a sale.
+const IMPRESS_STATUSES = new Set(["impress money"]);
+
 // A lead whose most recent call has one of these statuses is finished.
 const CLOSED_STATUSES = new Set([
   "not interested",
@@ -38,11 +42,16 @@ const CLOSED_STATUSES = new Set([
   "closed",
   "po",
   "po received",
+  "impress money",
   "no purchase authority",
 ]);
 
 const isQuotation = (status) => QUOTATION_STATUSES.has(normalize(status));
 const isPO = (status) => PO_STATUSES.has(normalize(status));
+const isImpress = (status) => IMPRESS_STATUSES.has(normalize(status));
+// A sale: PO received or Impress Money.
+const isSale = (status) => isPO(status) || isImpress(status);
+const saleLabel = (status) => (isImpress(status) ? "Impress Money" : "PO Received");
 const isClosed = (status) => CLOSED_STATUSES.has(normalize(status));
 const isNotConnected = (status) => normalize(status) === "call not connected";
 
@@ -56,6 +65,7 @@ const STAGE_FILTERS = [
   { key: "Call Not Connected", label: "Not Connected", match: isNotConnected },
   { key: "Quotation", label: "Quotation", match: isQuotation },
   { key: "PO", label: "PO Received", match: isPO },
+  { key: "Impress Money", label: "Impress Money", match: isImpress },
   { key: "No Requirements", label: "No Requirement", match: (s) => normalize(s) === "no requirements" },
   { key: "Not Interested", label: "Not Interested", match: (s) => normalize(s) === "not interested" },
   { key: "Do not call", label: "Do Not Call", match: (s) => normalize(s) === "do not call" },
@@ -63,7 +73,7 @@ const STAGE_FILTERS = [
 
 const stageTone = (status) => {
   const s = normalize(status);
-  if (isPO(s)) return "won";
+  if (isSale(s)) return "won";
   if (isQuotation(s)) return "quotation";
   if (s === "interested" || s === "negotiation") return "positive";
   if (s === "call back" || s === "followup") return "pending";
@@ -193,38 +203,41 @@ function StageBadge({ status }) {
   );
 }
 
-// Shown under a quotation: did the lead send a PO after it?
+// Shown under a quotation: did the lead buy (PO / Impress Money) after it?
 function QuotationPOTag({ po }) {
   if (po) {
+    const label = saleLabel(po.status);
     return (
       <span
         className="ch-po-tag ch-po-tag--done"
-        title={`PO received on ${formatDate(po.po_date || po.call_date)}`}
+        title={`${label} on ${formatDate(po.po_date || po.call_date)}`}
       >
-        ✓ PO received
-        {po.po_no ? ` · ${po.po_no}` : ""}
+        ✓ {label}
+        {isPO(po.status) && po.po_no ? ` · ${po.po_no}` : ""}
       </span>
     );
   }
   return <span className="ch-po-tag ch-po-tag--waiting">Awaiting PO</span>;
 }
 
-// Status of this call. A PO call, or any earlier call of a lead that
-// later sent a PO, shows "PO Received"; otherwise Active / Closed.
+// Status of this call. A sale call (PO / Impress Money), or any earlier
+// call of a lead that later bought, shows "PO Received" or
+// "Impress Money"; otherwise Active / Closed.
 function StatusBadge({ status, po }) {
-  if (isPO(status) || po) {
+  if (isSale(status) || po) {
+    const label = saleLabel(isSale(status) ? status : po.status);
     return (
       <span
         className="ch-lead ch-lead--won"
         title={
           po
-            ? `PO received on ${formatDate(po.po_date || po.call_date)}${
-                po.po_no ? ` · ${po.po_no}` : ""
+            ? `${saleLabel(po.status)} on ${formatDate(po.po_date || po.call_date)}${
+                isPO(po.status) && po.po_no ? ` · ${po.po_no}` : ""
               }`
             : undefined
         }
       >
-        PO Received
+        {label}
       </span>
     );
   }
@@ -374,13 +387,14 @@ export default function CallHistory() {
 
   const isLatestOfLead = (item) => latestByLead[item.kseb_id]?.id === item.id;
 
-  // For every non-PO call, the first PO call of the same lead made after
-  // it (or null). Earlier calls of a lead that sent a PO show as
-  // "PO Received", and quotations show whether they became a PO.
+  // For every non-sale call, the first sale call (PO / Impress Money) of
+  // the same lead made after it (or null). Earlier calls of a lead that
+  // bought show as "PO Received" / "Impress Money", and quotations show
+  // whether they became a sale.
   const poAfterCall = useMemo(() => {
     const posByLead = {};
     callHistory.forEach((item) => {
-      if (isPO(item.status)) {
+      if (isSale(item.status)) {
         if (!posByLead[item.kseb_id]) posByLead[item.kseb_id] = [];
         posByLead[item.kseb_id].push(item);
       }
@@ -392,7 +406,7 @@ export default function CallHistory() {
 
     const map = {};
     callHistory.forEach((item) => {
-      if (isPO(item.status)) return;
+      if (isSale(item.status)) return;
       const pos = posByLead[item.kseb_id] || [];
       map[item.id] = pos.find((po) => isNewer(po, item)) || null;
     });
@@ -695,7 +709,7 @@ export default function CallHistory() {
   const quotationPoLabel =
     stageFilter === "Quotation" && quotationPoFilter !== "ALL"
       ? quotationPoFilter === "PO"
-        ? " · PO received"
+        ? " · PO / Impress Money"
         : " · Awaiting PO"
       : "";
 
@@ -855,7 +869,7 @@ export default function CallHistory() {
             <span className="ch-stat-label">Quotations</span>
             <span className="ch-stat-value">{stageCounts.Quotation}</span>
             <span className="ch-stat-hint">
-              {quotationPoCounts.PO} converted to PO · {periodLabel}
+              {quotationPoCounts.PO} converted to PO / Impress · {periodLabel}
             </span>
           </button>
 
@@ -867,7 +881,12 @@ export default function CallHistory() {
           >
             <span className="ch-stat-label">PO received</span>
             <span className="ch-stat-value">{stageCounts.PO}</span>
-            <span className="ch-stat-hint">{periodLabel}</span>
+            <span className="ch-stat-hint">
+              {stageCounts["Impress Money"]
+                ? `+ ${stageCounts["Impress Money"]} Impress Money · `
+                : ""}
+              {periodLabel}
+            </span>
           </button>
 
           <button
@@ -1014,7 +1033,7 @@ export default function CallHistory() {
             >
               {[
                 { key: "ALL", label: "All quotations" },
-                { key: "PO", label: "✓ PO received" },
+                { key: "PO", label: "✓ PO / Impress Money" },
                 { key: "NOPO", label: "Awaiting PO" },
               ].map((f) => (
                 <button
