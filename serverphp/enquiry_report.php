@@ -53,40 +53,6 @@ try {
 
 
 /* =========================================================
-   ENSURE STATUS TRACKING COLUMNS EXIST
-   status_changed_by / status_changed_at : who set the current
-       remark and when (only changes when the remark changes).
-   status_alert_seen : the status (remark|changed_at) the person
-       who added the enquiry has already been notified about.
-========================================================= */
-
-try {
-    $statusColumns = [
-        "status_changed_by" => "ADD COLUMN status_changed_by VARCHAR(150) NULL",
-        "status_changed_at" => "ADD COLUMN status_changed_at DATETIME NULL",
-        "status_alert_seen" => "ADD COLUMN status_alert_seen VARCHAR(255) NULL"
-    ];
-    $existingColumns = [];
-    foreach ($pdo->query("SHOW COLUMNS FROM enquiry_report")->fetchAll() as $column) {
-        $existingColumns[$column["Field"]] = true;
-    }
-    foreach ($statusColumns as $name => $definition) {
-        if (!isset($existingColumns[$name])) {
-            $pdo->exec("ALTER TABLE enquiry_report " . $definition);
-
-            /* First run: treat every existing status as already seen
-               so old enquiries do not flood everyone with alerts. */
-            if ($name === "status_alert_seen") {
-                $pdo->exec("UPDATE enquiry_report SET status_alert_seen = CONCAT(COALESCE(remarks, ''), '|')");
-            }
-        }
-    }
-} catch (Throwable $e) {
-    error_log("STATUS COLUMN CHECK ERROR: " . $e->getMessage());
-}
-
-
-/* =========================================================
    COLUMNS RETURNED FOR EVERY ENQUIRY
    One list used by every SELECT so no field is ever missed.
 ========================================================= */
@@ -106,8 +72,6 @@ define("ENQUIRY_COLUMNS", "
     brought_by,
     sales_order_no,
     remarks,
-    status_changed_by,
-    status_changed_at,
     created_at,
     updated_at
 ");
@@ -394,37 +358,71 @@ function preloadSalesdataLinks($pdo, $enquiryNos, $quotationNos)
     $result = ["by_enquiry" => [], "by_quotation" => []];
     $rowsById = [];
 
-    $enquiryKeys = array_values(array_unique(array_filter(array_map("salesdataKey", $enquiryNos), "strlen")));
-    $quotationKeys = array_values(array_unique(array_filter(array_map("salesdataKey", $quotationNos), "strlen")));
+    /*
+     * Each value is searched both as typed (trimmed) and lowercased.
+     * The exact form is needed because LOWER() does nothing on binary /
+     * case-sensitive columns, so a lowercase-only search misses rows
+     * there (the old per-row lookup always tried the exact value first).
+     */
+    $searchValues = function ($values) {
+        $out = [];
+        foreach ($values as $value) {
+            $value = trim((string)$value);
+            if ($value === "") continue;
+            $out[$value] = true;
+            $out[salesdataKey($value)] = true;
+        }
+        return array_map("strval", array_keys($out));
+    };
+
+    $enquiryValues = $searchValues($enquiryNos);
+    $quotationValues = $searchValues($quotationNos);
 
     $select = "SELECT `Sl No` AS sl_no, enquiry_no, VoucherNumber, OrderNo, EveInvVchOrderNos, EnteredBy FROM salesdata";
 
-    try {
-        foreach (array_chunk($enquiryKeys, 500) as $chunk) {
-            $in = implode(",", array_fill(0, count($chunk), "?"));
-            $stmt = $pdo->prepare("$select WHERE LOWER(TRIM(COALESCE(enquiry_no, ''))) IN ($in)");
-            $stmt->execute($chunk);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $rowsById[(string)$row["sl_no"]] = $row;
-            }
+    /*
+     * Rows are de-duplicated on their full content, not on `Sl No` alone:
+     * if `Sl No` is not unique (or NULL), keying on it would silently drop
+     * rows and lose their EnteredBy.
+     */
+    $addRows = function ($rows) use (&$rowsById) {
+        foreach ($rows as $row) {
+            $rowsById[json_encode(array_values($row))] = $row;
         }
+    };
 
-        foreach (array_chunk($quotationKeys, 500) as $chunk) {
+    foreach (array_chunk($enquiryValues, 500) as $chunk) {
+        try {
             $in = implode(",", array_fill(0, count($chunk), "?"));
             $stmt = $pdo->prepare("
                 $select
-                WHERE LOWER(TRIM(COALESCE(VoucherNumber, ''))) IN ($in)
+                WHERE TRIM(COALESCE(enquiry_no, '')) IN ($in)
+                   OR LOWER(TRIM(COALESCE(enquiry_no, ''))) IN ($in)
+            ");
+            $stmt->execute(array_merge($chunk, $chunk));
+            $addRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            error_log("SALESDATA PRELOAD ERROR (enquiry): " . $e->getMessage());
+        }
+    }
+
+    foreach (array_chunk($quotationValues, 300) as $chunk) {
+        try {
+            $in = implode(",", array_fill(0, count($chunk), "?"));
+            $stmt = $pdo->prepare("
+                $select
+                WHERE TRIM(COALESCE(VoucherNumber, '')) IN ($in)
+                   OR TRIM(COALESCE(OrderNo, '')) IN ($in)
+                   OR TRIM(COALESCE(EveInvVchOrderNos, '')) IN ($in)
+                   OR LOWER(TRIM(COALESCE(VoucherNumber, ''))) IN ($in)
                    OR LOWER(TRIM(COALESCE(OrderNo, ''))) IN ($in)
                    OR LOWER(TRIM(COALESCE(EveInvVchOrderNos, ''))) IN ($in)
             ");
-            $stmt->execute(array_merge($chunk, $chunk, $chunk));
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $rowsById[(string)$row["sl_no"]] = $row;
-            }
+            $stmt->execute(array_merge($chunk, $chunk, $chunk, $chunk, $chunk, $chunk));
+            $addRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            error_log("SALESDATA PRELOAD ERROR (quotation): " . $e->getMessage());
         }
-    } catch (Throwable $e) {
-        error_log("SALESDATA PRELOAD ERROR: " . $e->getMessage());
-        return $result;
     }
 
     uasort($rowsById, function ($a, $b) {
@@ -622,43 +620,6 @@ function attachQuotationEnteredBy($pdo, &$data)
 ========================================================= */
 
 define("NEGOTIATION_REMARK", "Negotiation");
-define("TECHNICAL_CLARIFICATION_REMARK", "Technical Clarification");
-define("TECHNICAL_CLARIFICATION_SOLVED_REMARK", "Technical Clarification Solved");
-
-/* Statuses the person who added the enquiry is notified about. */
-$STATUS_ALERT_REMARKS = [NEGOTIATION_REMARK, TECHNICAL_CLARIFICATION_REMARK];
-
-function statusAlertToken($remarks, $changedAt)
-{
-    return trim((string)$remarks) . "|" . trim((string)$changedAt);
-}
-
-/*
- * Called after an enquiry's remark changes. Saves who changed it,
- * and when the person who added the enquiry changed it themselves,
- * marks the new status as already seen (no alert to themselves).
- */
-function recordStatusChange($pdo, $enquiryId, $remarks, $changedBy, $addedBy)
-{
-    $pdo->prepare("
-        UPDATE enquiry_report
-        SET status_changed_by = :by, status_changed_at = NOW()
-        WHERE id = :id
-    ")->execute([":by" => $changedBy, ":id" => $enquiryId]);
-
-    if (strcasecmp(trim((string)$changedBy), trim((string)$addedBy)) === 0) {
-        $stmt = $pdo->prepare("SELECT remarks, status_changed_at FROM enquiry_report WHERE id = :id");
-        $stmt->execute([":id" => $enquiryId]);
-        $row = $stmt->fetch();
-        if ($row) {
-            $pdo->prepare("UPDATE enquiry_report SET status_alert_seen = :seen WHERE id = :id")
-                ->execute([
-                    ":seen" => statusAlertToken($row["remarks"], $row["status_changed_at"]),
-                    ":id" => $enquiryId
-                ]);
-        }
-    }
-}
 
 function ensureNegotiationColumns($pdo)
 {
@@ -929,101 +890,6 @@ if (
     } catch (Throwable $e) {
         http_response_code(500);
         responseJson(false, "Failed to update quotation notification.", null, [
-            "error" => $e->getMessage()
-        ]);
-    }
-}
-
-
-
-/* =========================================================
-   STATUS ALERT (Negotiation / Technical Clarification)
-
-   GET  ?status_alert=1&user=NAME  -> enquiries added by NAME whose
-                                      remark is Negotiation or
-                                      Technical Clarification and
-                                      not yet seen by them
-   POST status_alert_ack=1&enquiry_id=ID&token=TOKEN
-                                   -> mark that status as seen
-
-   The token is "remark|status_changed_at", so the same status set
-   again later notifies the person again.
-========================================================= */
-
-if (
-    $method === "GET" &&
-    isset($_GET["status_alert"])
-) {
-    try {
-        $user = trim((string)($_GET["user"] ?? ""));
-
-        if ($user === "") {
-            responseJson(true, "No user.", []);
-        }
-
-        $placeholders = implode(",", array_fill(0, count($STATUS_ALERT_REMARKS), "?"));
-
-        $stmt = $pdo->prepare("
-            SELECT " . ENQUIRY_COLUMNS . ", status_alert_seen
-            FROM enquiry_report
-            WHERE LOWER(TRIM(COALESCE(added_by, ''))) = LOWER(?)
-              AND TRIM(COALESCE(remarks, '')) IN ($placeholders)
-              AND created_at >= DATE_SUB(NOW(), INTERVAL " . QUOTATION_READY_LOOKBACK_DAYS . " DAY)
-            ORDER BY COALESCE(status_changed_at, updated_at) DESC, id DESC
-        ");
-        $stmt->execute(array_merge([$user], $STATUS_ALERT_REMARKS));
-        $rows = $stmt->fetchAll();
-
-        attachQuotationEnteredBy($pdo, $rows);
-
-        $alerts = [];
-        foreach ($rows as $row) {
-            $token = statusAlertToken($row["remarks"], $row["status_changed_at"]);
-            if ($token === trim((string)($row["status_alert_seen"] ?? ""))) continue;
-
-            $alerts[] = [
-                "id" => $row["id"],
-                "enquiry_no" => $row["enquiry_no"],
-                "enquiry_date" => $row["enquiry_date"],
-                "customer_name" => $row["customer_name"],
-                "phone_number" => $row["phone_number"],
-                "quotation_no" => trim((string)($row["sales_order_no"] ?? "")),
-                "status" => trim((string)$row["remarks"]),
-                "changed_by" => $row["status_changed_by"] ?? "",
-                "changed_at" => $row["status_changed_at"] ?? "",
-                "token" => $token
-            ];
-        }
-
-        responseJson(true, "Status alerts loaded.", $alerts);
-    } catch (Throwable $e) {
-        http_response_code(500);
-        responseJson(false, "Failed to load status alerts.", null, [
-            "error" => $e->getMessage()
-        ]);
-    }
-}
-
-if (
-    $method === "POST" &&
-    isset($_POST["status_alert_ack"])
-) {
-    try {
-        $enquiryId = (int)($_POST["enquiry_id"] ?? 0);
-        $token = trim((string)($_POST["token"] ?? ""));
-
-        if ($enquiryId <= 0) {
-            http_response_code(400);
-            responseJson(false, "Invalid enquiry.");
-        }
-
-        $pdo->prepare("UPDATE enquiry_report SET status_alert_seen = :seen WHERE id = :id")
-            ->execute([":seen" => $token, ":id" => $enquiryId]);
-
-        responseJson(true, "Status marked as seen.");
-    } catch (Throwable $e) {
-        http_response_code(500);
-        responseJson(false, "Failed to update status notification.", null, [
             "error" => $e->getMessage()
         ]);
     }
@@ -1589,14 +1455,6 @@ if ($method === "POST") {
             $negotiationError = "";
             $previousRemarks = trim((string)($existing["remarks"] ?? ""));
 
-            if ($remarks !== $previousRemarks) {
-                try {
-                    recordStatusChange($pdo, $id, $remarks, $requestedBy, $addedBy);
-                } catch (Throwable $e) {
-                    error_log("STATUS CHANGE RECORD ERROR: " . $e->getMessage());
-                }
-            }
-
             if ($remarks === NEGOTIATION_REMARK && $previousRemarks !== NEGOTIATION_REMARK) {
                 try {
                     $negotiationRequested = createNegotiationRequest(
@@ -1709,12 +1567,6 @@ if ($method === "POST") {
 
         $negotiationRequested = false;
         $negotiationError = "";
-
-        try {
-            recordStatusChange($pdo, (int)$newId, $remarks, $requestedBy, $addedBy);
-        } catch (Throwable $e) {
-            error_log("STATUS CHANGE RECORD ERROR: " . $e->getMessage());
-        }
 
         if ($remarks === NEGOTIATION_REMARK) {
             try {

@@ -6,35 +6,6 @@ import { doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { apiFetch } from "../../api/apiClient";
 
-const CUSTOMER_CATEGORIES = [
-    "Contractor",
-    "Builder",
-    "Site Owner",
-    "Architect / Engineer",
-    "Electrician",
-    "Shop / Dealer",
-    "Other",
-];
-
-// Last 10 digits of a phone number, or "" if it is too short.
-const phoneKey = (value) => {
-    const digits = String(value || "").replace(/\D/g, "");
-    return digits.length >= 10 ? digits.slice(-10) : "";
-};
-
-const partyPhones = (party) =>
-    [
-        party.mobile,
-        party.ledger_phone,
-        party.owner_phone,
-        party.payment_contact_phone,
-        party.purchase_contact_phone,
-    ]
-        .join(",")
-        .split(/[,/]/)
-        .map(phoneKey)
-        .filter(Boolean);
-
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 export default function SalesSiteVisit() {
@@ -57,11 +28,6 @@ export default function SalesSiteVisit() {
     // ================= FORM =================
     const [showForm, setShowForm] = useState(false);
     const [customerName, setCustomerName] = useState("");
-    const [customerCategory, setCustomerCategory] = useState("");
-    const [phone, setPhone] = useState("");
-    const [decisionMaker, setDecisionMaker] = useState("");
-    const [siteName, setSiteName] = useState("");
-    const [address, setAddress] = useState("");
     const [requirement, setRequirement] = useState("");
     const [followupDate, setFollowupDate] = useState("");
     const [selectedParty, setSelectedParty] = useState(null);
@@ -154,12 +120,7 @@ export default function SalesSiteVisit() {
                 const response = await apiFetch("/serverphp/fetch_newparty.php");
                 const data = await response.json();
 
-                setParties(
-                    (Array.isArray(data) ? data : []).map((party) => ({
-                        ...party,
-                        phoneKeys: partyPhones(party),
-                    }))
-                );
+                setParties(Array.isArray(data) ? data : []);
             } catch (err) {
                 console.log(err);
             }
@@ -188,23 +149,22 @@ export default function SalesSiteVisit() {
         if (selectedParty) return selectedParty;
 
         const name = customerName.trim().toLowerCase();
-        const key = phoneKey(phone);
+        if (!name) return null;
 
         return (
             parties.find(
-                (party) =>
-                    (name &&
-                        String(party.party_ledger_name || "").trim().toLowerCase() === name) ||
-                    (key && party.phoneKeys.includes(key))
+                (party) => String(party.party_ledger_name || "").trim().toLowerCase() === name
             ) || null
         );
-    }, [selectedParty, customerName, phone, parties]);
+    }, [selectedParty, customerName, parties]);
 
     const previousVisits = useMemo(() => {
-        const key = phoneKey(phone);
-        if (!key) return 0;
-        return visits.filter((visit) => phoneKey(visit.phone) === key).length;
-    }, [phone, visits]);
+        const name = customerName.trim().toLowerCase();
+        if (!name) return 0;
+        return visits.filter(
+            (visit) => String(visit.customer_name || "").trim().toLowerCase() === name
+        ).length;
+    }, [customerName, visits]);
 
     // ================= CUSTOMER SEARCH =================
     const handleCustomerSearch = (value) => {
@@ -234,9 +194,6 @@ export default function SalesSiteVisit() {
     const selectParty = (party) => {
         setSelectedParty(party);
         setCustomerName(party.party_ledger_name || "");
-        setPhone(party.mobile || party.ledger_phone || party.owner_phone || "");
-        setAddress(party.address || "");
-        setDecisionMaker(party.decision_maker || party.owner_name || "");
         setShowSuggestions(false);
     };
 
@@ -252,7 +209,7 @@ export default function SalesSiteVisit() {
         setCameraError("");
 
         if (!navigator.mediaDevices?.getUserMedia) {
-            setCameraError("Live camera is not supported here. Use \"Open Phone Camera\" instead.");
+            setCameraError("Live camera is not supported here. Use \"Open Gallery\" instead.");
             return;
         }
 
@@ -276,8 +233,8 @@ export default function SalesSiteVisit() {
                 console.error("Camera Error:", err);
                 setCameraError(
                     err.name === "NotAllowedError"
-                        ? "Camera permission denied. Allow camera access, or use \"Open Phone Camera\"."
-                        : "Could not start the camera. Use \"Open Phone Camera\" instead."
+                        ? "Camera permission denied. Allow camera access, or use \"Open Gallery\"."
+                        : "Could not start the camera. Use \"Open Gallery\" instead."
                 );
             });
 
@@ -361,14 +318,14 @@ export default function SalesSiteVisit() {
         const video = videoRef.current;
 
         if (!video || !video.videoWidth || !video.videoHeight) {
-            setCameraError("Camera is still starting. Wait a moment, or use \"Open Phone Camera\".");
+            setCameraError("Camera is still starting. Wait a moment, or use \"Open Gallery\".");
             return;
         }
 
         savePhoto(video, video.videoWidth, video.videoHeight);
     };
 
-    // Fallback: the phone's own camera app.
+    // Fallback: pick a photo from the gallery.
     const handlePhoneCamera = (e) => {
         const file = e.target.files?.[0];
         e.target.value = "";
@@ -398,11 +355,6 @@ export default function SalesSiteVisit() {
     // ================= SAVE =================
     const resetForm = () => {
         setCustomerName("");
-        setCustomerCategory("");
-        setPhone("");
-        setDecisionMaker("");
-        setSiteName("");
-        setAddress("");
         setRequirement("");
         setFollowupDate("");
         setSelectedParty(null);
@@ -418,13 +370,8 @@ export default function SalesSiteVisit() {
     };
 
     const saveVisit = async () => {
-        if (!customerName.trim() || !phone.trim() || !address.trim()) {
-            alert("Enter customer name, phone and site address");
-            return;
-        }
-
-        if (!phoneKey(phone)) {
-            alert("Enter a valid 10 digit phone number");
+        if (!customerName.trim()) {
+            alert("Enter customer name");
             return;
         }
 
@@ -445,11 +392,9 @@ export default function SalesSiteVisit() {
 
         const formData = new FormData();
         formData.append("customer_name", customerName.trim());
-        formData.append("customer_category", customerCategory);
-        formData.append("phone", phone.trim());
-        formData.append("decision_maker", decisionMaker.trim());
-        formData.append("site_name", siteName.trim());
-        formData.append("address", address.trim());
+        formData.append("phone", "");
+        // Site address is no longer typed in; the captured live location is used.
+        formData.append("address", location || `${coords.latitude}, ${coords.longitude}`);
         formData.append("requirement", requirement.trim());
         formData.append("followup_date", followupDate);
         formData.append("location", location || `${coords.latitude}, ${coords.longitude}`);
@@ -529,9 +474,8 @@ export default function SalesSiteVisit() {
             if (typeFilter !== "All" && visit.customer_type !== typeFilter) return false;
             if (!search) return true;
 
-            return `${visit.customer_name || ""} ${visit.phone || ""} ${visit.decision_maker || ""}
-                ${visit.site_name || ""} ${visit.address || ""} ${visit.sales_executive || ""}
-                ${visit.location || ""} ${visit.customer_category || ""}`
+            return `${visit.customer_name || ""}
+                ${visit.sales_executive || ""} ${visit.location || ""}`
                 .toLowerCase()
                 .includes(search);
         });
@@ -627,20 +571,7 @@ export default function SalesSiteVisit() {
                             </div>
                         </div>
 
-                        <div className="ssv-field">
-                            <label>Phone Number *</label>
-                            <input
-                                type="tel"
-                                placeholder="10 digit mobile number"
-                                value={phone}
-                                onChange={(e) => {
-                                    setPhone(e.target.value);
-                                    setSelectedParty(null);
-                                }}
-                            />
-                        </div>
-
-                        {(customerName.trim() || phoneKey(phone)) && (
+                        {customerName.trim() && (
                             <div className={`ssv-status ssv-span-3 ${matchedParty ? "ssv-status-old" : "ssv-status-new"}`}>
                                 {matchedParty ? (
                                     <>
@@ -662,52 +593,7 @@ export default function SalesSiteVisit() {
                         )}
 
                         <div className="ssv-field">
-                            <label>Customer Category</label>
-                            <select
-                                value={customerCategory}
-                                onChange={(e) => setCustomerCategory(e.target.value)}
-                            >
-                                <option value="">Select category</option>
-                                {CUSTOMER_CATEGORIES.map((category) => (
-                                    <option key={category} value={category}>
-                                        {category}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="ssv-field">
-                            <label>Decision Maker</label>
-                            <input
-                                type="text"
-                                placeholder="Who decides the purchase"
-                                value={decisionMaker}
-                                onChange={(e) => setDecisionMaker(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="ssv-field">
-                            <label>Site / Project Name</label>
-                            <input
-                                type="text"
-                                placeholder="e.g. Villa at Kakkanad"
-                                value={siteName}
-                                onChange={(e) => setSiteName(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="ssv-field ssv-span-2">
-                            <label>Site Address *</label>
-                            <input
-                                type="text"
-                                placeholder="Enter site address"
-                                value={address}
-                                onChange={(e) => setAddress(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="ssv-field">
-                            <label>Follow Up Date</label>
+                            <label>Next Follow Up Date</label>
                             <input
                                 type="date"
                                 value={followupDate}
@@ -749,14 +635,13 @@ export default function SalesSiteVisit() {
                                     </button>
                                     <button onClick={switchCamera}>🔄 Switch Camera</button>
                                     <button onClick={() => fileInputRef.current?.click()}>
-                                        📱 Open Phone Camera
+                                        🖼️ Open Gallery
                                     </button>
                                 </div>
                                 <input
                                     ref={fileInputRef}
                                     type="file"
                                     accept="image/*"
-                                    capture="environment"
                                     style={{ display: "none" }}
                                     onChange={handlePhoneCamera}
                                 />
@@ -892,7 +777,7 @@ export default function SalesSiteVisit() {
                 <input
                     type="text"
                     className="ssv-search"
-                    placeholder="Search customer, phone, site, executive..."
+                    placeholder="Search customer, executive, location..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -904,24 +789,19 @@ export default function SalesSiteVisit() {
                     <thead>
                         <tr>
                             <th>Date</th>
-                            <th>Type</th>
                             <th>Customer</th>
-                            <th>Category</th>
-                            <th>Phone</th>
-                            <th>Decision Maker</th>
-                            <th>Site</th>
                             <th>Requirement</th>
                             <th>Sales Executive</th>
                             <th>Location</th>
                             <th>Site Image</th>
-                            <th>Follow Up</th>
+                            <th>Next Follow Up</th>
                             <th>Delete</th>
                         </tr>
                     </thead>
                     <tbody>
                         {filteredVisits.length === 0 && (
                             <tr>
-                                <td colSpan="13" className="ssv-empty">
+                                <td colSpan="8" className="ssv-empty">
                                     No site visits found
                                 </td>
                             </tr>
@@ -931,20 +811,10 @@ export default function SalesSiteVisit() {
                             <tr key={visit.id}>
                                 <td>{new Date(visit.created_at).toLocaleDateString("en-GB")}</td>
                                 <td>
-                                    <TypeBadge type={visit.customer_type} />
-                                </td>
-                                <td>
                                     {visit.customer_name}
                                     {visit.matched_party && visit.matched_party !== visit.customer_name && (
                                         <div className="ssv-muted">{visit.matched_party}</div>
                                     )}
-                                </td>
-                                <td>{visit.customer_category || "-"}</td>
-                                <td>{visit.phone}</td>
-                                <td>{visit.decision_maker || "-"}</td>
-                                <td>
-                                    {visit.site_name && <strong>{visit.site_name}</strong>}
-                                    <div>{visit.address}</div>
                                 </td>
                                 <td>{visit.requirement || "-"}</td>
                                 <td>{visit.sales_executive}</td>
@@ -994,23 +864,13 @@ export default function SalesSiteVisit() {
                                 <h3>{visit.customer_name}</h3>
                                 <p>📅 {new Date(visit.created_at).toLocaleDateString("en-GB")}</p>
                             </div>
-                            <TypeBadge type={visit.customer_type} />
                         </div>
 
-                        {visit.customer_category && (
-                            <p><strong>Category:</strong> {visit.customer_category}</p>
-                        )}
-                        <p>📞 <strong>Phone:</strong> {visit.phone}</p>
-                        <p>👤 <strong>Decision Maker:</strong> {visit.decision_maker || "-"}</p>
-                        <p>
-                            🏗️ <strong>Site:</strong> {visit.site_name ? `${visit.site_name}, ` : ""}
-                            {visit.address}
-                        </p>
                         {visit.requirement && (
                             <p>📝 <strong>Requirement:</strong> {visit.requirement}</p>
                         )}
                         <p>👨‍💼 <strong>Executive:</strong> {visit.sales_executive}</p>
-                        <p>📅 <strong>Follow Up:</strong> {visit.followup_date || "-"}</p>
+                        <p>📅 <strong>Next Follow Up:</strong> {visit.followup_date || "-"}</p>
                         <p>
                             📍 <strong>Location:</strong> {visit.location}{" "}
                             {mapLink(visit) && (

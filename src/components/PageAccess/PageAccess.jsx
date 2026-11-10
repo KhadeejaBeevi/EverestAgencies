@@ -69,6 +69,7 @@ const ALL_PAGES = [
     "Solar Customers",
     "Job Application",
     "Job Application Response",
+    "Everest Connect",
 
 ];
 

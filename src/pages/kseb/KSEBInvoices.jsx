@@ -9,8 +9,15 @@ import autoTable from "jspdf-autotable";
 import KsebInvoiceTrackingModal, {
     openKsebDocument
 } from "./KsebInvoiceTrackingModal.jsx";
+import KsebPaymentDetailsModal from "./KsebPaymentDetailsModal.jsx";
 
 const API = "/serverphp";
+
+// Background of the Invoice No / PO Number cell when that document
+// is attached.
+const ATTACHED_BG = "#d9f3ee"; // soft teal
+// Thin teal stripe on the left edge of that cell.
+const ATTACHED_ACCENT = "inset 3px 0 0 #14a38b";
 
 // The page opens on the current month ("1" = January ... "12" = December).
 const getCurrentMonth = () => String(new Date().getMonth() + 1);
@@ -23,7 +30,8 @@ const KSEBInvoices = () => {
     const [sortOrder, setSortOrder] = useState("newest");
     const [amountSort, setAmountSort] = useState("default");
     const [viewMode, setViewMode] = useState("party");
-    // all | not_paid (not fully credited to the bank) | paid
+    // all | not_paid (not fully credited to the bank)
+    //     | sanctioned (Payment Sanctioned, money not yet credited) | paid
     const [paymentFilter, setPaymentFilter] = useState("all");
     // all | missing_any | missing_po | missing_invoice | missing_both | attached
     // (Other Documents are not checked)
@@ -37,9 +45,22 @@ const KSEBInvoices = () => {
     // Documents + KSEB tracking (kseb_invoice_tracking.php)
     const [trackingSummary, setTrackingSummary] = useState({});
     const [trackingSteps, setTrackingSteps] = useState([]);
+    // Security Deposit is due for refund this many days after the
+    // receipt date (the server sends its own value).
+    const [sdRefundDays, setSdRefundDays] = useState(540);
+    // Security Deposit paid by DD (Payment vouchers) and refunds,
+    // per PO number (kseb_invoice_tracking.php -> po_deposits).
+    const [poDeposits, setPoDeposits] = useState({});
     const [trackingInvoice, setTrackingInvoice] = useState(null);
     const [trackingDocType, setTrackingDocType] = useState("PO");
     const [openingDocId, setOpeningDocId] = useState(null);
+    // Invoice whose payment breakdown (bank, TDS, SD ...) is expanded.
+    const [expandedPayment, setExpandedPayment] = useState(null);
+
+    const togglePayment = (invoiceNo) =>
+        setExpandedPayment((previous) =>
+            previous === invoiceNo ? null : invoiceNo
+        );
 
     const [screenWidth, setScreenWidth] = useState(
         typeof window !== "undefined" ? window.innerWidth : 1200
@@ -151,6 +172,17 @@ const KSEBInvoices = () => {
                 setTrackingSteps(
                     Array.isArray(result.steps) ? result.steps : []
                 );
+
+                if (Number(result.sd_refund_days) > 0) {
+                    setSdRefundDays(Number(result.sd_refund_days));
+                }
+
+                setPoDeposits(
+                    result.po_deposits &&
+                        typeof result.po_deposits === "object"
+                        ? result.po_deposits
+                        : {}
+                );
             }
         } catch (error) {
             // The invoice list still works without tracking.
@@ -171,6 +203,96 @@ const KSEBInvoices = () => {
             ? "paid"
             : "not_paid";
     };
+
+    // "Payment Sanctioned" step saved, but the money is not yet fully
+    // credited to the bank (paid invoices are not counted here).
+    const isPaymentSanctioned = (row) => {
+        if (getPaymentStatus(row) === "paid") return false;
+
+        const tracking = getTracking(getInvoiceNo(row));
+
+        if (Array.isArray(tracking?.step_keys)) {
+            return tracking.step_keys.includes("PAYMENT_SANCTIONED");
+        }
+
+        return tracking?.current_step === "PAYMENT_SANCTIONED";
+    };
+
+    const matchesPaymentFilter = (row) => {
+        switch (paymentFilter) {
+            case "paid":
+                return getPaymentStatus(row) === "paid";
+            case "not_paid":
+                return getPaymentStatus(row) !== "paid";
+            case "sanctioned":
+                return isPaymentSanctioned(row);
+            case "sd_overdue":
+                return getSdInfo(row).hasOverdue;
+            default:
+                return true;
+        }
+    };
+
+    // Security Deposit of one invoice (see sdByInvoice below):
+    // deducted by KSEB from the receipt + paid by us by DD, less refunds.
+    // Overdue = still held more than sdRefundDays after it was kept.
+    // A DD shared by several invoices of the same PO is counted once
+    // in the totals (on the oldest invoice).
+    const getSdInfo = (row) => {
+        const rows =
+            sdByInvoice[getInvoiceNo(row).toLowerCase()] || [];
+
+        let total = 0;
+        let overdueAmount = 0;
+        let overdueDays = 0;
+        let nextDueDate = "";
+        let firstDate = "";
+        let hasOverdue = false;
+
+        rows.forEach((item) => {
+            const held = Math.max(item.amount - item.refunded, 0);
+            const overdue = held > 0.5 && item.daysKept > sdRefundDays;
+
+            if (!firstDate || item.date < firstDate) firstDate = item.date;
+
+            if (overdue) {
+                hasOverdue = true;
+                overdueDays = Math.max(
+                    overdueDays,
+                    item.daysKept - sdRefundDays
+                );
+            } else if (
+                held > 0.5 &&
+                (!nextDueDate || item.dueDate < nextDueDate)
+            ) {
+                nextDueDate = item.dueDate;
+            }
+
+            if (!item.shared) {
+                total += item.amount;
+
+                if (overdue) overdueAmount += held;
+            }
+        });
+
+        return {
+            total,
+            overdueAmount,
+            overdueDays,
+            hasOverdue,
+            nextDueDate,
+            firstDate,
+            rows,
+            count: rows.length
+        };
+    };
+
+    const getPaymentStatusLabel = (row) =>
+        getPaymentStatus(row) === "paid"
+            ? "Paid"
+            : isPaymentSanctioned(row)
+                ? "Payment Sanctioned"
+                : "Not Paid";
 
     // PO / Invoice document uploaded? (Other Documents do not matter.)
     // A PO uploaded on another invoice with the same PO number counts.
@@ -338,6 +460,104 @@ const KSEBInvoices = () => {
         return groups;
     }, [data]);
 
+    /*
+    | Security Deposit rows per invoice (key = invoice no, lower case):
+    |   Deducted  kept back by KSEB from a receipt of this invoice
+    |   PAID      paid by us (Payment voucher: DD / bank) against the PO
+    |   BG        bank guarantee given against the PO
+    | Refunds of a PO are set against its deposits, oldest first.
+    */
+    const sdByInvoice = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const invoiceKey = (row) => getInvoiceNo(row).toLowerCase();
+
+        const makeRow = (sd, source) => {
+            const date = normalizeDate(sd.date);
+
+            if (!date) return null;
+
+            const kept = new Date(`${date}T00:00:00`);
+            const due = new Date(kept);
+            due.setDate(due.getDate() + sdRefundDays);
+
+            return {
+                source,
+                ledger: sd.ledger || "",
+                voucherNo: sd.voucher_no || "",
+                amount: Number(sd.amount || 0),
+                refunded: 0,
+                date,
+                dueDate: normalizeDate(due),
+                daysKept: Math.max(
+                    Math.floor((today - kept) / 86400000),
+                    0
+                ),
+                shared: false
+            };
+        };
+
+        const map = {};
+
+        data.forEach((row) => {
+            const tracking = trackingSummary[invoiceKey(row)];
+
+            map[invoiceKey(row)] = (
+                Array.isArray(tracking?.security_deposits)
+                    ? tracking.security_deposits
+                    : []
+            )
+                .map((sd) => makeRow(sd, "Deducted"))
+                .filter(Boolean);
+        });
+
+        Object.entries(poGroups).forEach(([poKey, invoices]) => {
+            const deposit = poDeposits[poKey];
+
+            if (!deposit) return;
+
+            const sorted = [...invoices].sort((a, b) =>
+                normalizeDate(getInvoiceDate(a)).localeCompare(
+                    normalizeDate(getInvoiceDate(b))
+                )
+            );
+
+            const ddRows = (Array.isArray(deposit.paid) ? deposit.paid : [])
+                .map((sd) => makeRow(sd, sd.kind === "BG" ? "BG" : "PAID"))
+                .filter(Boolean);
+
+            // Refunds: oldest deposit of this PO first.
+            let pool = Number(deposit.refunded || 0);
+
+            [
+                ...ddRows,
+                ...sorted.flatMap((row) => map[invoiceKey(row)] || [])
+            ]
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .forEach((item) => {
+                    const take = Math.min(pool, item.amount);
+
+                    item.refunded = take;
+                    pool -= take;
+                });
+
+            sorted.forEach((row, index) => {
+                const key = invoiceKey(row);
+
+                map[key] = [
+                    ...(map[key] || []),
+                    ...ddRows.map((item) => ({
+                        ...item,
+                        shared: index > 0
+                    }))
+                ].sort((a, b) => a.date.localeCompare(b.date));
+            });
+        });
+
+        return map;
+    }, [data, trackingSummary, poDeposits, poGroups, sdRefundDays]);
+
     // Other invoices with the same PO number.
     const getSamePoInvoices = (row) => {
         const key = getPoKey(row);
@@ -424,9 +644,7 @@ const KSEBInvoices = () => {
         }
 
         if (paymentFilter !== "all") {
-            result = result.filter(
-                (row) => getPaymentStatus(row) === paymentFilter
-            );
+            result = result.filter(matchesPaymentFilter);
         }
 
         if (
@@ -485,7 +703,9 @@ const KSEBInvoices = () => {
         paymentFilter,
         documentFilter,
         trackingSummary,
-        poGroups
+        poGroups,
+        sdRefundDays,
+        sdByInvoice
     ]);
 
     const groupedDisplayData = useMemo(() => {
@@ -597,6 +817,10 @@ const KSEBInvoices = () => {
         let balanceAmount = 0;
         let notPaidCount = 0;
         let missingDocsCount = 0;
+        let sanctionedCount = 0;
+        let sanctionedAmount = 0;
+        let sdOverdueCount = 0;
+        let sdOverdueAmount = 0;
 
         filteredData.forEach((row) => {
             invoiceAmount += Number(
@@ -611,6 +835,18 @@ const KSEBInvoices = () => {
                 notPaidCount++;
                 balanceAmount += getBalanceAmount(row);
             }
+
+            if (isPaymentSanctioned(row)) {
+                sanctionedCount++;
+                sanctionedAmount += getBalanceAmount(row);
+            }
+
+            const sd = getSdInfo(row);
+
+            if (sd.overdueAmount > 0) {
+                sdOverdueCount++;
+                sdOverdueAmount += sd.overdueAmount;
+            }
         });
 
         return {
@@ -618,9 +854,13 @@ const KSEBInvoices = () => {
             invoiceAmount,
             notPaidCount,
             balanceAmount,
-            missingDocsCount
+            missingDocsCount,
+            sanctionedCount,
+            sanctionedAmount,
+            sdOverdueCount,
+            sdOverdueAmount
         };
-    }, [filteredData, trackingSummary]);
+    }, [filteredData, trackingSummary, sdRefundDays, sdByInvoice]);
 
     const clearFilters = () => {
         setSearchTerm("");
@@ -769,10 +1009,7 @@ const KSEBInvoices = () => {
                 "Invoice Document": hasInvoiceDocument(row)
                     ? "Attached"
                     : "Not Attached",
-                "Payment Status": {
-                    paid: "Paid",
-                    not_paid: "Not Paid"
-                }[getPaymentStatus(row)],
+                "Payment Status": getPaymentStatusLabel(row),
                 "Balance to Receive": getBalanceAmount(row),
                 "Tracking Status":
                     getTracking(invoiceNo)?.current_step_label ||
@@ -785,7 +1022,14 @@ const KSEBInvoices = () => {
                 ),
                 "Bank Account": cleanExportValue(
                     getTracking(invoiceNo)?.bank_accounts
-                )
+                ),
+                "Security Deposit": getSdInfo(row).total,
+                "SD Overdue Amount": getSdInfo(row).overdueAmount,
+                "SD Overdue By (Days)":
+                    getSdInfo(row).overdueDays || "",
+                "SD Refund Due": getSdInfo(row).nextDueDate
+                    ? formatDate(getSdInfo(row).nextDueDate)
+                    : ""
             });
 
             if (Array.isArray(row.items)) {
@@ -917,6 +1161,8 @@ const KSEBInvoices = () => {
                 "Payment Filter": {
                     all: "All Payments",
                     not_paid: "Not Paid",
+                    sanctioned: "Payment Sanctioned",
+                    sd_overdue: "Security Deposit Overdue",
                     paid: "Paid"
                 }[paymentFilter]
             },
@@ -936,6 +1182,18 @@ const KSEBInvoices = () => {
             },
             {
                 "Not Paid Invoices": totals.notPaidCount
+            },
+            {
+                "Payment Sanctioned Invoices": totals.sanctionedCount
+            },
+            {
+                "Payment Sanctioned - Balance": totals.sanctionedAmount
+            },
+            {
+                "SD Overdue Invoices": totals.sdOverdueCount
+            },
+            {
+                "SD Overdue Amount": totals.sdOverdueAmount
             },
             {
                 "Balance to Receive": totals.balanceAmount
@@ -1460,13 +1718,34 @@ const KSEBInvoices = () => {
         }
     };
 
-    const renderDocumentsCell = (
-        row,
-        documents,
-        uploadType,
-        showType
-    ) => {
-        const list = Array.isArray(documents) ? documents : [];
+    // All attachments of one invoice in a single column:
+    // PO (own + same PO number), Invoice, then Other Documents.
+    const renderAttachmentsCell = (row) => {
+        const poDocs = getPoDocuments(row);
+        const invoiceDocs = Array.isArray(row?.invoice_documents)
+            ? row.invoice_documents
+            : [];
+        const otherDocs = Array.isArray(row?.other_documents)
+            ? row.other_documents
+            : [];
+
+        const list = [...poDocs, ...invoiceDocs, ...otherDocs];
+
+        // Upload opens on the first missing type (PO, then Invoice).
+        const uploadType = poDocs.length === 0
+            ? "PO"
+            : invoiceDocs.length === 0
+                ? "INVOICE"
+                : "DD";
+
+        const typeTag = (doc) => {
+            if (doc.doc_type === "PO") return "PO";
+            if (doc.doc_type === "INVOICE") return "INV";
+
+            return String(doc.doc_type || "DOC")
+                .replace(/_/g, " ")
+                .slice(0, 6);
+        };
 
         return (
             <div
@@ -1484,7 +1763,7 @@ const KSEBInvoices = () => {
 
                     return (
                         <button
-                            key={doc.id}
+                            key={`${doc.id}-${doc.__fromInvoice || ""}`}
                             type="button"
                             title={`${doc.doc_type_label}: ${doc.original_name}${
                                 doc.remarks ? `\n${doc.remarks}` : ""
@@ -1514,6 +1793,20 @@ const KSEBInvoices = () => {
                                 minWidth: 0
                             }}
                         >
+                            <span
+                                style={{
+                                    flexShrink: 0,
+                                    minWidth: "26px",
+                                    padding: "0 3px",
+                                    borderRadius: "3px",
+                                    fontSize: "8px",
+                                    textAlign: "center",
+                                    background: "#05693a",
+                                    color: "#fff"
+                                }}
+                            >
+                                {typeTag(doc)}
+                            </span>
                             <span
                                 style={{
                                     flexShrink: 0,
@@ -1554,9 +1847,7 @@ const KSEBInvoices = () => {
                             >
                                 {openingDocId === doc.id
                                     ? "Opening..."
-                                    : showType
-                                        ? `${doc.doc_type_label}: ${doc.original_name}`
-                                        : doc.original_name}
+                                    : doc.original_name}
                             </span>
                         </button>
                     );
@@ -1579,6 +1870,194 @@ const KSEBInvoices = () => {
                 >
                     + Upload
                 </button>
+            </div>
+        );
+    };
+
+    // Security Deposit column: amount kept back by KSEB, the date it was
+    // kept (receipt date), the refund due date and overdue / due-in days.
+    const renderSdCell = (row) => {
+        const sd = getSdInfo(row);
+
+        // No Security Deposit: leave the cell empty.
+        if (!sd.rows.length) {
+            return null;
+        }
+
+        return (
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "8px",
+                    alignItems: "stretch",
+                    lineHeight: 1.35
+                }}
+            >
+                {sd.rows.map((item, index) => {
+                    const held = Math.max(item.amount - item.refunded, 0);
+                    const refunded = held <= 0.5;
+                    const overdue = !refunded && item.daysKept > sdRefundDays;
+                    // Last 90 days before the due date: warn in amber.
+                    const nearDue =
+                        !overdue &&
+                        !refunded &&
+                        item.daysKept > sdRefundDays - 90;
+                    const percent = Math.min(
+                        (item.daysKept / sdRefundDays) * 100,
+                        100
+                    );
+                    const barColor = refunded
+                        ? "#9ca3af"
+                        : overdue
+                            ? "#d92d20"
+                            : nearDue
+                                ? "#e0a100"
+                                : "#05693a";
+
+                    return (
+                        <div
+                            key={index}
+                            title={[
+                                item.ledger,
+                                item.source === "Deducted"
+                                    ? `Deducted by KSEB from the receipt on ${formatDate(item.date)}`
+                                    : `Paid by us on ${formatDate(item.date)}${item.voucherNo ? ` (voucher ${item.voucherNo})` : ""}`,
+                                `Refund due ${formatDate(item.dueDate)} (${sdRefundDays} days)`,
+                                item.refunded > 0
+                                    ? `Refunded ₹ ${formatAmount(item.refunded)}`
+                                    : "",
+                                item.shared
+                                    ? "Same PO - counted on the oldest invoice of this PO"
+                                    : ""
+                            ]
+                                .filter(Boolean)
+                                .join("\n")}
+                            style={{
+                                textAlign: "center",
+                                opacity: item.shared ? 0.75 : 1
+                            }}
+                        >
+                            {/* Deducted by KSEB from the receipt, or paid by
+                                us (payment / bank guarantee - not told apart). */}
+                            <span
+                                style={{
+                                    display: "inline-block",
+                                    marginBottom: "2px",
+                                    padding: "0 5px",
+                                    borderRadius: "3px",
+                                    fontSize: "8.5px",
+                                    fontWeight: "700",
+                                    letterSpacing: "0.3px",
+                                    background:
+                                        item.source === "Deducted"
+                                            ? "#f3f4f6"
+                                            : "#e8f1fb",
+                                    color:
+                                        item.source === "Deducted"
+                                            ? "#4b5563"
+                                            : "#1d5fa8"
+                                }}
+                            >
+                                {item.source === "Deducted"
+                                    ? "DEDUCTED BY KSEB"
+                                    : "PAID BY US"}
+                                {item.shared ? " · SAME PO" : ""}
+                            </span>
+
+                            <div
+                                style={{
+                                    fontWeight: "700",
+                                    color: overdue ? "#b42318" : "#1f2937",
+                                    textDecoration: refunded
+                                        ? "line-through"
+                                        : "none"
+                                }}
+                            >
+                                ₹ {formatAmount(item.amount)}
+                            </div>
+
+                            <div
+                                style={{
+                                    fontSize: "10px",
+                                    color: "#6b7280",
+                                    marginTop: "1px"
+                                }}
+                            >
+                                {formatDate(item.date)} →{" "}
+                                {formatDate(item.dueDate)}
+                            </div>
+
+                            {/* Days kept out of 540 */}
+                            <div
+                                style={{
+                                    height: "4px",
+                                    margin: "5px 4px 3px",
+                                    borderRadius: "2px",
+                                    background: "#e5e7eb",
+                                    overflow: "hidden"
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: `${percent}%`,
+                                        height: "100%",
+                                        background: barColor
+                                    }}
+                                />
+                            </div>
+
+                            {refunded ? (
+                                <span
+                                    style={{
+                                        fontSize: "10px",
+                                        fontWeight: "700",
+                                        color: "#6b7280"
+                                    }}
+                                >
+                                    Refunded
+                                </span>
+                            ) : overdue ? (
+                                <span
+                                    style={{
+                                        display: "inline-block",
+                                        padding: "1px 7px",
+                                        borderRadius: "10px",
+                                        fontSize: "9.5px",
+                                        fontWeight: "700",
+                                        background: "#fef3f2",
+                                        color: "#b42318",
+                                        border: "1px solid #fecdca"
+                                    }}
+                                >
+                                    Overdue · {item.daysKept} days
+                                </span>
+                            ) : (
+                                <span
+                                    style={{
+                                        fontSize: "10px",
+                                        fontWeight: "700",
+                                        color: nearDue ? "#a15c00" : "#05693a"
+                                    }}
+                                >
+                                    {item.daysKept} / {sdRefundDays} days
+                                </span>
+                            )}
+
+                            {!refunded && item.refunded > 0 && (
+                                <div
+                                    style={{
+                                        fontSize: "9.5px",
+                                        color: "#6b7280"
+                                    }}
+                                >
+                                    Refunded ₹ {formatAmount(item.refunded)}
+                                    {" "}· held ₹ {formatAmount(held)}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
             </div>
         );
     };
@@ -1609,6 +2088,8 @@ const KSEBInvoices = () => {
             tracking?.invoice_amount || row?.invoice_amount || 0
         );
         const isPartPaid = !isPaid && received > 0;
+        const canExpand = isPaid || bankAmount > 0;
+        const isExpanded = expandedPayment === invoiceNo;
 
         const bankTitle = bankAmount > 0
             ? [
@@ -1639,13 +2120,26 @@ const KSEBInvoices = () => {
                     gap: "4px"
                 }}
             >
+                {/* Paid (or part paid) invoices: click the tag to
+                    expand the payment details under the invoice. */}
                 <span
                     title={
-                        totalSteps
-                            ? `${doneSteps} of ${totalSteps} steps done`
-                            : ""
+                        canExpand
+                            ? `${bankTitle}${bankTitle ? "\n\n" : ""}Click to ${
+                                isExpanded ? "hide" : "see"
+                            } payment details`
+                            : totalSteps
+                                ? `${doneSteps} of ${totalSteps} steps done`
+                                : ""
+                    }
+                    role={canExpand ? "button" : undefined}
+                    onClick={
+                        canExpand
+                            ? () => togglePayment(invoiceNo)
+                            : undefined
                     }
                     style={{
+                        cursor: canExpand ? "pointer" : "default",
                         display: "inline-block",
                         maxWidth: "100%",
                         padding: "2px 7px",
@@ -1667,30 +2161,8 @@ const KSEBInvoices = () => {
                     }}
                 >
                     {label}
+                    {canExpand && (isExpanded ? " ▲" : " ▼")}
                 </span>
-
-                {bankAmount > 0 && (
-                    <div
-                        title={bankTitle}
-                        style={{
-                            fontSize: "9px",
-                            lineHeight: 1.35,
-                            textAlign: "center",
-                            color: isPaid ? "#05693a" : "#8a6100",
-                            cursor: "help"
-                        }}
-                    >
-                        <div style={{ fontWeight: "700" }}>
-                            Bank: ₹ {formatAmount(bankAmount)}
-                        </div>
-
-                        {deductions > 0 && (
-                            <div style={{ color: "#777" }}>
-                                SD / TDS: ₹ {formatAmount(deductions)}
-                            </div>
-                        )}
-                    </div>
-                )}
 
                 <button
                     type="button"
@@ -1706,7 +2178,7 @@ const KSEBInvoices = () => {
                         cursor: "pointer"
                     }}
                 >
-                    Open
+                    Tracking
                 </button>
             </div>
         );
@@ -2238,6 +2710,12 @@ const KSEBInvoices = () => {
                             <option value="not_paid">
                                 Not Paid
                             </option>
+                            <option value="sanctioned">
+                                Payment Sanctioned
+                            </option>
+                            <option value="sd_overdue">
+                                Security Deposit Overdue
+                            </option>
                             <option value="paid">
                                 Paid
                             </option>
@@ -2440,6 +2918,77 @@ const KSEBInvoices = () => {
                             </button>
                         )}
 
+                        {totals.sdOverdueCount > 0 && (
+                            <button
+                                type="button"
+                                title={`Security Deposit not refunded ${sdRefundDays} days after the receipt`}
+                                onClick={() =>
+                                    setPaymentFilter(
+                                        "sd_overdue"
+                                    )
+                                }
+                                style={{
+                                    padding:
+                                        "5px 10px",
+                                    border: "none",
+                                    borderRadius:
+                                        "5px",
+                                    background:
+                                        "#b42318",
+                                    fontSize:
+                                        "12px",
+                                    fontWeight:
+                                        "700",
+                                    color: "#fff",
+                                    cursor:
+                                        "pointer"
+                                }}
+                            >
+                                SD Overdue:{" "}
+                                {totals.sdOverdueCount}
+                                {" "}· ₹{" "}
+                                {formatAmount(
+                                    totals.sdOverdueAmount
+                                )}
+                            </button>
+                        )}
+
+                        {totals.sanctionedCount > 0 && (
+                            <button
+                                type="button"
+                                title="Show only invoices with payment sanctioned but not yet credited to the bank"
+                                onClick={() =>
+                                    setPaymentFilter(
+                                        "sanctioned"
+                                    )
+                                }
+                                style={{
+                                    padding:
+                                        "5px 10px",
+                                    border: "none",
+                                    borderRadius:
+                                        "5px",
+                                    background:
+                                        "#e8f1fb",
+                                    fontSize:
+                                        "12px",
+                                    fontWeight:
+                                        "700",
+                                    color:
+                                        "#1d5fa8",
+                                    cursor:
+                                        "pointer"
+                                }}
+                            >
+                                Payment Sanctioned:{" "}
+                                {totals.sanctionedCount}
+                                {" "}· ₹{" "}
+                                {formatAmount(
+                                    totals.sanctionedAmount
+                                )}
+                            </button>
+                        )}
+
                         {selectedMonth !==
                             "all" && (
                             <div
@@ -2530,7 +3079,7 @@ const KSEBInvoices = () => {
                                 style={{
                                     width: "100%",
                                     minWidth:
-                                        "1555px",
+                                        "1465px",
                                     tableLayout:
                                         "fixed",
                                     borderCollapse:
@@ -2613,28 +3162,19 @@ const KSEBInvoices = () => {
                                             style={{
                                                 ...thStyle,
                                                 width:
-                                                    "140px"
+                                                    "260px"
                                             }}
                                         >
-                                            PO Document
+                                            Attachments
                                         </th>
                                         <th
                                             style={{
                                                 ...thStyle,
                                                 width:
-                                                    "140px"
+                                                    "130px"
                                             }}
                                         >
-                                            Invoice Document
-                                        </th>
-                                        <th
-                                            style={{
-                                                ...thStyle,
-                                                width:
-                                                    "180px"
-                                            }}
-                                        >
-                                            Other Documents
+                                            Security Deposit
                                         </th>
                                         <th
                                             style={{
@@ -2729,12 +3269,30 @@ const KSEBInvoices = () => {
                                                         </td>
 
                                                         <td
+                                                            title={
+                                                                hasInvoiceDocument(
+                                                                    row
+                                                                )
+                                                                    ? "Invoice document attached"
+                                                                    : undefined
+                                                            }
                                                             style={{
                                                                 ...tdStyle,
                                                                 fontWeight:
                                                                     "700",
                                                                 wordBreak:
-                                                                    "break-word"
+                                                                    "break-word",
+                                                                // Teal = invoice document attached
+                                                                ...(hasInvoiceDocument(
+                                                                    row
+                                                                )
+                                                                    ? {
+                                                                        background:
+                                                                            ATTACHED_BG,
+                                                                        boxShadow:
+                                                                            ATTACHED_ACCENT
+                                                                    }
+                                                                    : {})
                                                             }}
                                                         >
                                                             <div
@@ -3003,12 +3561,30 @@ const KSEBInvoices = () => {
                                                         </td>
 
                                                         <td
+                                                            title={
+                                                                hasPoDocument(
+                                                                    row
+                                                                )
+                                                                    ? "PO document attached"
+                                                                    : undefined
+                                                            }
                                                             style={{
                                                                 ...tdStyle,
                                                                 wordBreak:
                                                                     "break-word",
                                                                 fontWeight:
-                                                                    "600"
+                                                                    "600",
+                                                                // Teal = PO document attached
+                                                                ...(hasPoDocument(
+                                                                    row
+                                                                )
+                                                                    ? {
+                                                                        background:
+                                                                            ATTACHED_BG,
+                                                                        boxShadow:
+                                                                            ATTACHED_ACCENT
+                                                                    }
+                                                                    : {})
                                                             }}
                                                         >
                                                             {row.order_no && (
@@ -3135,39 +3711,20 @@ const KSEBInvoices = () => {
                                                                 tdStyle
                                                             }
                                                         >
-                                                            {renderDocumentsCell(
-                                                                row,
-                                                                getPoDocuments(
-                                                                    row
-                                                                ),
-                                                                "PO",
-                                                                false
+                                                            {renderAttachmentsCell(
+                                                                row
                                                             )}
                                                         </td>
 
                                                         <td
-                                                            style={
-                                                                tdStyle
-                                                            }
+                                                            style={{
+                                                                ...tdStyle,
+                                                                textAlign:
+                                                                    "center"
+                                                            }}
                                                         >
-                                                            {renderDocumentsCell(
-                                                                row,
-                                                                row.invoice_documents,
-                                                                "INVOICE",
-                                                                false
-                                                            )}
-                                                        </td>
-
-                                                        <td
-                                                            style={
-                                                                tdStyle
-                                                            }
-                                                        >
-                                                            {renderDocumentsCell(
-                                                                row,
-                                                                row.other_documents,
-                                                                "DD",
-                                                                true
+                                                            {renderSdCell(
+                                                                row
                                                             )}
                                                         </td>
 
@@ -3189,7 +3746,7 @@ const KSEBInvoices = () => {
                                                         <tr>
                                                             <td
                                                                 colSpan={
-                                                                    10
+                                                                    9
                                                                 }
                                                                 style={{
                                                                     padding:
@@ -3678,6 +4235,33 @@ const KSEBInvoices = () => {
                                                                         )}
                                                                     </div>
                                                                 </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+
+                                                    {expandedPayment ===
+                                                        invoiceNo && (
+                                                        <tr>
+                                                            <td
+                                                                colSpan={9}
+                                                                style={{
+                                                                    padding:
+                                                                        "8px 10px",
+                                                                    border:
+                                                                        "1px solid #ddd",
+                                                                    background:
+                                                                        "#fbfdfc"
+                                                                }}
+                                                            >
+                                                                <KsebPaymentDetailsModal
+                                                                    inline
+                                                                    invoice={row}
+                                                                    onClose={() =>
+                                                                        setExpandedPayment(
+                                                                            null
+                                                                        )
+                                                                    }
+                                                                />
                                                             </td>
                                                         </tr>
                                                     )}

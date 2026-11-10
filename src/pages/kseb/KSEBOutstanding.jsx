@@ -144,6 +144,7 @@ const ADJUSTED_TO = {
     advance: { label: "Advance", color: "#7C3AED" },
     on_account: { label: "On Account", color: "#7C3AED" },
     not_identified: { label: "Bill not identified", color: "#B45309" },
+    own_bill: { label: "Own bill (New Ref)", color: "#B91C1C" },
 };
 
 const DONUT_COLORS = [
@@ -2098,6 +2099,111 @@ const ReceiptsTable = ({ receipts, showDistribution, onOpenLedger }) => {
 };
 
 // =========================================================
+// CREDIT NOTES / DEBIT NOTES LIST
+// =========================================================
+
+/*
+  Every KSEB credit / debit note (newest first) with the bill it was set
+  against. KSEB credit notes have no bill allocation in the export, so
+  the server sets them against the bill in their Reference (original
+  invoice number). Debit = adds to what KSEB owes, Credit = reduces it.
+  Click a row for that ledger's report.
+*/
+const NotesTable = ({ notes, showDistribution, onOpenLedger }) => {
+    const debits = notes.reduce((t, n) => t + n.debit, 0);
+    const credits = notes.reduce((t, n) => t + n.credit, 0);
+
+    return (
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
+            <thead>
+                <tr>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Type</th>
+                    <th style={thStyle}>Voucher No.</th>
+                    <th style={thStyle}>KSEB Ledger</th>
+                    {showDistribution && <th style={thStyle}>Distribution</th>}
+                    <th style={thStyle}>Against Bill</th>
+                    <th style={thStyle}>Bill Date</th>
+                    <th style={thStyle}>Adjusted To</th>
+                    <th style={thRight}>Bill Balance</th>
+                    <th style={thRight}>Debit Note</th>
+                    <th style={thRight}>Credit Note</th>
+                </tr>
+            </thead>
+            <tbody>
+                {notes.map((n, i) => {
+                    const adjusted = ADJUSTED_TO[n.adjusted_to] || { label: n.adjusted_to, color: "#1F2937" };
+                    const isDebit = n.note_type === "debit";
+
+                    return (
+                        <tr
+                            key={`${n.sales_id}-${n.bill_ref}-${i}`}
+                            onClick={() => onOpenLedger(n.party)}
+                            style={{ cursor: "pointer" }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#EFF6FF")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                        >
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(n.date)}</td>
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                                <span
+                                    style={{
+                                        padding: "1px 8px",
+                                        borderRadius: "10px",
+                                        fontSize: "11px",
+                                        fontWeight: "800",
+                                        color: isDebit ? "#991B1B" : "#166534",
+                                        background: isDebit ? "#FEE2E2" : "#DCFCE7",
+                                    }}
+                                >
+                                    {isDebit ? "Debit Note" : "Credit Note"}
+                                </span>
+                            </td>
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{n.voucher_no}</td>
+                            <td style={{ ...tdStyle, fontWeight: "700" }}>
+                                {n.party}
+                                {n.executive && (
+                                    <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{n.executive}</div>
+                                )}
+                            </td>
+                            {showDistribution && <td style={tdStyle}>{n.distribution}</td>}
+                            <td style={tdStyle}>
+                                {n.bill_ref}
+                                {n.reference && n.reference !== n.bill_ref && (
+                                    <div style={{ fontSize: "11px", color: "#64748B" }}>Ref: {n.reference}</div>
+                                )}
+                            </td>
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{formatTallyDate(n.bill_date)}</td>
+                            <td style={{ ...tdStyle, color: adjusted.color, fontWeight: "700" }}>
+                                {adjusted.label}
+                                {n.narration && (
+                                    <div style={{ fontSize: "11px", color: "#64748B", fontWeight: "500" }}>{n.narration}</div>
+                                )}
+                            </td>
+                            <td style={tdRight}>
+                                {n.bill_balance === null || n.bill_balance === undefined
+                                    ? ""
+                                    : Math.abs(n.bill_balance) < 1
+                                      ? "Cleared"
+                                      : formatAmount(n.bill_balance)}
+                            </td>
+                            <td style={{ ...tdRight, color: "#B91C1C", fontWeight: "700" }}>{formatAmount(n.debit)}</td>
+                            <td style={{ ...tdRight, color: "#166534", fontWeight: "700" }}>{formatAmount(n.credit)}</td>
+                        </tr>
+                    );
+                })}
+
+                <tr className="kseb-total-row" style={{ background: "#E2E8F0" }}>
+                    <td style={{ ...tdStyle, fontWeight: "800" }}>TOTAL</td>
+                    <td colSpan={showDistribution ? 8 : 7} style={tdStyle} />
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#B91C1C" }}>{formatAmount(debits)}</td>
+                    <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>{formatAmount(credits)}</td>
+                </tr>
+            </tbody>
+        </table>
+    );
+};
+
+// =========================================================
 // SECURITY DEPOSITS LIST (ledger wise)
 // =========================================================
 
@@ -2629,6 +2735,8 @@ const KSEBOutstanding = () => {
     const [onAccount, setOnAccount] = useState([]);
     const [olderReceipts, setOlderReceipts] = useState([]);
     const [receipts, setReceipts] = useState([]);
+    // Every KSEB credit / debit note with the bill it went to.
+    const [notes, setNotes] = useState([]);
     const [openingBalances, setOpeningBalances] = useState({});
     const [openingBreakup, setOpeningBreakup] = useState({});
     // Security deposits held by KSEB (deposit ledger + LPO reference).
@@ -2684,6 +2792,7 @@ const KSEBOutstanding = () => {
             setOlderReceipts(Array.isArray(result.older_receipts) ? result.older_receipts : []);
             // Every receipt allocation (kseb_receipts) with the bill it went to.
             setReceipts(Array.isArray(result.receipts) ? result.receipts : []);
+            setNotes(Array.isArray(result.notes) ? result.notes : []);
             // { "<ledger name>": amount } — Dr positive, Cr negative.
             // From salesdatalatest33 Ledger.$OpeningBalance (as on 1st April).
             setOpeningBalances(
@@ -2725,6 +2834,7 @@ const KSEBOutstanding = () => {
             setOnAccount([]);
             setOlderReceipts([]);
             setReceipts([]);
+            setNotes([]);
             setOpeningBalances({});
             setOpeningBreakup({});
             setSecurityDeposits([]);
@@ -2770,6 +2880,9 @@ const KSEBOutstanding = () => {
                     excess: 0,
                     onAccount: 0,
                     received: 0,
+                    // Credit / debit notes of this ledger (this year).
+                    creditNotes: 0,
+                    debitNotes: 0,
                     maxOverdue: 0,
                     bills: [],
                     onAccountLines: [],
@@ -2829,6 +2942,13 @@ const KSEBOutstanding = () => {
             getRow(r.party, r).received += r.amount;
         });
 
+        notes.forEach((n) => {
+            const row = getRow(n.party, n);
+
+            row.creditNotes += Number(n.credit || 0);
+            row.debitNotes += Number(n.debit || 0);
+        });
+
         // Only deposits of a KSEB ledger make / join a ledger row: a
         // refund received straight into the bank must not list the bank.
         const isKsebLedger = (name) => ledgerKey(name).startsWith("kseb");
@@ -2849,7 +2969,7 @@ const KSEBOutstanding = () => {
         return [...map.values()]
             .map((r) => ({ ...r, net: r.pending - r.onAccount - r.excess }))
             .sort((a, b) => b.net - a.net || b.billed - a.billed);
-    }, [bills, onAccount, olderReceipts, receipts, openingBalances, openingBreakup, securityDeposits, depositOpening]);
+    }, [bills, onAccount, olderReceipts, receipts, notes, openingBalances, openingBreakup, securityDeposits, depositOpening]);
 
     const donutData = useMemo(() => {
         const totals = new Map();
@@ -2895,10 +3015,12 @@ const KSEBOutstanding = () => {
                     pending: t.pending + l.pending,
                     overdue: t.overdue + l.overdue,
                     received: t.received + l.received,
+                    creditNotes: t.creditNotes + l.creditNotes,
+                    debitNotes: t.debitNotes + l.debitNotes,
                     onAccount: t.onAccount + l.onAccount,
                     net: t.net + l.net,
                 }),
-                { pending: 0, overdue: 0, received: 0, onAccount: 0, net: 0 }
+                { pending: 0, overdue: 0, received: 0, creditNotes: 0, debitNotes: 0, onAccount: 0, net: 0 }
             ),
         [listedLedgers]
     );
@@ -2912,6 +3034,29 @@ const KSEBOutstanding = () => {
                 (!term || r.party.toLowerCase().includes(term) || String(r.bill_ref).toLowerCase().includes(term))
         );
     }, [receipts, distribution, search]);
+
+    const listedNotes = useMemo(() => {
+        const term = search.trim().toLowerCase();
+
+        return notes.filter(
+            (n) =>
+                (distribution === "all" || n.distribution === distribution) &&
+                (!term ||
+                    n.party.toLowerCase().includes(term) ||
+                    String(n.bill_ref).toLowerCase().includes(term) ||
+                    String(n.voucher_no).toLowerCase().includes(term) ||
+                    String(n.reference).toLowerCase().includes(term))
+        );
+    }, [notes, distribution, search]);
+
+    // Credit / debit notes this year in the selected distribution (sidebar).
+    const notesTotal = useMemo(
+        () =>
+            notes
+                .filter((n) => distribution === "all" || n.distribution === distribution)
+                .reduce((t, n) => ({ credit: t.credit + n.credit, debit: t.debit + n.debit }), { credit: 0, debit: 0 }),
+        [notes, distribution]
+    );
 
     // Received this year in the selected distribution (sidebar).
     const receivedTotal = useMemo(
@@ -3118,6 +3263,39 @@ const KSEBOutstanding = () => {
         );
     };
 
+    const exportNotes = () => {
+        const workbook = XLSX.utils.book_new();
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(
+                listedNotes.map((n) => ({
+                    Date: formatTallyDate(n.date),
+                    Type: n.note_type === "debit" ? "Debit Note" : "Credit Note",
+                    "Voucher Type": n.voucher_type,
+                    "Voucher No": n.voucher_no,
+                    "KSEB Ledger": n.party,
+                    Executive: n.executive,
+                    Distribution: n.distribution,
+                    Reference: n.reference,
+                    "Against Bill": n.bill_ref,
+                    "Bill Date": formatTallyDate(n.bill_date),
+                    "Adjusted To": ADJUSTED_TO[n.adjusted_to]?.label || n.adjusted_to,
+                    "Bill Balance": n.bill_balance ?? "",
+                    "Debit Note": n.debit || "",
+                    "Credit Note": n.credit || "",
+                    Note: n.narration || "",
+                }))
+            ),
+            "Credit Debit Notes"
+        );
+
+        XLSX.writeFile(
+            workbook,
+            `KSEB_Credit_Debit_Notes_${(distribution === "all" ? "All" : distribution).replace(/[\\/:*?"<>|]/g, "_")}_${asOf}.xlsx`
+        );
+    };
+
     // =====================================================
     // RENDER
     // =====================================================
@@ -3191,6 +3369,21 @@ const KSEBOutstanding = () => {
                         <div style={labelStyle}>RECEIVED SINCE {formatTallyDate(fromDate).toUpperCase()}</div>
                         <div style={{ fontSize: "22px", fontWeight: "800", marginTop: "4px", color: "#166534" }}>
                             {formatCompact(receivedTotal)}
+                        </div>
+                    </div>
+
+                    <div style={{ marginTop: "12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                        <div>
+                            <div style={labelStyle}>CREDIT NOTES</div>
+                            <div style={{ fontSize: "16px", fontWeight: "800", marginTop: "4px", color: "#166534" }}>
+                                {formatCompact(notesTotal.credit)}
+                            </div>
+                        </div>
+                        <div>
+                            <div style={labelStyle}>DEBIT NOTES</div>
+                            <div style={{ fontSize: "16px", fontWeight: "800", marginTop: "4px", color: "#B91C1C" }}>
+                                {formatCompact(notesTotal.debit)}
+                            </div>
                         </div>
                     </div>
 
@@ -3290,7 +3483,14 @@ const KSEBOutstanding = () => {
                                 <strong>{ledger.party}</strong>
                                 <div style={{ flex: 1 }} />
                                 <button type="button" onClick={() => setSelectedParty(null)} style={buttonStyle(false)}>
-                                    ← Back to {view === "receipts" ? "receipts" : view === "deposits" ? "security deposits" : "ledgers"}
+                                    ← Back to{" "}
+                                    {view === "receipts"
+                                        ? "receipts"
+                                        : view === "notes"
+                                          ? "credit / debit notes"
+                                          : view === "deposits"
+                                            ? "security deposits"
+                                            : "ledgers"}
                                 </button>
                             </>
                         )}
@@ -3330,7 +3530,9 @@ const KSEBOutstanding = () => {
                                     <div style={{ fontSize: "12px", color: "#64748B" }}>
                                         {view === "receipts"
                                             ? `${listedReceipts.length} receipt entries • click one for its ledger report`
-                                            : view === "deposits"
+                                            : view === "notes"
+                                              ? `${listedNotes.length} credit / debit note entries • click one for its ledger report`
+                                              : view === "deposits"
                                               ? `${listedDepositLedgers} ledgers • ${listedDeposits.length} security deposits • click a ledger for its deposits`
                                               : `${listedLedgers.length} ledgers • click a ledger for its ledger report`}
                                     </div>
@@ -3343,6 +3545,9 @@ const KSEBOutstanding = () => {
                                     <button type="button" onClick={() => setView("receipts")} style={buttonStyle(view === "receipts")}>
                                         Receipts
                                     </button>
+                                    <button type="button" onClick={() => setView("notes")} style={buttonStyle(view === "notes")}>
+                                        Credit / Debit Notes
+                                    </button>
                                     <button type="button" onClick={() => setView("deposits")} style={buttonStyle(view === "deposits")}>
                                         Security Deposit
                                     </button>
@@ -3351,6 +3556,16 @@ const KSEBOutstanding = () => {
                                             type="button"
                                             onClick={exportReceipts}
                                             disabled={!listedReceipts.length}
+                                            style={buttonStyle(false)}
+                                        >
+                                            Export Excel
+                                        </button>
+                                    )}
+                                    {view === "notes" && (
+                                        <button
+                                            type="button"
+                                            onClick={exportNotes}
+                                            disabled={!listedNotes.length}
                                             style={buttonStyle(false)}
                                         >
                                             Export Excel
@@ -3373,6 +3588,8 @@ const KSEBOutstanding = () => {
                                         placeholder={
                                             view === "receipts"
                                                 ? "Search ledger / bill..."
+                                                : view === "notes"
+                                                  ? "Search ledger / bill / voucher..."
                                                 : view === "deposits"
                                                   ? "Search ledger / reference..."
                                                   : "Search ledger..."
@@ -3420,6 +3637,16 @@ const KSEBOutstanding = () => {
                                             <div style={emptyStyle}>No security deposits found.</div>
                                         )}
                                     </>
+                                ) : view === "notes" ? (
+                                    listedNotes.length ? (
+                                        <NotesTable
+                                            notes={listedNotes}
+                                            showDistribution={distribution === "all"}
+                                            onOpenLedger={openLedger}
+                                        />
+                                    ) : (
+                                        <div style={emptyStyle}>No credit / debit notes found.</div>
+                                    )
                                 ) : view === "receipts" ? (
                                     listedReceipts.length ? (
                                         <ReceiptsTable
@@ -3440,6 +3667,8 @@ const KSEBOutstanding = () => {
                                                 <th style={thRight}>Pending</th>
                                                 <th style={thRight}>Overdue</th>
                                                 <th style={thRight}>Received</th>
+                                                <th style={thRight}>Credit Notes</th>
+                                                <th style={thRight}>Debit Notes</th>
                                                 <th style={thRight}>On Account</th>
                                                 <th style={thRight}>Net Outstanding</th>
                                                 <th style={thRight}>Oldest Overdue</th>
@@ -3473,6 +3702,12 @@ const KSEBOutstanding = () => {
                                                     <td style={{ ...tdRight, color: "#166534" }}>
                                                         {formatAmount(l.received)}
                                                     </td>
+                                                    <td style={{ ...tdRight, color: "#166534" }}>
+                                                        {formatAmount(l.creditNotes)}
+                                                    </td>
+                                                    <td style={{ ...tdRight, color: "#B91C1C" }}>
+                                                        {formatAmount(l.debitNotes)}
+                                                    </td>
                                                     <td style={{ ...tdRight, color: "#7C3AED" }}>
                                                         {formatAmount(l.onAccount)}
                                                     </td>
@@ -3495,6 +3730,12 @@ const KSEBOutstanding = () => {
                                                 </td>
                                                 <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>
                                                     {formatAmount(listTotal.received)}
+                                                </td>
+                                                <td style={{ ...tdRight, fontWeight: "800", color: "#166534" }}>
+                                                    {formatAmount(listTotal.creditNotes)}
+                                                </td>
+                                                <td style={{ ...tdRight, fontWeight: "800", color: "#B91C1C" }}>
+                                                    {formatAmount(listTotal.debitNotes)}
                                                 </td>
                                                 <td style={{ ...tdRight, fontWeight: "800", color: "#7C3AED" }}>
                                                     {formatAmount(listTotal.onAccount)}

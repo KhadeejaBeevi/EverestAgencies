@@ -125,7 +125,7 @@ const postTracking = async (body) => {
     return { json: null, response };
 };
 
-const callTracking = async (body) => {
+export const callTracking = async (body) => {
     const { json } = await postTracking(body);
 
     if (!json) {

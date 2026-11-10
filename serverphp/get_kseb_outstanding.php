@@ -194,6 +194,13 @@ try {
 |   balance = 0  -> cleared
 |   balance < 0  -> excess / advance received
 |
+| Credit / debit notes: the KSEB credit notes of salesdata have no
+| bill allocation (ADCBillName empty); the bill they are against is in
+| Reference (original invoice number). They are set against that bill
+| (opening bill or this year's sale) like an Agst Ref; a debit note
+| against no known bill is a bill of its own. All of them are returned
+| in notes, with the bill they went to (adjusted_to).
+|
 | "On Account" allocations are not against any bill: they are shown per
 | ledger as unadjusted amounts.
 |
@@ -1071,6 +1078,15 @@ function receiptVoucher(string $masterId, array $rows): array
             : $depRows;
 
         foreach ($source as $row) {
+            /* Bill date for the credit period: the bill's own date, else
+               the voucher date. BillCreditPeriod can be days ("540
+               Days") or a due date; a due date is counted from it. */
+            $depositBillDate = tallyDate($row["BillDate"] ?? "");
+
+            if ($depositBillDate === "") {
+                $depositBillDate = tallyDate(substr(cleanValue($row["Date"] ?? $first["Date"]), 0, 10));
+            }
+
             $deposits[] = [
                 "ledger" => (string)$name,
                 // Tally group of the deposit ledger (SECURITY DEPOSITS KSEB).
@@ -1078,7 +1094,11 @@ function receiptVoucher(string $masterId, array $rows): array
                 "bill_ref" => $billNameOf($row),
                 "bill_date" => cleanValue($row["BillDate"]),
                 "bill_type" => cleanValue($row["BillType"]),
-                "credit_days" => creditDays($row["BillCreditPeriod"]),
+                "credit_days" => billCreditDays($depositBillDate, $row["BillCreditPeriod"]),
+                // Raw period + date, so a 0 / 1 day period can take the
+                // ledger's credit period (see $lobCreditDays).
+                "credit_period" => cleanValue($row["BillCreditPeriod"]),
+                "credit_bill_date" => $depositBillDate,
                 "amount" => round(-(float)$row["Amount"], 2)
             ];
         }
@@ -2009,8 +2029,13 @@ try {
     /* Names looked up: every LOBPARENT, and every party (LOBNAME) as
        the fallback when its LOBPARENT has no credit period (a Tally
        group such as "SECURITY DEPOSITS KSEB" is usually not a row of
-       salesdatalatest33). Name key -> days. */
+       salesdatalatest33). Name key -> days.
+       $ledgerCreditDays holds the credit period of EVERY ledger of
+       salesdatalatest33 (days > 0), so this year's security deposits
+       (kseb_receipts), whose ledgers need not be in the XML, use the
+       same fallback. */
     $parentCreditDays = [];
+    $ledgerCreditDays = [];
     $parentNames = [];
     $lobParentsSeen = [];
 
@@ -2028,56 +2053,58 @@ try {
         }
     }
 
-    if ($parentNames) {
-        try {
-            $columns = $columns ?? array_column($pdo->query("SHOW COLUMNS FROM salesdatalatest33")->fetchAll(), "Field");
-            $creditColumn = null;
+    try {
+        $columns = $columns ?? array_column($pdo->query("SHOW COLUMNS FROM salesdatalatest33")->fetchAll(), "Field");
+        $creditColumn = null;
 
-            foreach (['$_EveBillCrPeriod', 'Ledger.$_EveBillCrPeriod', 'EveBillCrPeriod'] as $candidate) {
-                if (in_array($candidate, $columns, true)) {
-                    $creditColumn = $candidate;
-                    break;
-                }
+        foreach (['$_EveBillCrPeriod', 'Ledger.$_EveBillCrPeriod', 'EveBillCrPeriod'] as $candidate) {
+            if (in_array($candidate, $columns, true)) {
+                $creditColumn = $candidate;
+                break;
             }
+        }
 
-            if ($creditColumn === null) {
-                throw new RuntimeException("salesdatalatest33 has no \$_EveBillCrPeriod column");
-            }
+        if ($creditColumn === null) {
+            throw new RuntimeException("salesdatalatest33 has no \$_EveBillCrPeriod column");
+        }
 
-            /* Every row with a credit period, matched here by name key
-               (spaces collapsed, case ignored), so "C/o  Libin" with two
-               spaces still matches. */
-            $creditStmt = $pdo->query("
-                SELECT
-                    TRIM(PartyLedgerName) AS ledger,
-                    MAX(`{$creditColumn}`) AS credit_period
-                FROM salesdatalatest33
-                WHERE
-                    TRIM(COALESCE(PartyLedgerName, '')) <> ''
-                    AND TRIM(COALESCE(`{$creditColumn}`, '')) <> ''
-                GROUP BY TRIM(PartyLedgerName)
-            ");
+        /* Every row with a credit period, matched here by name key
+           (spaces collapsed, case ignored), so "C/o  Libin" with two
+           spaces still matches. */
+        $creditStmt = $pdo->query("
+            SELECT
+                TRIM(PartyLedgerName) AS ledger,
+                MAX(`{$creditColumn}`) AS credit_period
+            FROM salesdatalatest33
+            WHERE
+                TRIM(COALESCE(PartyLedgerName, '')) <> ''
+                AND TRIM(COALESCE(`{$creditColumn}`, '')) <> ''
+            GROUP BY TRIM(PartyLedgerName)
+        ");
 
-            while ($credit = $creditStmt->fetch()) {
-                $key = ledgerKey($credit["ledger"]);
-                $days = creditDays($credit["credit_period"]);
+        while ($credit = $creditStmt->fetch()) {
+            $key = ledgerKey($credit["ledger"]);
+            $days = creditDays($credit["credit_period"]);
 
-                if ($days > 0 && isset($parentNames[$key])) {
+            if ($days > 0) {
+                $ledgerCreditDays[$key] = $days;
+
+                if (isset($parentNames[$key])) {
                     $parentCreditDays[$key] = $days;
                 }
             }
-
-            $creditStmt->closeCursor();
-
-        } catch (Throwable $e) {
-            error_log("KSEB OUTSTANDING LOBPARENT CREDIT PERIOD ERROR: " . $e->getMessage());
-            $warnings[] = "LOBPARENT credit periods (salesdatalatest33) could not be read - opening bills use the LOB Report credit period.";
         }
+
+        $creditStmt->closeCursor();
+
+    } catch (Throwable $e) {
+        error_log("KSEB OUTSTANDING LOBPARENT CREDIT PERIOD ERROR: " . $e->getMessage());
+        $warnings[] = "Ledger credit periods (salesdatalatest33) could not be read - opening bills and security deposits use their own credit period.";
     }
 
     /* LOB credit days of a bill, see above. Returns [days, taken from
        the LOBPARENT]. */
-    $lobCreditDays = function (string $billDate, string $period, string $parent, string $party = "") use ($parentCreditDays): array {
+    $lobCreditDays = function (string $billDate, string $period, string $parent, string $party = "") use ($ledgerCreditDays): array {
         $credit = billCreditDays($billDate, $period);
 
         if ($credit > 1) {
@@ -2088,8 +2115,8 @@ try {
         foreach ([$parent, $party] as $name) {
             $key = ledgerKey($name);
 
-            if ($key !== "" && isset($parentCreditDays[$key])) {
-                return [$parentCreditDays[$key], true];
+            if ($key !== "" && isset($ledgerCreditDays[$key])) {
+                return [$ledgerCreditDays[$key], true];
             }
         }
 
@@ -2329,6 +2356,20 @@ try {
             }
 
             foreach ($voucher["deposits"] as $d) {
+                /* Like the opening deposits: a credit period of 1 day or
+                   less (due date = bill date, "0" / "1 Days" or none)
+                   takes the credit period of the deposit's group
+                   (SECURITY DEPOSITS KSEB), else of the deposit ledger
+                   itself (salesdatalatest33 $_EveBillCrPeriod). */
+                $creditBillDate = $d["credit_bill_date"] !== "" ? $d["credit_bill_date"] : $voucherDate;
+                [$d["credit_days"], $d["credit_from_ledger"]] = $lobCreditDays(
+                    $creditBillDate,
+                    $d["credit_period"],
+                    (string)($d["ledger_group"] ?? ""),
+                    (string)$d["ledger"]
+                );
+                unset($d["credit_period"], $d["credit_bill_date"]);
+
                 $depositEntries[] = $d + [
                     "master_id" => (string)$masterId,
                     "date" => $voucherDate,
@@ -2603,6 +2644,59 @@ try {
         $allocations[] = $entry;
     }
 
+    /* Credit / debit notes without a bill allocation. The KSEB credit
+       notes of the export carry no ADCBillName / ADCBillType: the bill
+       they are against is in Reference (the original invoice number,
+       "EV/26-27/BB03829"). Like Tally's Agst Ref they go to that bill
+       when it is an opening bill or a sale / debit note of the same
+       ledger. A debit note that is against no known bill is a bill of
+       its own (New Ref, its voucher number), like a sale. Anything else
+       stays On Account. */
+    $knownBills = [];
+
+    foreach ($openingBills as $partyKey => $list) {
+        foreach ($list as $ob) {
+            if ($ob["bill_ref"] !== "" && strcasecmp($ob["bill_ref"], "On Account") !== 0) {
+                $knownBills[$partyKey . "|" . strtolower($ob["bill_ref"])] = $ob["bill_ref"];
+            }
+        }
+    }
+
+    foreach ($allocations as $a) {
+        if ($a["bill_ref"] !== "" && $a["amount"] > 0 && preg_match('/sales|debit/i', $a["voucher_type"]) === 1) {
+            $partyKey = ledgerKey($a["party"]);
+
+            $knownBills[$partyKey . "|" . strtolower($a["bill_ref"])] = $a["bill_ref"];
+
+            // Reference may hold the invoice (voucher) number of a bill
+            // whose bill name differs.
+            if ($a["voucher_no"] !== "" && !isset($knownBills[$partyKey . "|" . strtolower($a["voucher_no"])])) {
+                $knownBills[$partyKey . "|" . strtolower($a["voucher_no"])] = $a["bill_ref"];
+            }
+        }
+    }
+
+    foreach ($allocations as &$a) {
+
+        if ($a["bill_ref"] !== ""
+            || strcasecmp($a["bill_type"], "On Account") === 0
+            || preg_match('/credit|debit/i', $a["voucher_type"]) !== 1
+            || stripos($a["voucher_type"], "sales") !== false) {
+            continue;
+        }
+
+        $byReference = ledgerKey($a["party"]) . "|" . strtolower($a["reference"]);
+
+        if ($a["reference"] !== "" && isset($knownBills[$byReference])) {
+            $a["bill_ref"] = $knownBills[$byReference];
+            $a["bill_type"] = "Agst Ref";
+        } elseif (stripos($a["voucher_type"], "debit") !== false && $a["amount"] > 0 && $a["voucher_no"] !== "") {
+            $a["bill_ref"] = $a["voucher_no"];
+            $a["bill_type"] = "New Ref";
+        }
+    }
+    unset($a);
+
     usort($allocations, function ($a, $b) {
         return strcmp($a["date"], $b["date"]);
     });
@@ -2816,8 +2910,8 @@ try {
 
         $isCreditNote = stripos($v["voucher_type"], "credit") !== false;
 
-        // Same credit note already in salesdata (with its bill names).
-        if ($isCreditNote
+        // Same credit / debit note already in salesdata (with its bill names).
+        if (($isCreditNote || stripos($v["voucher_type"], "debit") !== false)
             && (isset($salesVoucherIds[$v["master_id"]])
                 || ($v["voucher_no"] !== "" && isset($salesVoucherNos[strtolower($v["voucher_no"])])))) {
             continue;
@@ -3206,6 +3300,90 @@ try {
         return strcmp($b["date"], $a["date"]);
     });
 
+    /* =========================================================
+       CREDIT NOTES / DEBIT NOTES - every KSEB note allocation
+
+       From salesdata (and the credit / debit notes of kseb_receipts
+       that salesdata does not have). credit = reduces the bill (Cr),
+       debit = adds to it (Dr).
+
+       adjusted_to: bill / opening / older (bill not in this data) /
+                    own_bill (debit note that is a bill itself) /
+                    not_identified / on_account
+    ========================================================= */
+
+    $notes = [];
+
+    foreach ($allocations as $a) {
+
+        if (preg_match('/credit|debit/i', $a["voucher_type"]) !== 1
+            || stripos($a["voucher_type"], "sales") !== false) {
+            continue;
+        }
+
+        $partyKey = ledgerKey($a["party"]);
+        $refKey = $partyKey . "|" . strtolower($a["bill_ref"]);
+        $isDebitNote = stripos($a["voucher_type"], "debit") !== false;
+
+        $isOnAccount = $a["bill_ref"] === ""
+            || strcasecmp($a["bill_type"], "On Account") === 0
+            || $a["bill_type"] === "";
+
+        if (!empty($a["unmatched"])) {
+            $adjustedTo = "not_identified";
+        } elseif ($isOnAccount) {
+            $adjustedTo = "on_account";
+        } elseif (isset($refs[$refKey]) && !$refs[$refKey]["has_new_ref"]) {
+            $adjustedTo = "older";
+        } elseif (isset($refs[$refKey]) && $refs[$refKey]["is_opening"]) {
+            $adjustedTo = "opening";
+        } elseif ($isDebitNote && strcasecmp($a["bill_type"], "New Ref") === 0
+            && strcasecmp($a["bill_ref"], $a["voucher_no"]) === 0) {
+            $adjustedTo = "own_bill";
+        } else {
+            $adjustedTo = "bill";
+        }
+
+        $bill = $billStatus[$refKey] ?? null;
+        $distribution = $directory[$partyKey] ?? "";
+        $amount = round($a["amount"], 2);
+
+        $notes[] = [
+            "date" => $a["date"],
+            "sales_id" => $a["sales_id"],
+            "voucher_type" => $a["voucher_type"],
+            "voucher_no" => $a["voucher_no"],
+            "note_type" => $isDebitNote ? "debit" : "credit",
+            "party" => $a["party"],
+            "executive" => $ledgerInfo[$partyKey]["executive"] ?? "",
+            "distribution" => $distribution !== "" ? $distribution : "Unmapped",
+            // Original invoice number written on the note.
+            "reference" => $a["reference"],
+            "bill_ref" => $a["bill_ref"],
+            "bill_type" => $a["bill_type"],
+            "adjusted_to" => $adjustedTo,
+            "bill_date" => $bill["bill_date"] ?? "",
+            "bill_amount" => $bill["bill_amount"] ?? null,
+            "bill_balance" => $bill["balance"] ?? null,
+            "narration" => $a["narration"],
+            // Page sign: + = Dr (adds to what KSEB owes), - = Cr.
+            "amount" => $amount,
+            "debit" => $amount > 0 ? $amount : 0,
+            "credit" => $amount < 0 ? -$amount : 0
+        ];
+    }
+
+    usort($notes, function ($a, $b) {
+        return strcmp($b["date"], $a["date"]) ?: strnatcasecmp($b["voucher_no"], $a["voucher_no"]);
+    });
+
+    $summary["credit_notes_count"] = count(array_filter($notes, function ($n) {
+        return $n["note_type"] === "credit";
+    }));
+    $summary["debit_notes_count"] = count($notes) - $summary["credit_notes_count"];
+    $summary["credit_notes_amount"] = (float)array_sum(array_column($notes, "credit"));
+    $summary["debit_notes_amount"] = (float)array_sum(array_column($notes, "debit"));
+
     /* On Account per ledger. Positive = received, not set against a bill. */
 
     $onAccountRows = [];
@@ -3565,6 +3743,11 @@ try {
             "sales_id" => $d["master_id"],
             "bill_ref" => $d["bill_ref"],
             "bill_type" => $d["bill_type"],
+            "credit_days" => $d["credit_days"],
+            "credit_from_ledger" => $d["credit_from_ledger"] ?? false,
+            "due_date" => $d["amount"] > 0 && $d["credit_days"] > 0
+                ? (new DateTime($d["date"]))->modify("+" . $d["credit_days"] . " days")->format("Y-m-d")
+                : "",
             "amount" => $d["amount"]
         ];
 
@@ -3818,6 +4001,30 @@ try {
         return strcmp($a["date"], $b["date"]);
     });
 
+    /* Credit days of the ledgers shown on the page (salesdatalatest33
+       $_EveBillCrPeriod), by ledger key: the KSEB ledgers (Supply
+       Chain tab) and their security deposit ledgers (Security Deposit
+       tab). Only these, not every ledger of the table. */
+    $pageLedgerCreditDays = [];
+
+    foreach (array_merge(
+        array_column($ledgerInfo, "party"),
+        array_values($openingNames),
+        array_column($securityDeposits, "deposit_ledger"),
+        array_keys($depositOpeningBreakup)
+    ) as $name) {
+        $key = ledgerKey($name);
+
+        if ($key !== "" && isset($ledgerCreditDays[$key])) {
+            $pageLedgerCreditDays[$key] = $ledgerCreditDays[$key];
+        }
+    }
+
+    // The deposit group's own credit period, when it has one.
+    if (isset($ledgerCreditDays[ledgerKey(DEPOSIT_GROUP)])) {
+        $pageLedgerCreditDays[ledgerKey(DEPOSIT_GROUP)] = $ledgerCreditDays[ledgerKey(DEPOSIT_GROUP)];
+    }
+
     /* =========================================================
        7. RESPONSE
 
@@ -3847,6 +4054,8 @@ try {
             "on_account" => $onAccountRows,
             "older_receipts" => $olderReceipts,
             "receipts" => $receipts,
+            // Every KSEB credit / debit note with the bill it went to.
+            "notes" => $notes,
             "opening_balances" => (object)$openingBalances,
             "opening_breakup" => (object)$openingBreakup,
             "vouchers" => (object)$vouchers,
@@ -3856,6 +4065,8 @@ try {
             // salesdatalatest33 with its credit days.
             "lob_parents_in_xml" => array_keys($lobParentsSeen),
             "lob_parent_credit_days" => (object)$parentCreditDays,
+            // { ledger key: credit days } of the KSEB and deposit ledgers.
+            "ledger_credit_days" => (object)$pageLedgerCreditDays,
             "warnings" => $warnings
         ],
         JSON_UNESCAPED_UNICODE |

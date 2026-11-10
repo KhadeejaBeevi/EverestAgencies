@@ -71,6 +71,7 @@ import KSEBOutstanding from "./pages/kseb/KSEBOutstanding";
 import KsebOverallSales from "./pages/kseb/KSEBOverallSales";
 import KsebLocationReport from "./pages/kseb/KsebLocationReport";
 import KsebDetailReport from "./pages/kseb/KsebDetailReport";
+import KsebDashboard from "./pages/kseb/KsebDashboard";
 import SolarCustomers from "./pages/Solar/SolarCustomers";
 import LeadContributionReport from "./pages/newpartydetails/LeadContributionReport";
 import LeadCallReport from "./pages/newpartydetails/LeadCallReport";
@@ -144,6 +145,9 @@ function App() {
             <PageAccess />
           </ProtectedRoute>} />
 
+
+        {/* KSEB Dashboard: cards for the KSEB pages the user can open */}
+        <Route path="/kseb" element={<KsebDashboard />} />
 
         <Route path="/ksebuserdashboard" element={
           <ProtectedRoute page="KSEB User Dashboard">

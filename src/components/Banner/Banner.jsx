@@ -272,8 +272,7 @@ function Banner() {
       icon: ContactRound,
       children: [
         { label: "Sales CRM", icon: ContactRound, to: "/salescrm" },
-        { label: "Stock Items", icon: Boxes, to: "/CRMstockitem" },
-        { label: "Stock Check", icon: ClipboardCheck, to: "/stock-check" },
+        { label: "New Lead GEN", icon: UserPlus, to: "/newpartyledgerdetails" },
       ],
     },
     {
@@ -284,7 +283,8 @@ function Banner() {
         { label: "Pending Orders", icon: PackageSearch, to: "/salesorders" },
         { label: "LR Details", icon: Truck, to: "/lrdetails" },
         { label: "Site Visits", icon: MapPinned, to: "/salessitevisit" },
-        { label: "New Lead GEN", icon: UserPlus, to: "/newpartyledgerdetails" },
+        { label: "Stock Items", icon: Boxes, to: "/CRMstockitem" },
+        { label: "Stock Check", icon: ClipboardCheck, to: "/stock-check" },
       ],
     },
     {

@@ -183,6 +183,10 @@ const KSEB_ALLOWED_EXTENSIONS = [
 
 const KSEB_RECEIPTS_TABLE = "kseb_receipts";
 
+// Security Deposit kept back by KSEB is due for refund this many days
+// after the receipt date. After that it is shown as SD Overdue.
+const KSEB_SD_REFUND_DAYS = 540;
+
 // Settled amount may be this much (in rupees) below the invoice
 // amount and still count as fully paid (Tally round-off).
 const KSEB_RECEIPT_TOLERANCE = 1.00;
@@ -652,10 +656,15 @@ function kseb_receipt_entry(array $voucher, string $invoiceKey): array
     }
 
     $bankAccounts = [];
+    $bankLines = [];
 
     foreach ($voucher["bank_accounts"] as $ledger => $amount) {
         if (abs($amount) >= 0.005) {
             $bankAccounts[] = $ledger;
+            $bankLines[] = [
+                "ledger" => $ledger,
+                "amount" => round($amount * $share, 2)
+            ];
         }
     }
 
@@ -664,6 +673,8 @@ function kseb_receipt_entry(array $voucher, string $invoiceKey): array
         "voucher_id" => $voucher["voucher_id"],
         "party" => $voucher["party"],
         "bank_accounts" => $bankAccounts,
+        // This invoice's share of each bank account credited.
+        "bank_lines" => $bankLines,
         "credited_to_bank" => $voucher["bank_amount"] > 0.005,
         // This invoice
         "settled_amount" => round($settled, 2),
@@ -678,12 +689,21 @@ function kseb_receipt_entry(array $voucher, string $invoiceKey): array
 
 // Totals of a list of entries of one invoice. Only vouchers that were
 // credited to a bank count as received.
+// Deduction ledger that is a Security Deposit (e.g. "Security Deposit
+// with KSEB EC Kasaragod", "SD - KSEB", "EMD").
+function kseb_is_sd_ledger(string $ledger): bool
+{
+    return (bool)preg_match('/security|deposit|\bsd\b|\bemd\b/i', $ledger);
+}
+
 function kseb_receipt_totals_of(array $entries): array
 {
     $received = 0.0;
     $bank = 0.0;
     $lastDate = "";
     $accounts = [];
+    $deposits = [];
+    $sdTotal = 0.0;
 
     foreach ($entries as $entry) {
         if (!$entry["credited_to_bank"]) {
@@ -697,9 +717,27 @@ function kseb_receipt_totals_of(array $entries): array
         foreach ($entry["bank_accounts"] as $account) {
             $accounts[$account] = true;
         }
+
+        // Security Deposit kept back on this receipt, with its refund due date.
+        foreach ($entry["deductions"] as $deduction) {
+            if ($deduction["amount"] > 0 && kseb_is_sd_ledger((string)$deduction["ledger"])) {
+                $deposits[] = [
+                    "date" => $entry["date"],
+                    "ledger" => $deduction["ledger"],
+                    "amount" => $deduction["amount"],
+                    "voucher_id" => $entry["voucher_id"],
+                    "due_date" => $entry["date"] !== ""
+                        ? date("Y-m-d", strtotime($entry["date"] . " +" . KSEB_SD_REFUND_DAYS . " days"))
+                        : ""
+                ];
+                $sdTotal += $deduction["amount"];
+            }
+        }
     }
 
     return [
+        "security_deposits" => $deposits,
+        "sd_amount" => round($sdTotal, 2),
         "received" => round($received, 2),
         "bank_amount" => round($bank, 2),
         "deductions" => round($received - $bank, 2),
@@ -743,6 +781,175 @@ function kseb_invoice_receipts(mysqli $conn, string $invoiceKey): array
     }
 
     return $entries;
+}
+
+/*
+|--------------------------------------------------------------------------
+| SECURITY DEPOSITS BY PO (DD PAYMENTS + REFUNDS)
+|--------------------------------------------------------------------------
+|
+| Besides the deposit KSEB cuts from a receipt, we also give Security
+| Deposit ourselves:
+|   - paid (DD / bank): a Payment voucher in kseb_receipts with a line
+|     of a deposit ledger (Tally group "SECURITY DEPOSITS KSEB", or a
+|     ledger named ...deposit... / ...retention...)
+|   - bank guarantee: a line of a ledger named ...guarantee... / BG
+| The bill allocation carries the LPO (PO number) as reference - same
+| rules as get_kseb_outstanding.php. kseb_receipts does not say whether
+| a payment was a DD or a transfer, so it is shown as "Paid".
+|
+| Tally sign: Dr = minus, Cr = plus.
+|   Payment, deposit ledger Dr        -> deposit paid      (kind PAID)
+|   any voucher, guarantee ledger Dr  -> bank guarantee    (kind BG)
+|   any voucher, deposit / BG ledger Cr -> refunded / released
+|
+| Returned per PO key (same key as the page's getPoKey):
+|   [po_key => ["paid" => [...], "refunds" => [...], "refunded" => float]]
+*/
+
+const KSEB_DEPOSIT_GROUP = "SECURITY DEPOSITS KSEB";
+
+// "LPO/6112/2024-25/00001, dt 24-5-24" -> "lpo/6112/2024-25/00001"
+// (same as getPoKey() in KSEBInvoices.jsx).
+function kseb_po_key($value): string
+{
+    $text = function_exists("mb_strtolower")
+        ? mb_strtolower((string)$value, "UTF-8")
+        : strtolower((string)$value);
+
+    $text = preg_split('/[\s,.(]*\b(?:dt|dtd|dated|date)\b/', $text)[0];
+    $text = preg_replace('/\s+/', '', $text);
+    $text = preg_replace('/[.,;:\/-]+$/', '', $text);
+
+    return preg_match('/\d/', $text) ? $text : "";
+}
+
+function kseb_po_deposits(mysqli $conn): array
+{
+    if (!kseb_receipts_available($conn)) {
+        return [];
+    }
+
+    $table = "`" . KSEB_RECEIPTS_TABLE . "`";
+    $nameFilter = "(LOWER(COALESCE(LedgerName, '')) LIKE '%deposit%'
+                    OR LOWER(COALESCE(LedgerName, '')) LIKE '%retention%'
+                    OR LOWER(COALESCE(LedgerName, '')) LIKE '%guarantee%'
+                    OR LOWER(COALESCE(LedgerName, '')) LIKE '%bg%')";
+
+    // ParentGroup is optional (older imports): retry without it.
+    $result = $conn->query(
+        "SELECT MasterId, VoucherTypeName, VoucherNumber, Date, LedgerName,
+                Amount, BillName, BillType, ParentGroup
+         FROM " . $table . "
+         WHERE TRIM(COALESCE(ParentGroup, '')) = '" . KSEB_DEPOSIT_GROUP . "' OR " . $nameFilter . "
+         ORDER BY Date ASC, id ASC"
+    );
+
+    if (!$result) {
+        $result = $conn->query(
+            "SELECT MasterId, VoucherTypeName, VoucherNumber, Date, LedgerName,
+                    Amount, BillName, BillType, NULL AS ParentGroup
+             FROM " . $table . "
+             WHERE " . $nameFilter . "
+             ORDER BY Date ASC, id ASC"
+        );
+    }
+
+    if (!$result) {
+        return [];
+    }
+
+    // [MasterId|ledger => ["lines" => [...], "allocations" => [...]]]
+    $groups = [];
+
+    while ($row = $result->fetch_assoc()) {
+        $ledger = trim((string)($row["LedgerName"] ?? ""));
+        $parent = trim((string)($row["ParentGroup"] ?? ""));
+
+        // Bank guarantee ledgers are taken by their name. Other lines:
+        // ledgers of the deposit group (ParentGroup), or - for rows
+        // imported without ParentGroup - ledgers named deposit / retention.
+        $isGuarantee = (bool)preg_match('/guarantee|\bbg\b/i', $ledger);
+        $isDeposit = $parent !== ""
+            ? strcasecmp($parent, KSEB_DEPOSIT_GROUP) === 0
+            : (bool)preg_match('/deposit|retention/i', $ledger);
+
+        if (!$isGuarantee && !$isDeposit) {
+            continue;
+        }
+
+        if ($row["Amount"] === null || $ledger === "") {
+            continue;
+        }
+
+        $id = (string)$row["MasterId"] . "|" . kseb_invoice_key($ledger);
+        $isAllocation = trim((string)($row["BillName"] ?? "")) !== ""
+            && trim((string)($row["BillType"] ?? "")) !== "";
+
+        $groups[$id][$isAllocation ? "allocations" : "lines"][] = $row;
+    }
+
+    $result->free();
+
+    $byPo = [];
+
+    foreach ($groups as $group) {
+        $lines = $group["lines"] ?? [];
+        $allocations = $group["allocations"] ?? [];
+
+        $sum = fn($list) => array_sum(array_map(fn($r) => (float)$r["Amount"], $list));
+
+        // The allocations carry the LPO reference; use them when they
+        // add up to the ledger line (or when there is no ledger line).
+        $source = $allocations && (!$lines || abs($sum($allocations) - $sum($lines)) < 0.01)
+            ? $allocations
+            : $lines;
+
+        foreach ($source as $row) {
+            $poKey = kseb_po_key($row["BillName"] ?? "");
+
+            if ($poKey === "") {
+                continue;
+            }
+
+            $amount = (float)$row["Amount"];
+            $type = strtolower(trim((string)($row["VoucherTypeName"] ?? "")));
+            $isGuarantee = (bool)preg_match('/guarantee|\bbg\b/i', (string)$row["LedgerName"]);
+            $entry = [
+                "date" => kseb_invoice_date($row["Date"] ?? ""),
+                "voucher_type" => trim((string)($row["VoucherTypeName"] ?? "")),
+                "voucher_no" => trim((string)($row["VoucherNumber"] ?? "")),
+                "ledger" => trim((string)$row["LedgerName"]),
+                "bill_ref" => trim((string)$row["BillName"]),
+                "amount" => round(abs($amount), 2)
+            ];
+
+            if (!isset($byPo[$poKey])) {
+                $byPo[$poKey] = ["paid" => [], "refunds" => [], "refunded" => 0.0];
+            }
+
+            if ($amount < 0 && ($isGuarantee || strpos($type, "payment") === 0)) {
+                // Deposit we gave: paid (Payment voucher) or bank guarantee.
+                $entry["kind"] = $isGuarantee ? "BG" : "PAID";
+                $entry["due_date"] = $entry["date"] !== ""
+                    ? date("Y-m-d", strtotime($entry["date"] . " +" . KSEB_SD_REFUND_DAYS . " days"))
+                    : "";
+                $byPo[$poKey]["paid"][] = $entry;
+            } elseif ($amount > 0) {
+                // Deposit given back by KSEB.
+                $byPo[$poKey]["refunds"][] = $entry;
+                $byPo[$poKey]["refunded"] += $entry["amount"];
+            }
+        }
+    }
+
+    foreach ($byPo as &$item) {
+        $item["refunded"] = round($item["refunded"], 2);
+    }
+
+    unset($item);
+
+    return $byPo;
 }
 
 function kseb_money(float $amount): string
@@ -1108,6 +1315,9 @@ function kseb_invoice_details(
         "bank_amount" => $receiptTotals["bank_amount"],
         "deductions_amount" => $receiptTotals["deductions"],
         "bank_accounts" => $receiptTotals["bank_accounts"],
+        "security_deposits" => $receiptTotals["security_deposits"],
+        "sd_amount" => $receiptTotals["sd_amount"],
+        "sd_refund_days" => KSEB_SD_REFUND_DAYS,
         "invoice_amount" => $invoiceAmount,
         "paid_by_receipts" => $paidByReceipts
     ];
@@ -1140,12 +1350,16 @@ try {
                 "current_step" => KSEB_AUTO_STEP,
                 "documents" => 0,
                 "doc_types" => [],
+                // Every saved step (used for the Payment Sanctioned filter).
+                "step_keys" => [KSEB_AUTO_STEP],
                 "received_amount" => 0,
                 "bank_amount" => 0,
                 "deductions_amount" => 0,
                 "bank_accounts" => [],
                 "receipt_count" => 0,
                 "last_receipt_date" => "",
+                "security_deposits" => [],
+                "sd_amount" => 0,
                 "paid_by_receipts" => false
             ];
 
@@ -1170,6 +1384,10 @@ try {
 
                 if (!isset($summary[$key])) {
                     $summary[$key] = $newEntry();
+                }
+
+                if (!in_array($step, $summary[$key]["step_keys"], true)) {
+                    $summary[$key]["step_keys"][] = $step;
                 }
 
                 $summary[$key]["done_steps"]++;
@@ -1250,6 +1468,8 @@ try {
                 $summary[$key]["bank_accounts"] = $receipt["bank_accounts"];
                 $summary[$key]["receipt_count"] = $receipt["count"];
                 $summary[$key]["last_receipt_date"] = $receipt["last_date"];
+                $summary[$key]["security_deposits"] = $receipt["security_deposits"];
+                $summary[$key]["sd_amount"] = $receipt["sd_amount"];
 
                 if (kseb_is_fully_paid($invoiceAmounts[$key] ?? null, $receipt["received"])) {
                     $summary[$key]["paid_by_receipts"] = true;
@@ -1276,6 +1496,9 @@ try {
                 "steps" => kseb_steps_list(),
                 "doc_types" => kseb_doc_types_list(),
                 "receipt_check" => $receiptCheck,
+                "sd_refund_days" => KSEB_SD_REFUND_DAYS,
+                // Security Deposit paid by DD / refunded, per PO number.
+                "po_deposits" => (object)($receiptCheck ? kseb_po_deposits($conn) : []),
                 "data" => (object)$summary
             ]);
 

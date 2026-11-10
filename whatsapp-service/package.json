@@ -1,0 +1,17 @@
+{
+  "name": "everest-whatsapp-service",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Links the company WhatsApp by QR code, stores chats in MySQL and sends messages for the Inbox page.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "mysql2": "^3.11.0",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}

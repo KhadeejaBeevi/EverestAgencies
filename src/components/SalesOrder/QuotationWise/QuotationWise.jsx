@@ -289,6 +289,34 @@ const QuotationWise = () => {
         }
     }, [viewMode, statusFilter, customerTypeFilter, sortOrder, quotationSort]);
 
+    // Quotation No -> WhatsApp reply status from Everest Connect
+    // ("replied" / "followed_up" / "no_reply"), when users have linked their
+    // WhatsApp. If the same quotation went to several numbers, the best wins.
+    const [whatsappReplyByQuotation, setWhatsappReplyByQuotation] = useState({});
+
+    const fetchWhatsappReplies = async () => {
+        try {
+            const response = await apiFetch(`${API}/whatsapp_inbox.php`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+                body: JSON.stringify({ action: "quotations" })
+            });
+            const result = await response.json();
+            if (!result?.success || !Array.isArray(result.data)) return;
+            const rank = { replied: 3, followed_up: 2, no_reply: 1 };
+            const map = {};
+            result.data.forEach((item) => {
+                const key = String(item.quotation_no || "").trim();
+                if (!key) return;
+                if (!map[key] || rank[item.status] > rank[map[key].status]) map[key] = item;
+            });
+            setWhatsappReplyByQuotation(map);
+        } catch (error) {
+            // Everest Connect not set up yet: the page works without it.
+            console.error("WhatsApp reply status error:", error);
+        }
+    };
+
     // Quotation No -> its WhatsApp log entries (newest first).
     const whatsappLogByQuotation = useMemo(() => {
         const map = {};
@@ -318,6 +346,7 @@ const QuotationWise = () => {
         fetchSalesOrders();
         fetchLongTermClients();
         fetchWhatsappLog();
+        fetchWhatsappReplies();
         fetchWhatsappTemplates();
     }, []);
 
@@ -1241,6 +1270,12 @@ const QuotationWise = () => {
                 if (followupQuickFilter === "wa_sent") {
                     return (whatsappLogByQuotation[quotationNo] || []).length > 0;
                 }
+                if (followupQuickFilter === "wa_no_reply") {
+                    return whatsappReplyByQuotation[quotationNo]?.status === "no_reply";
+                }
+                if (followupQuickFilter === "wa_replied") {
+                    return whatsappReplyByQuotation[quotationNo]?.status === "replied";
+                }
 
                 if (!followupDate) return false;
 
@@ -1365,6 +1400,7 @@ const QuotationWise = () => {
         telecallerName,
         userRole,
         whatsappLogByQuotation,
+        whatsappReplyByQuotation,
         longTermClients
     ]);
 
@@ -2431,6 +2467,10 @@ const QuotationWise = () => {
                                     ? "WhatsApp Not Sent"
                                     : followupQuickFilter === "wa_sent"
                                     ? "WhatsApp Sent"
+                                    : followupQuickFilter === "wa_no_reply"
+                                    ? "WhatsApp Reply Not Come"
+                                    : followupQuickFilter === "wa_replied"
+                                    ? "WhatsApp Customer Replied"
                                     : viewMode === "date"
                                         ? "Quotations In Date Wise"
                                         : "Quotations In Party Wise"}
@@ -3201,6 +3241,8 @@ const QuotationWise = () => {
                             <option value="week">Last 7 Days Follow-ups</option>
                             <option value="wa_not_sent">WhatsApp Not Sent</option>
                             <option value="wa_sent">WhatsApp Sent</option>
+                            <option value="wa_no_reply">WhatsApp Reply Not Come</option>
+                            <option value="wa_replied">WhatsApp Customer Replied</option>
                             {getCurrentWeekFollowupOptions().map((option) => (
                                 <option key={option.value} value={`date:${option.value}`}>
                                     {option.label}
@@ -4434,6 +4476,35 @@ const QuotationWise = () => {
                                                                         <div>
                                                                             Last: {formatDateTime(last.created_at)} by {last.sent_by}
                                                                         </div>
+                                                                        {(() => {
+                                                                            const reply = whatsappReplyByQuotation[quotationNo];
+                                                                            if (!reply) return null;
+                                                                            const look = {
+                                                                                replied: { text: "↩ Customer replied", color: "#035388", bg: "#dbeefe" },
+                                                                                followed_up: { text: "⏳ Followed up, no reply", color: "#7a5a00", bg: "#fff4cc" },
+                                                                                no_reply: {
+                                                                                    text: `⚠ Reply not come${reply.days_waiting > 0 ? ` · ${reply.days_waiting}d` : ""}`,
+                                                                                    color: "#9b1c1c",
+                                                                                    bg: "#fde2e2"
+                                                                                }
+                                                                            }[reply.status];
+                                                                            if (!look) return null;
+                                                                            return (
+                                                                                <div
+                                                                                    title={reply.first_reply ? `Reply: ${reply.first_reply}` : ""}
+                                                                                    style={{
+                                                                                        marginTop: "4px",
+                                                                                        padding: "2px 6px",
+                                                                                        borderRadius: "3px",
+                                                                                        background: look.bg,
+                                                                                        color: look.color,
+                                                                                        fontWeight: "800"
+                                                                                    }}
+                                                                                >
+                                                                                    {look.text}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
                                                                     </button>
                                                                 );
                                                             })()}

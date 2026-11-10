@@ -1,0 +1,219 @@
+/* =====================================================
+   KSEB DASHBOARD
+===================================================== */
+
+.kseb-dash-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* ================= HERO ================= */
+
+.kseb-dash-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  background: #0f4c81;
+  color: #fff;
+  border-radius: 24px;
+  padding: 24px 28px;
+  box-shadow: 0 12px 30px rgba(15, 76, 129, 0.25);
+}
+
+.kseb-dash-hero-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kseb-dash-title {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.kseb-dash-sub {
+  margin: 6px 0 0;
+  color: #dbeafe;
+  font-size: 15px;
+}
+
+.kseb-dash-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  color: #64748b;
+  border-radius: 14px;
+  padding: 10px 14px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.kseb-dash-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 15px;
+  width: 100%;
+}
+
+/* ================= SECTIONS ================= */
+
+.kseb-dash-section {
+  margin-top: 28px;
+}
+
+.kseb-dash-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #475569;
+  margin: 0 0 12px 4px;
+}
+
+.kseb-dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+/* ================= CARD ================= */
+
+.kseb-card {
+  --accent: #2563eb;
+  --accent-bg: #dbeafe;
+
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border-radius: 18px;
+  padding: 16px 18px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.kseb-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+}
+
+.kseb-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kseb-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.kseb-card-label {
+  font-weight: 700;
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.kseb-card-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.kseb-card-arrow {
+  color: #cbd5e1;
+  flex-shrink: 0;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.kseb-card:hover .kseb-card-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+/* ================= ACCENT COLORS ================= */
+
+.kseb-blue   { --accent: #2563eb; --accent-bg: #dbeafe; }
+.kseb-green  { --accent: #16a34a; --accent-bg: #dcfce7; }
+.kseb-orange { --accent: #ea580c; --accent-bg: #ffedd5; }
+.kseb-purple { --accent: #7c3aed; --accent-bg: #ede9fe; }
+.kseb-teal   { --accent: #0d9488; --accent-bg: #ccfbf1; }
+.kseb-indigo { --accent: #4f46e5; --accent-bg: #e0e7ff; }
+.kseb-red    { --accent: #dc2626; --accent-bg: #fee2e2; }
+
+/* ================= LOADING / EMPTY ================= */
+
+.kseb-card-skeleton {
+  height: 82px;
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: kseb-shimmer 1.2s infinite;
+  border: none;
+}
+
+@keyframes kseb-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.kseb-dash-empty {
+  margin-top: 28px;
+  background: #fff;
+  border-radius: 20px;
+  padding: 40px 24px;
+  text-align: center;
+  color: #475569;
+}
+
+.kseb-dash-empty h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 8px;
+}
+
+/* ================= MOBILE ================= */
+
+@media (max-width: 640px) {
+  .kseb-dash-hero {
+    padding: 20px;
+    border-radius: 20px;
+  }
+
+  .kseb-dash-title {
+    font-size: 22px;
+  }
+
+  .kseb-dash-search {
+    max-width: none;
+  }
+
+  .kseb-dash-grid {
+    grid-template-columns: 1fr;
+  }
+}
